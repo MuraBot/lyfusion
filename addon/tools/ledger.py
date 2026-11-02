@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""派工台账:自动记录每次运行,从信箱算出各模型的表现,给出自主级别建议。试点版。
+"""派工台账:记录每次运行、模块审查、试玩 bug 和 lead 的 token,算出各模型的表现,给出自主级别建议。试点版。
 
 台账在项目根目录的 ledger.jsonl,一行一条,只增不改。只使用 Python 标准库。
-- 每次运行由派工脚本自动记一行(record)。lead 不打分。
-- 指标从信箱(mail/)和已收尾任务存进台账的信箱事件算出:第 1 轮审查通过率、返工轮数、答案已在简报里的提问、试玩 bug、异议采纳率。
-- 只有程序看不出的事,由 lead 用 flag 记一条:越界、谎报、改了测试、环境、接手。
+- 助手、审查者的每次运行由派工脚本自动记一行(record)。
+- lead 记 4 种程序看不到的事:模块审查结论(review)、试玩 bug(bug)、自己的 token(lead)、
+  越界或接手这类情况(flag)。
 
 用法:
     python tools/ledger.py show [--by model|agent|kind]    汇总
     python tools/ledger.py level                           按台账建议每个"模型 · 模块"的自主级别
-    python tools/ledger.py flag --task T5 --flag 接手 --signal 超预估 --note "阶段 2 用了 3 倍 token"
+    python tools/ledger.py review --task T5 --result pass --findings 0    同时运行 progress.py set-review
+    python tools/ledger.py bug --task T5 [--count 2] --note "敲不动"
+    python tools/ledger.py lead --milestone M3 --session 会话编号 --tokens-in 1200 --tokens-cached 950000 --tokens-out 300
+    python tools/ledger.py flag --task T5 --flag 接手 --signal 超预估 --note "用了 3 倍 token"
     python tools/ledger.py record ...                      派工脚本调用,一般不用手动运行
 """
 import argparse
 import datetime
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -26,22 +30,36 @@ except Exception:
     pass
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
-import mail  # noqa: E402
-
-ROOT = mail.main_root()
 ROLES = ["助手", "审查", "预检", "前端", "调研"]
 FLAGS = ["越界", "谎报", "改了测试", "环境", "接手"]
-SIGNALS = ["测试修2次", "超预估", "同类意见2次", "要改验收", "问已答问题"]
+SIGNALS = ["测试修2次", "超预估", "同类意见2次", "要改验收"]
 # 起始级别(Lily 2026-10-27):gpt-6.1-sol 从 L3 起步,其他模型从 L2 起步
 START_LEVELS = {"gpt-6.1-sol": 3}
 DEFAULT_LEVEL = 2
-UP_STREAK = 3  # 连续 3 个阶段第 1 轮审查通过,且没有试玩 bug,升 1 级
+# 升降级(Lily 2026-11-02):连续 2 个模块第 1 次审查就通过、试玩 bug 少于 2 个,升 1 级;接手信号超过 1 次,降 1 级
+UP_STREAK = 2
+MAX_BUGS = 1
+DOWN_SIGNALS = 2
 
 
 def fail(msg):
     print("错误:%s" % msg, file=sys.stderr)
     sys.exit(1)
+
+
+def main_root():
+    """主项目文件夹。在 git 工作目录里运行时,取主仓库,台账只有一份。"""
+    try:
+        out = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                             cwd=str(HERE), capture_output=True, text=True, timeout=10)
+        if out.returncode == 0 and out.stdout.strip():
+            return Path(out.stdout.strip()).parent
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return HERE.parent
+
+
+ROOT = main_root()
 
 
 def read_rows():
@@ -74,6 +92,33 @@ def cmd_record(a):
     print("台账:%s %s 第 %d 次运行 · %s · 输入 %d" % (row["task"], row["role"], row["run"], row["model"], row["tokensIn"]))
 
 
+def cmd_review(a):
+    # 先改进度:progress.py 拒绝时(例如 lead 记 pass 没写理由),台账也不记
+    cmd = [sys.executable, str(ROOT / "tools" / "progress.py"), "set-review", a.task, a.result]
+    if a.by:
+        cmd += ["--by", a.by]
+    if a.note:
+        cmd += ["--note", a.note]
+    r = subprocess.run(cmd, cwd=str(ROOT))
+    if r.returncode != 0:
+        sys.exit(r.returncode)
+    n = sum(1 for x in read_rows() if x.get("kind") == "review" and x["task"] == a.task) + 1
+    row = write_row({"kind": "review", "task": a.task, "result": a.result, "findings": a.findings,
+                     "by": a.by or "reviewer", "note": a.note or ""})
+    print("台账:%s 第 %d 次模块审查 %s,发现 %d 条" % (row["task"], n, row["result"], row["findings"]))
+
+
+def cmd_bug(a):
+    row = write_row({"kind": "bug", "task": a.task, "count": a.count, "note": a.note or ""})
+    print("台账:%s 记了 %d 个试玩 bug" % (row["task"], row["count"]))
+
+
+def cmd_lead(a):
+    row = write_row({"kind": "lead", "milestone": a.milestone, "session": a.session, "tokensIn": a.tokens_in,
+                     "tokensCached": a.tokens_cached, "tokensOut": a.tokens_out, "calls": a.calls, "note": a.note or ""})
+    print("台账:lead %s 会话 %s 的用量读数 · 缓存读取 %d" % (row["milestone"], row["session"], row["tokensCached"]))
+
+
 def cmd_flag(a):
     if a.flag == "接手" and not a.signal:
         fail("记「接手」要写 --signal:%s" % "、".join(SIGNALS))
@@ -90,35 +135,31 @@ def owners(rows):
     return out
 
 
-def events(task):
-    """一个任务的信箱事件:已收尾的部分在台账里(kind=box),加上信箱里现有的。"""
-    saved = [e for r in read_rows() if r.get("kind") == "box" and r["task"] == task for e in r["events"]]
-    try:
-        return saved + mail.read_box(task)
-    except mail.Fail as e:
-        fail(str(e))
-
-
 def task_metrics(task, rows):
-    box = events(task)
-    first = {}
-    rework = 0
-    for r in box:
-        if r["type"] == "review":
-            first.setdefault(int(r["phase"]), r["result"])
-            rework += r["result"] != "ok"
-    ids = {r["id"]: r for r in box}
-    replies = [r for r in box if r["type"] == "reply"]
-    objections = [r for r in box if r["type"] == "objection"]
-    accepted = sum(1 for r in replies if ids.get(r["to"], {}).get("type") == "objection" and r.get("verdict") == "接受")
-    flags = [r for r in rows if r.get("kind") == "flag" and r["task"] == task]
-    return {"phases": len(first), "firstOk": sum(1 for v in first.values() if v == "ok"), "rework": rework,
-            "inBrief": sum(1 for r in replies if r.get("in_brief")),
-            "bugs": sum(1 for r in box if r["type"] == "bug"),
-            "objections": len(objections), "accepted": accepted,
-            "lead": sum(1 for r in box if r["type"] in ("reply", "guide", "stop")),
-            "env": sum(1 for f in flags if f["flag"] == "环境"),
-            "takeover": sum(1 for f in flags if f["flag"] == "接手")}
+    reviews = [r for r in rows if r.get("kind") == "review" and r["task"] == task]
+    runs = [r for r in rows if r.get("kind") == "run" and r["task"] == task]
+    return {"reviewed": 1 if reviews else 0, "firstOk": 1 if reviews and reviews[0]["result"] == "pass" else 0,
+            "rounds": len(reviews), "findings": sum(r.get("findings", 0) for r in reviews),
+            "bugs": sum(r.get("count", 1) for r in rows if r.get("kind") == "bug" and r["task"] == task),
+            "tokensIn": sum(r["tokensIn"] for r in runs), "tokensCached": sum(r.get("tokensCached", 0) for r in runs),
+            "takeover": sum(1 for r in rows if r.get("kind") == "flag" and r["task"] == task and r["flag"] == "接手"),
+            "firstReview": reviews[0]["time"] if reviews else ""}
+
+
+def lead_usage(rows):
+    """里程碑 → lead 的用量。同一个会话记了多次读数时取最后减最初;只有 1 次时,按新会话从 0 算。"""
+    by = {}
+    for r in rows:
+        if r.get("kind") == "lead":
+            by.setdefault((r["milestone"], r["session"]), []).append(r)
+    out = {}
+    for (ms, _), rs in by.items():
+        keys = ("tokensIn", "tokensCached", "tokensOut", "calls")
+        d = {k: rs[-1][k] - (rs[0][k] if len(rs) > 1 else 0) for k in keys}
+        tot = out.setdefault(ms, dict.fromkeys(keys, 0))
+        for k in keys:
+            tot[k] += d[k]
+    return out
 
 
 def cmd_show(a):
@@ -127,34 +168,39 @@ def cmd_show(a):
     v1 = [r for r in rows if "kind" not in r or "score" in r]
     if v1:
         print("台账里有 %d 行旧版记录(人工评分格式),不计入下面的指标。" % len(v1))
-    if not runs:
-        print("还没有新版的运行记录。派工脚本每次运行后会自动记一行。")
-        return
     own = owners(rows)
-    keyf = {"model": lambda o: "%s · %s" % (o[0], o[1]), "agent": lambda o: o[2], "kind": lambda o: o[1]}[a.by]
-    groups = {}
-    for task, o in own.items():
-        groups.setdefault(keyf(o), []).append(task)
-    print("%-30s %4s %8s %6s %6s %6s %8s %12s %8s" % ("分组", "任务", "一次通过", "返工", "已答", "bug", "异议采纳", "平均输入/任务",
-                                                    "lead 消息"))
-    for k in sorted(groups):
-        ms = [task_metrics(t, rows) for t in groups[k]]
-        s = {x: sum(m[x] for m in ms) for x in ms[0]}
-        tin = sum(r["tokensIn"] for r in runs if r["task"] in groups[k]) / len(groups[k])
-        print("%-30s %4d %8s %6d %6d %6d %8s %12d %8d" % (
-            k, len(groups[k]), "%d/%d" % (s["firstOk"], s["phases"]) if s["phases"] else "-", s["rework"],
-            s["inBrief"], s["bugs"], "%d/%d" % (s["accepted"], s["objections"]) if s["objections"] else "-", tin, s["lead"]))
+    if own:
+        keyf = {"model": lambda o: "%s · %s" % (o[0], o[1]), "agent": lambda o: o[2], "kind": lambda o: o[1]}[a.by]
+        groups = {}
+        for task, o in own.items():
+            groups.setdefault(keyf(o), []).append(task)
+        print("%-30s %4s %8s %6s %6s %6s %12s %12s %6s" % ("分组", "任务", "一次通过", "审查轮", "发现", "bug",
+                                                       "平均输入/任务", "平均缓存/任务", "接手"))
+        for k in sorted(groups):
+            ms = [task_metrics(t, rows) for t in groups[k]]
+            s = {x: sum(m[x] for m in ms) for x in ms[0] if x != "firstReview"}
+            n = len(groups[k])
+            print("%-30s %4d %8s %6d %6d %6d %12d %12d %6d" % (
+                k, n, "%d/%d" % (s["firstOk"], s["reviewed"]) if s["reviewed"] else "-", s["rounds"], s["findings"],
+                s["bugs"], s["tokensIn"] / n, s["tokensCached"] / n, s["takeover"]))
+    else:
+        print("还没有助手的运行记录。派工脚本每次运行后会自动记一行。")
     other = [r for r in runs if r["role"] not in ("助手", "前端")]
     if other:
         print("审查、预检等运行 %d 次,输入共 %d" % (len(other), sum(r["tokensIn"] for r in other)))
-    print("一次通过=阶段第 1 次审查就是 ok;已答=答案已在简报里的提问;lead 消息=lead 发的回复、指引和停。样本少于 5 个阶段的分组,先不要下结论。")
+    lead = lead_usage(rows)
+    for ms in sorted(lead):
+        u = lead[ms]
+        print("lead · %s:输入 %d,缓存读取 %d,输出 %d,调用 %d 次" % (ms, u["tokensIn"], u["tokensCached"], u["tokensOut"],
+                                                             u["calls"]))
+    print("一次通过=模块第 1 次审查就是 pass;发现=审查意见条数。成本 ≈ 上下文 × 调用次数,看缓存读取。"
+          "样本少于 5 个模块的分组,先不要下结论。")
 
 
 def cmd_level(a):
     rows = read_rows()
-    own = owners(rows)
     groups = {}
-    for task, o in own.items():
+    for task, o in owners(rows).items():
         groups.setdefault((o[0], o[1]), []).append(task)
     if not groups:
         print("台账还没有助手的运行记录。起始级别:gpt-6.1-sol 是 L3,其他模型是 L2。")
@@ -163,26 +209,33 @@ def cmd_level(a):
         level = START_LEVELS.get(model, DEFAULT_LEVEL)
         timeline = []
         for t in tasks:
-            seen = set()
-            for r in events(t):
-                if r["type"] == "review" and int(r["phase"]) not in seen:
-                    seen.add(int(r["phase"]))
-                    timeline.append((r["time"], "ok" if r["result"] == "ok" else "no"))
-                elif r["type"] == "bug":
-                    timeline.append((r["time"], "bug"))
+            m = task_metrics(t, rows)
+            if m["firstReview"]:
+                good = m["firstOk"] and m["bugs"] <= MAX_BUGS
+                timeline.append((m["firstReview"], "good" if good else "bad"))
             timeline += [(f["time"], "down") for f in rows if f.get("kind") == "flag" and f["task"] == t and f["flag"] == "接手"]
-        streak = 0
+        streak = downs = 0
         for _, ev in sorted(timeline, key=lambda x: x[0]):  # 同一秒的事件保持记录顺序
-            if ev == "ok":
+            if ev == "good":
                 streak += 1
                 if streak >= UP_STREAK:
-                    level, streak = min(3, level + 1), 0
+                    level, streak, downs = min(3, level + 1), 0, 0
             elif ev == "down":
-                level, streak = max(1, level - 1), 0
+                downs += 1
+                if downs >= DOWN_SIGNALS:
+                    level, streak, downs = max(1, level - 1), 0, 0
             else:
                 streak = 0
-        print("%s · %s:建议 L%d(连续通过 %d/%d)" % (model, module, level, streak, UP_STREAK))
-    print("规则:连续 3 个阶段第 1 轮审查通过且没有试玩 bug,升 1 级;出现 1 次接手信号,降 1 级。")
+        print("%s · %s:建议 L%d(连续通过 %d/%d,接手信号 %d/%d)" % (model, module, level, streak, UP_STREAK,
+                                                              downs, DOWN_SIGNALS))
+    print("规则:连续 %d 个模块第 1 次审查就通过、试玩 bug 少于 %d 个,升 1 级;接手信号累计 %d 次,降 1 级。"
+          % (UP_STREAK, MAX_BUGS + 1, DOWN_SIGNALS))
+
+
+def tokens(p):
+    p.add_argument("--tokens-in", type=int, default=0)
+    p.add_argument("--tokens-cached", type=int, default=0)
+    p.add_argument("--tokens-out", type=int, default=0)
 
 
 def main():
@@ -199,11 +252,28 @@ def main():
     p.add_argument("--module")
     p.add_argument("--level")
     p.add_argument("--run", type=int, default=1, help="这个任务的第几次运行(含自动续跑)")
-    p.add_argument("--tokens-in", type=int, default=0)
-    p.add_argument("--tokens-cached", type=int, default=0)
-    p.add_argument("--tokens-out", type=int, default=0)
+    tokens(p)
     p.add_argument("--note")
     p.set_defaults(fn=cmd_record)
+    p = sub.add_parser("review", help="记模块审查结论,同时运行 progress.py set-review")
+    p.add_argument("--task", required=True)
+    p.add_argument("--result", required=True, choices=["pass", "changes"])
+    p.add_argument("--findings", type=int, required=True, help="审查意见条数,不算「建议」")
+    p.add_argument("--by", choices=["reviewer", "lead"])
+    p.add_argument("--note")
+    p.set_defaults(fn=cmd_review)
+    p = sub.add_parser("bug", help="记试玩发现的 bug")
+    p.add_argument("--task", required=True)
+    p.add_argument("--count", type=int, default=1)
+    p.add_argument("--note")
+    p.set_defaults(fn=cmd_bug)
+    p = sub.add_parser("lead", help="记 lead 会话的用量读数(从 Claude 应用的用量工具读)")
+    p.add_argument("--milestone", required=True)
+    p.add_argument("--session", required=True)
+    tokens(p)
+    p.add_argument("--calls", type=int, default=0, help="调用次数,应用显示了就填")
+    p.add_argument("--note")
+    p.set_defaults(fn=cmd_lead)
     p = sub.add_parser("flag", help="lead 记程序看不出的事")
     p.add_argument("--task", required=True)
     p.add_argument("--flag", required=True, choices=FLAGS)
