@@ -4,8 +4,8 @@
 
 台账在项目根目录的 ledger.jsonl,一行一条,只增不改。只使用 Python 标准库。
 - 助手、审查者的每次运行由派工脚本自动记一行(record)。
-- lead 记 4 种程序看不到的事:模块审查结论(review)、试玩 bug(bug)、自己的 token(lead)、
-  越界或接手这类情况(flag)。
+- lead 记程序看不到的事:模块审查结论(review)、试玩 bug(bug)、自己的 token(lead)、
+  Lily 的打分(score)、越界或接手这类情况(flag)。
 
 用法:
     python tools/ledger.py show [--by model|agent|kind]    汇总
@@ -14,6 +14,7 @@
     python tools/ledger.py bug --task T5 [--count 2] --note "敲不动"
     python tools/ledger.py lead --milestone M3 --session 会话编号 --tokens-in 1200 --tokens-cached 950000 --tokens-out 300
     python tools/ledger.py flag --task T5 --flag 接手 --signal 超预估 --note "用了 3 倍 token"
+    python tools/ledger.py score --task T5 --delivery 4 --work 3    Lily 的打分。花费和分数用 viewer/pareto-viewer.html 看
     python tools/ledger.py record ...                      派工脚本调用,一般不用手动运行
 """
 import argparse
@@ -85,10 +86,17 @@ def write_row(row):
 
 
 def cmd_record(a):
-    row = write_row({"kind": "run", "task": a.task, "role": a.role, "agent": a.agent, "model": a.model,
-                     "effort": a.effort or "default", "session": a.session or "", "module": a.module or "",
-                     "level": a.level or "", "run": a.run, "tokensIn": a.tokens_in,
-                     "tokensCached": a.tokens_cached, "tokensOut": a.tokens_out, "note": a.note or ""})
+    # Codex 续用会话时报的是整个会话的累计用量(CraftTax 对比实验 2026-11-02 发现)。记与上次的差值,累计值另存
+    cum = {"tokensIn": a.tokens_in, "tokensCached": a.tokens_cached, "tokensOut": a.tokens_out}
+    prev = [r for r in read_rows() if r.get("kind") == "run" and a.session and r.get("session") == a.session]
+    last = prev[-1].get("cum") if prev else None
+    if last and all(cum[k] >= last[k] for k in cum):
+        delta = {k: cum[k] - last[k] for k in cum}
+    else:
+        delta = cum
+    row = write_row(dict({"kind": "run", "task": a.task, "role": a.role, "agent": a.agent, "model": a.model,
+                          "effort": a.effort or "default", "session": a.session or "", "module": a.module or "",
+                          "level": a.level or "", "run": a.run}, **delta, cum=cum, note=a.note or ""))
     print("台账:%s %s 第 %d 次运行 · %s · 输入 %d" % (row["task"], row["role"], row["run"], row["model"], row["tokensIn"]))
 
 
@@ -115,8 +123,15 @@ def cmd_bug(a):
 
 def cmd_lead(a):
     row = write_row({"kind": "lead", "milestone": a.milestone, "session": a.session, "tokensIn": a.tokens_in,
-                     "tokensCached": a.tokens_cached, "tokensOut": a.tokens_out, "calls": a.calls, "note": a.note or ""})
+                     "tokensCached": a.tokens_cached, "tokensOut": a.tokens_out, "calls": a.calls,
+                     "context": a.context, "costUsd": a.cost_usd, "note": a.note or ""})
     print("台账:lead %s 会话 %s 的用量读数 · 缓存读取 %d" % (row["milestone"], row["session"], row["tokensCached"]))
+
+
+def cmd_score(a):
+    row = write_row({"kind": "score", "task": a.task, "label": a.label or "", "delivery": a.delivery, "work": a.work,
+                     "note": a.note or ""})
+    print("台账:%s 交付分 %d,作品分 %d" % (row["task"], row["delivery"], row["work"]))
 
 
 def cmd_flag(a):
@@ -272,8 +287,17 @@ def main():
     p.add_argument("--session", required=True)
     tokens(p)
     p.add_argument("--calls", type=int, default=0, help="调用次数,应用显示了就填")
+    p.add_argument("--context", type=int, default=0, help="上下文大小。用量工具只给这个时,token 三项留空")
+    p.add_argument("--cost-usd", type=float, help="拿不到 token 拆分时的估算花费,在 --note 写估算方法")
     p.add_argument("--note")
     p.set_defaults(fn=cmd_lead)
+    p = sub.add_parser("score", help="记 Lily 的打分(1~5),帕累托查看器的纵轴")
+    p.add_argument("--task", required=True)
+    p.add_argument("--delivery", type=int, required=True, choices=range(1, 6), help="交付分:做对了没有")
+    p.add_argument("--work", type=int, required=True, choices=range(1, 6), help="作品分:对照体验目标,好不好")
+    p.add_argument("--label", help="这一组的名字,例如「lead + gpt-6.1-sol」")
+    p.add_argument("--note")
+    p.set_defaults(fn=cmd_score)
     p = sub.add_parser("flag", help="lead 记程序看不出的事")
     p.add_argument("--task", required=True)
     p.add_argument("--flag", required=True, choices=FLAGS)

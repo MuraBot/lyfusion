@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>花费与效果</title>
+<style>
+:root{--bg:#faf8f4;--card:#fff;--ink:#1f2328;--mute:#6b6f76;--line:#e4e0d8;--accent:#c2410c;--front:#b45309;--grid:#eee9e0;--hollow:#fff}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17161a;--card:#211f24;--ink:#ece9e4;--mute:#a19ca3;--line:#36323a;--accent:#fb923c;--front:#fbbf24;--grid:#2c2930;--hollow:#211f24}}
+:root[data-theme="dark"]{--bg:#17161a;--card:#211f24;--ink:#ece9e4;--mute:#a19ca3;--line:#36323a;--accent:#fb923c;--front:#fbbf24;--grid:#2c2930;--hollow:#211f24}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+main{max-width:980px;margin:0 auto;padding:24px 16px 48px}
+h1{font-size:22px;margin:0 0 4px}
+p.sub{margin:0 0 18px;color:var(--mute)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+button,select,input{font:inherit;color:inherit}
+.btn{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+label.btn input{display:none}
+select{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:5px 8px}
+.drop{border:2px dashed var(--line);border-radius:12px;padding:18px;text-align:center;color:var(--mute)}
+.drop.on{border-color:var(--accent);color:var(--accent)}
+svg{width:100%;height:auto;display:block}
+.axis{fill:var(--mute);font-size:12px}
+.gridl{stroke:var(--grid)}
+.front{stroke:var(--front);stroke-width:2;fill:none;stroke-dasharray:6 4}
+.pt{stroke:var(--accent);stroke-width:2.5}
+.pt.unk{fill:var(--hollow)}
+.lbl{fill:var(--ink);font-size:12px}
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th,.tbl td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:right;white-space:nowrap}
+.tbl th:first-child,.tbl td:first-child{text-align:left}
+.scroll{overflow-x:auto}
+.tag{display:inline-block;font-size:11px;padding:0 6px;border-radius:999px;border:1px solid var(--front);color:var(--front)}
+.note{color:var(--mute);font-size:13px}
+.price input{width:76px;border:1px solid var(--line);border-radius:6px;padding:2px 6px;background:var(--card)}
+details summary{cursor:pointer;font-weight:600}
+</style>
+</head>
+<body>
+<main>
+<h1>花费与效果(帕累托)</h1>
+<p class="sub">横轴是按 API 价格算的美元花费,纵轴是 Lily 的打分。虚线连起来的点,是"没有别的组更便宜、分又更高"的组。</p>
+
+<div class="card">
+  <div class="drop" id="drop">
+    <div class="row" style="justify-content:center">
+      <label class="btn primary">选择实验文件夹<input type="file" id="dir" webkitdirectory multiple></label>
+      <label class="btn">选择 ledger.jsonl 文件<input type="file" id="files" accept=".jsonl" multiple></label>
+    </div>
+    <div style="margin-top:8px">也可以把 ledger.jsonl 拖进来。选文件夹时,每个子文件夹的台账算一组,组名用文件夹名。</div>
+  </div>
+</div>
+
+<div class="card" id="chartCard" hidden>
+  <div class="row" style="margin-bottom:8px">
+    <span>纵轴</span>
+    <select id="yKey"><option value="work">作品分</option><option value="delivery">交付分</option><option value="avg">两分平均</option></select>
+    <span>横轴</span>
+    <select id="xScale"><option value="log">对数</option><option value="lin">线性</option></select>
+  </div>
+  <svg id="chart" viewBox="0 0 900 420" role="img" aria-label="花费与分数散点图"></svg>
+  <p class="note">空心点:lead 的花费不知道,只算了 Codex。没打分的组画在最下面一行。</p>
+</div>
+
+<div class="card" id="tableCard" hidden>
+  <div class="scroll"><table class="tbl" id="tbl"></table></div>
+  <p class="note" id="warn"></p>
+</div>
+
+<div class="card">
+  <details>
+    <summary>价格表(美元 / 百万 token,可以改)</summary>
+    <div class="scroll"><table class="tbl price" id="prices"></table></div>
+    <p class="note">默认值来自第三方价格汇总(2026-11-02 查),官方价格页没查到,用前核对。改动只存在这台电脑的浏览器里。
+      "lead" 一行是 lead 的模型(Opus 5.5)。</p>
+    <button class="btn" id="resetPrices">恢复默认价格</button>
+  </details>
+</div>
+
+<div class="card note">
+  <b>怎么算的</b><br>
+  · Codex:按每次运行的模型价格算。未命中的输入 = 输入 − 缓存;缓存按缓存价,输出按输出价。<br>
+  · 续用会话时 Codex 报的是累计用量。新台账已记差值;旧台账里同一会话的读数一路上涨的,这里换算成差值。<br>
+  · lead:有 <code>costUsd</code>(估算)就用它;有输入、缓存、输出三项就按 lead 的价格算;只有上下文大小时算"不知道"。<br>
+  · 分数:台账里 <code>score</code> 行的最后一条。记分:<code>python tools/ledger.py score --task T1 --delivery 4 --work 3</code>。
+</div>
+</main>
+
+<script>
+(function(){
+var DEFAULT_PRICES = {
+  "lead": [4, 0.20, 20],
+  "gpt-6.1-sol": [2, 0.10, 10],
+  "gpt-6-luna": [0.10, 0.01, 0.50]
+};
+var KEY = "lyfusion-pareto-prices";
+var prices = load();
+var groups = [];
+
+function load(){
+  try { var v = JSON.parse(localStorage.getItem(KEY)); if (v && typeof v === "object") return v; } catch (e) {}
+  return JSON.parse(JSON.stringify(DEFAULT_PRICES));
+}
+function save(){ try { localStorage.setItem(KEY, JSON.stringify(prices)); } catch (e) {} }
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
+function usd(v){ return v == null ? "?" : "$" + (v < 1 ? v.toFixed(3) : v.toFixed(2)); }
+function num(v){ return v == null ? "-" : Math.round(v).toLocaleString(); }
+
+function parse(text){
+  return text.split(/\r?\n/).filter(function(l){ return l.trim(); }).map(function(l){
+    try { return JSON.parse(l.replace(/^﻿/, "")); } catch (e) { return null; }
+  }).filter(Boolean);
+}
+
+function cost(model, t){
+  var p = prices[model];
+  if (!p || p.some(function(x){ return x === "" || x == null || isNaN(x); })) return null;
+  var unc = Math.max(0, t.in - t.cached);
+  return (unc * p[0] + t.cached * p[1] + t.out * p[2]) / 1e6;
+}
+
+function analyse(name, rows){
+  var last = {}, codex = 0, codexKnown = true, tok = {in:0, cached:0, out:0}, models = {};
+  rows.filter(function(r){ return r.kind === "run"; }).forEach(function(r){
+    var v = {in: r.tokensIn || 0, cached: r.tokensCached || 0, out: r.tokensOut || 0}, d = v;
+    var s = r.session || (r.task + "|" + r.role + "|" + r.note);
+    if (r.cum) { last[s] = {in: r.cum.tokensIn, cached: r.cum.tokensCached, out: r.cum.tokensOut}; }
+    else {
+      var L = last[s];
+      if (L && v.in >= L.in && v.cached >= L.cached && v.out >= L.out) d = {in: v.in - L.in, cached: v.cached - L.cached, out: v.out - L.out};
+      last[s] = v;
+    }
+    models[r.model] = 1;
+    if (!(r.model in prices)) { prices[r.model] = ["", "", ""]; }
+    var c = cost(r.model, d);
+    if (c == null) codexKnown = false; else codex += c;
+    tok.in += d.in; tok.cached += d.cached; tok.out += d.out;
+  });
+  var leadGroups = {};
+  rows.filter(function(r){ return r.kind === "lead"; }).forEach(function(r){
+    (leadGroups[r.milestone + "|" + r.session] = leadGroups[r.milestone + "|" + r.session] || []).push(r);
+  });
+  var lead = 0, leadKnown = true, leadEst = false, nLead = 0;
+  Object.keys(leadGroups).forEach(function(k){
+    var g = leadGroups[k]; nLead++;
+    var withCost = g.filter(function(r){ return r.costUsd != null; });
+    var withTok = g.filter(function(r){ return (r.tokensOut || 0) > 0; });
+    if (withCost.length) { lead += withCost[withCost.length - 1].costUsd; leadEst = true; }
+    else if (withTok.length) {
+      var a = withTok[0], b = withTok[withTok.length - 1], one = withTok.length === 1;
+      var c = cost("lead", {in: b.tokensIn - (one ? 0 : a.tokensIn), cached: b.tokensCached - (one ? 0 : a.tokensCached), out: b.tokensOut - (one ? 0 : a.tokensOut)});
+      if (c == null) leadKnown = false; else lead += c;
+    } else leadKnown = false;
+  });
+  if (!nLead) leadKnown = false;
+  var scores = rows.filter(function(r){ return r.kind === "score"; });
+  var sc = scores.length ? scores[scores.length - 1] : null;
+  return {name: (sc && sc.label) || name, folder: name, codex: codexKnown ? codex : null, lead: leadKnown ? lead : null,
+          leadEst: leadEst, tok: tok, models: Object.keys(models), score: sc};
+}
+
+function readFiles(list){
+  var files = Array.prototype.filter.call(list, function(f){
+    var p = f.webkitRelativePath || f.name;
+    return /(^|\/)ledger\.jsonl$/.test(p) && !/\/\.git\//.test(p);
+  });
+  if (!files.length) { alert("没有找到 ledger.jsonl"); return; }
+  Promise.all(files.map(function(f){ return f.text().then(function(t){ return [f, t]; }); })).then(function(all){
+    groups = [];
+    all.forEach(function(x, i){
+      var rows = parse(x[1]);
+      if (!rows.length) return;
+      var parts = (x[0].webkitRelativePath || "").split("/");
+      var name = parts.length >= 2 ? parts[parts.length - 2] : (all.length > 1 ? "文件 " + (i + 1) : x[0].name);
+      groups.push(analyse(name, rows));
+    });
+    save(); renderPrices(); render();
+  });
+}
+
+function yOf(g){
+  if (!g.score) return null;
+  var k = $("yKey").value;
+  return k === "avg" ? (g.score.delivery + g.score.work) / 2 : g.score[k];
+}
+function total(g){ return g.codex == null && g.lead == null ? null : (g.codex || 0) + (g.lead || 0); }
+
+function frontier(pts){
+  var s = pts.filter(function(p){ return p.y != null && p.x != null; }).sort(function(a, b){ return a.x - b.x || b.y - a.y; });
+  var best = -Infinity, out = [];
+  s.forEach(function(p){ if (p.y > best) { out.push(p); best = p.y; } });
+  return out;
+}
+
+function render(){
+  $("chartCard").hidden = $("tableCard").hidden = !groups.length;
+  if (!groups.length) return;
+  var pts = groups.map(function(g){ return {g: g, x: total(g), y: yOf(g)}; });
+  var front = frontier(pts);
+  var W = 900, H = 420, L = 64, R = 24, T = 20, B = 52;
+  var xs = pts.map(function(p){ return p.x; }).filter(function(v){ return v != null && v > 0; });
+  var log = $("xScale").value === "log";
+  var xmin = xs.length ? Math.min.apply(null, xs) : 0.01, xmax = xs.length ? Math.max.apply(null, xs) : 1;
+  if (log) { xmin = Math.pow(10, Math.floor(Math.log10(xmin))); xmax = Math.pow(10, Math.ceil(Math.log10(xmax))); if (xmin === xmax) xmax *= 10; }
+  else { xmin = 0; xmax = xmax * 1.15 || 1; }
+  function X(v){ if (v == null || v <= 0 && log) return L; return log ? L + (Math.log10(v) - Math.log10(xmin)) / (Math.log10(xmax) - Math.log10(xmin)) * (W - L - R) : L + (v - xmin) / (xmax - xmin) * (W - L - R); }
+  function Y(v){ return v == null ? H - B + 4 : T + (5 - v) / 5 * (H - T - B - 18); }
+  var s = "";
+  for (var y = 0; y <= 5; y++) s += '<line class="gridl" x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(y) + '" y2="' + Y(y) + '"/><text class="axis" x="' + (L - 8) + '" y="' + (Y(y) + 4) + '" text-anchor="end">' + y + '</text>';
+  var ticks = [];
+  if (log) for (var e = Math.log10(xmin); e <= Math.log10(xmax) + 1e-9; e++) ticks.push(Math.pow(10, e));
+  else for (var i = 0; i <= 5; i++) ticks.push(xmin + (xmax - xmin) * i / 5);
+  ticks.forEach(function(t){ s += '<line class="gridl" x1="' + X(t) + '" x2="' + X(t) + '" y1="' + T + '" y2="' + (H - B) + '"/><text class="axis" x="' + X(t) + '" y="' + (H - B + 34) + '" text-anchor="middle">' + usd(t) + '</text>'; });
+  s += '<text class="axis" x="' + (L - 8) + '" y="' + (H - B + 8) + '" text-anchor="end">未打分</text>';
+  s += '<text class="axis" x="' + ((W + L) / 2) + '" y="' + (H - 4) + '" text-anchor="middle">花费(美元,' + (log ? "对数刻度" : "线性刻度") + ')</text>';
+  if (front.length > 1) s += '<polyline class="front" points="' + front.map(function(p){ return X(p.x) + "," + Y(p.y); }).join(" ") + '"/>';
+  pts.forEach(function(p){
+    var unk = p.g.lead == null || p.g.codex == null;
+    s += '<circle class="pt' + (unk ? " unk" : "") + '" cx="' + X(p.x) + '" cy="' + Y(p.y) + '" r="7" fill="var(--accent)"><title>' + esc(p.g.name) + ":" + usd(p.x) + "</title></circle>";
+    s += '<text class="lbl" x="' + (X(p.x) + 11) + '" y="' + (Y(p.y) - 9) + '">' + esc(p.g.name) + '</text>';
+  });
+  $("chart").innerHTML = s;
+
+  var h = "<tr><th>组</th><th>模型</th><th>Codex 花费</th><th>lead 花费</th><th>合计</th><th>交付分</th><th>作品分</th><th>Codex 输入</th><th>其中缓存</th><th>输出</th><th></th></tr>";
+  pts.slice().sort(function(a, b){ return (a.x == null) - (b.x == null) || a.x - b.x; }).forEach(function(p){
+    var g = p.g;
+    h += "<tr><td>" + esc(g.name) + (g.name !== g.folder ? ' <span class="note">' + esc(g.folder) + "</span>" : "") + "</td><td>" + esc(g.models.join("、") || "-") + "</td><td>" +
+      (g.models.length ? usd(g.codex) : "$0") + "</td><td>" + usd(g.lead) + (g.leadEst ? " 估" : "") + "</td><td>" + usd(p.x) + "</td><td>" +
+      (g.score ? g.score.delivery : "-") + "</td><td>" + (g.score ? g.score.work : "-") + "</td><td>" + num(g.tok.in) + "</td><td>" + num(g.tok.cached) + "</td><td>" + num(g.tok.out) + "</td><td>" +
+      (front.indexOf(p) >= 0 ? '<span class="tag">前沿</span>' : "") + "</td></tr>";
+  });
+  $("tbl").innerHTML = h;
+  var miss = groups.filter(function(g){ return !g.score; }).map(function(g){ return g.name; });
+  $("warn").textContent = (miss.length ? "还没打分:" + miss.join("、") + "。" : "") + "lead 花费后面的“估”表示估算值,估算方法见各台账 lead 行的 note。";
+}
+
+function renderPrices(){
+  var h = "<tr><th>模型</th><th>输入</th><th>缓存命中</th><th>输出</th></tr>";
+  Object.keys(prices).forEach(function(m){
+    h += "<tr><td>" + esc(m) + "</td>" + [0, 1, 2].map(function(i){ return '<td><input data-m="' + esc(m) + '" data-i="' + i + '" value="' + prices[m][i] + '" inputmode="decimal"></td>'; }).join("") + "</tr>";
+  });
+  $("prices").innerHTML = h;
+}
+$("prices").addEventListener("change", function(e){
+  var t = e.target; if (!t.dataset.m) return;
+  prices[t.dataset.m][+t.dataset.i] = t.value === "" ? "" : parseFloat(t.value);
+  save(); reanalyse();
+});
+var raw = null;
+function reanalyse(){ if (raw) readFiles(raw); }
+$("resetPrices").onclick = function(){ prices = JSON.parse(JSON.stringify(DEFAULT_PRICES)); save(); renderPrices(); reanalyse(); };
+$("dir").onchange = function(){ raw = this.files; readFiles(raw); };
+$("files").onchange = function(){ raw = this.files; readFiles(raw); };
+$("yKey").onchange = render; $("xScale").onchange = render;
+var drop = $("drop");
+["dragenter", "dragover"].forEach(function(ev){ drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add("on"); }); });
+["dragleave", "drop"].forEach(function(ev){ drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.remove("on"); }); });
+drop.addEventListener("drop", function(e){ raw = e.dataTransfer.files; readFiles(raw); });
+renderPrices();
+})();
+</script>
+</body>
+</html>

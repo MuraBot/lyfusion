@@ -10,7 +10,7 @@
 | lead | Claude(Lily 开着的对话) | 拆分、定接口、写简报、审查模块、接手 |
 | 后端助手 | Codex 会话 | 后端代码和测试,自己验收 |
 | 前端助手 | Claude 子代理(用 SendMessage 续用) | 模型、渲染、界面、素材。只在"前端归属"判断需要时才开 |
-| 审查者 | 另一个 Codex 会话,只读 | 模块合并前的对抗审查 |
+| 审查者 | 另一个 Codex 会话,只读。默认不开 | 高风险模块合并前的对抗审查 |
 
 - 按模块和上下文拆分,不按角色拆分。lead 的算力花在开头定准接口和简报,以及结尾的审查。
 - 交换产物,不交换叙述:简报、接口存根、最终报告、diff 本身就是事实。阶段回报和状态消息只是它们的副本。
@@ -40,7 +40,7 @@
 |---|---|
 | L1 指导型 | 步骤、涉及的文件、关键接口签名、已知的坑 |
 | L2 标准型 | 目标、接口、约束、成功标准、已知的坑。实现方式由助手定 |
-| L3 目标型 | 目标、成功标准、停止条件。助手自己设计、自己拆分 |
+| L3 目标型 | 目标、成功标准、停止条件。阶段可以只写 1 个,不写实现建议。助手自己设计、自己拆分 |
 
 起始级别(Lily 2026-10-27):gpt-6.1-sol 从 L3,其他新模型从 L2。升降规则(Lily 2026-11-02)在 `ledger.py level` 里,写简报前运行它。
 
@@ -62,10 +62,10 @@
 - 续用还是新开,看上下文:助手会话已经很大时,新开会话,交给它 diff、报告和回答。M2 实测:大会话续用 1 次比新开贵。
 
 ## 审查与修改
-1. `codex-dispatch.ps1 -Task T5 -Model 模型名 -Review [-Resume 审查者的会话编号]`,脚本先把 main 合并进任务分支。可选:同一份 diff 再交给 sonnet 子代理审一次,对照两边的发现。
-2. 记结论:`ledger.py review --task T5 --result pass 或 changes --findings 条数`,它同时改进度。
-3. 要改的,合成一次批量修改请求交给助手,修完再审。连续 2 次"审查通过、试玩却有 bug",换新的审查会话。
-4. 代码问题都修好、只剩人工验收时,lead 可以加 `--by lead --note "复审了哪些"` 记 pass。
+1. 默认由 lead 审查(Lily 2026-11-02):对照设计稿看截图,读最终报告和 `git diff --stat`,需要时再读具体文件。
+2. 高风险时(数据安全、并发、跨模块接口、存档格式),lead 再开 Codex 审查:`codex-dispatch.ps1 -Task T5 -Model 模型名 -Review`。脚本先把 main 合并进任务分支,每次新开会话。
+3. 记结论:`ledger.py review --task T5 --result pass 或 changes --findings 条数`,它同时改进度。lead 审查的加 `--by lead --note "看了哪些"`。
+4. 要改的合成一次批量修改请求交给助手。改几轮、什么时候停,由 lead 判断。
 
 ## 接手
 出现任意 1 条,lead 处理,并运行 `ledger.py flag --task T5 --flag 接手 --signal 信号`:
@@ -81,7 +81,7 @@
 ## 合并与收尾
 1. `codex-dispatch.ps1 -Task T5 -Merge`:检查审查结论和两边目录、把 main 合并进任务分支、跑测试存证据,通过才合并进 main 并改状态。要 Lily 试玩的加 `-Playtest`。
 2. 试玩 bug:`ledger.py bug --task T5 [--count 2]`。合并后:`-Cleanup` 先保存证据,再删工作目录和分支。
-3. 里程碑开始和结束时,用 Claude 应用的用量工具读 lead 会话的 token,运行 `ledger.py lead`。不让脚本读 Claude 的记录。
+3. 里程碑开始和结束时,用 Claude 应用的用量工具读 lead 会话的用量,运行 `ledger.py lead`。不让脚本读 Claude 的记录。Lily 的打分用 `ledger.py score` 记;花费和分数用 lyfusion 的 `viewer/pareto-viewer.html` 看。
 4. 里程碑结束:按 LiEC 的收尾做。lead 会话按里程碑换新的。
 
 ## 提交

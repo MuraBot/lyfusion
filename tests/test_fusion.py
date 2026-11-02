@@ -164,6 +164,14 @@ class FusionTest(unittest.TestCase):
         L("lead", "--milestone", "M3", "--session", "s2", "--tokens-in", "50", "--tokens-cached", "500", "--tokens-out", "5",
           "--calls", "3")
         self.assertIn("lead · M3:输入 250,缓存读取 4500,输出 25,调用 23 次", L("show").stdout)
+        # Codex 续用会话报的是累计用量:同一会话记差值
+        for n in ("1000", "1500"):
+            L("record", "--task", "T5", "--role", "助手", "--agent", "Codex", "--model", "m", "--session", "th",
+              "--tokens-in", n)
+        rows = [json.loads(l) for l in (self.root / "ledger.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.assertEqual([r["tokensIn"] for r in rows if r["kind"] == "run"], [1000, 500])
+        L("score", "--task", "T5", "--delivery", "4", "--work", "3", "--label", "lead + sol")
+        L("score", "--task", "T5", "--delivery", "6", "--work", "3", ok=False)
         # progress.py 拒绝时(lead 记 pass 没写理由),台账也不记
         L("review", "--task", "T5", "--result", "pass", "--findings", "0", "--by", "lead", ok=False)
         self.assertNotIn('"review"', (self.root / "ledger.jsonl").read_text(encoding="utf-8"))

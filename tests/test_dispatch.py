@@ -62,7 +62,9 @@ class DispatchTest(unittest.TestCase):
         rows = self.ledger()
         self.assertEqual([x["run"] for x in rows], [1, 2])
         self.assertEqual(rows[0]["module"], "后端 · 锻造")
-        self.assertEqual(rows[1]["tokensIn"], 200)
+        # 续用时 Codex 报会话累计用量(100 → 200),台账记差值
+        self.assertEqual((rows[1]["tokensIn"], rows[1]["cum"]["tokensIn"]), (100, 200))
+        self.assertIn("token 用量(会话累计):输入 200", r.stdout)
         wt = self.tmp / "my proj-T5"
         report = (wt / "dispatch-logs" / "evidence" / "T5" / "report.md").read_text(encoding="utf-8-sig")
         self.assertIn("## 假设\n- 超时按 5 秒", report)
@@ -122,6 +124,8 @@ class DispatchTest(unittest.TestCase):
         (self.root / "new-on-main.txt").write_text("x", encoding="utf-8")
         run(["git", "add", "-A"], self.root)
         run(["git", "commit", "-q", "-m", "main 前进"], self.root)
+        r = self.dispatch("-Task", "T5", "-Model", "other", "-Review", "-Resume", "old", scenario="review", ok=False)
+        self.assertIn("审查每次新开会话", r.stderr)
         r = self.dispatch("-Task", "T5", "-Model", "other", "-Review", scenario="review")
         self.assertTrue((wt / "new-on-main.txt").exists(), "交审前要把 main 合并进任务分支")
         self.assertIn("read-only", self.calls()[-1]["args"])

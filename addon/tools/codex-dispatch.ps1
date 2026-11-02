@@ -2,7 +2,7 @@
 # 每次运行自动记台账;运行结束后在任务分支上提交改动,最终报告存成 report.md。用法见 prompts/dispatch.md:
 #   .\tools\codex-dispatch.ps1 -Task T5 -Model gpt-6.1-sol -Worktree [-From task/T4]
 #   .\tools\codex-dispatch.ps1 -Task T5 -Model gpt-6.1-sol -Resume 会话编号 -Message "lead 的回答:……" [-Contract]
-#   .\tools\codex-dispatch.ps1 -Task T5 -Model 模型名 -Review [-Resume 审查者的会话编号]
+#   .\tools\codex-dispatch.ps1 -Task T5 -Model 模型名 -Review    默认不审查,lead 判断高风险时才开。每次新开会话
 #   .\tools\codex-dispatch.ps1 -Task 预检 -Model 模型名 -Effort low -Preflight "构建命令"
 #   .\tools\codex-dispatch.ps1 -Task T5 -Merge [-Playtest]   跑测试,通过才合并进 main,再改状态
 #   .\tools\codex-dispatch.ps1 -Task T5 -Cleanup     合并后删除工作目录和分支,先保存证据
@@ -120,6 +120,8 @@ if ($Merge) {
 if (-not $Model) { Write-Error "要用 -Model 写明模型。"; exit 1 }
 if ($Resume -and -not $Message -and -not $Review) { Write-Error "续用会话时要用 -Message 写明交给 agent 的内容。"; exit 1 }
 if ($Contract -and -not ($Resume -and $Message)) { Write-Error "-Contract 要和 -Resume、-Message 一起用。"; exit 1 }
+# 续用的审查会话可能不重新检查,只复述上一轮的报告(CraftTax 对比实验 2026-11-02)
+if ($Review -and $Resume) { Write-Error "审查每次新开会话,不加 -Resume。"; exit 1 }
 $cmd = Get-Command codex -ErrorAction SilentlyContinue
 $pkg = Get-AppxPackage OpenAI.Codex -ErrorAction SilentlyContinue
 if ($cmd) { $exe = $cmd.Source }
@@ -248,8 +250,7 @@ elseif ($Review) {
         if ($LASTEXITCODE -ne 0) { git -C $work merge --abort; Write-Error "合并 $Base 进 $branch 时有冲突。先解决冲突,再审查。"; exit 1 }
     }
     $prompt = "读 prompts/review.md 和 tasks/$Task.md(简报)。用 git diff $Base...HEAD 查看这个模块的全部改动。验收证据在 $evidence/,每个阶段一个文件夹;助手的最终报告是 $evidence/report.md。按 review.md 做对抗审查,不修改任何文件。最后一条消息是 review.md 格式的审查报告。"
-    if ($Resume) { $a = @("exec", "resume", $Resume, "-m", $Model) + $cfg + @("-c", "sandbox_mode=read-only") }
-    else { $a = @("exec", "-m", $Model) + $cfg + @("-s", "read-only", "-C", $work) }
+    $a = @("exec", "-m", $Model) + $cfg + @("-s", "read-only", "-C", $work)
     $r = Invoke-Codex $a $prompt $stem
     Write-Ledger $r "审查" 1
     $runs = @($r)
@@ -305,9 +306,9 @@ $last = $runs[-1]
 "退出码:$($last.Code)    运行次数:$($runs.Count)"
 "沙箱:$(if ($Review) { 'read-only' } else { $Sandbox })    工作目录:$work"
 if ($last.Thread) { "会话编号:$($last.Thread)(续用时传给 -Resume)" }
-$tin = 0; $tc = 0; $tout = 0
-foreach ($x in $runs) { if ($x.Usage) { $tin += $x.Usage.input_tokens; $tc += $x.Usage.cached_input_tokens; $tout += $x.Usage.output_tokens } }
-"token 用量(合计):输入 $tin,其中缓存 $tc,输出 $tout"
+# Codex 报的是整个会话的累计用量,所以只看最后一次;每次的差值在台账里
+$u = @($runs | Where-Object { $_.Usage }) | Select-Object -Last 1
+if ($u) { "token 用量(会话累计):输入 $($u.Usage.input_tokens),其中缓存 $($u.Usage.cached_input_tokens),输出 $($u.Usage.output_tokens)" }
 "日志:$stem.*"
 if ($brief) {
     $missing = Get-MissingEvidence
