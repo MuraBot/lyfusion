@@ -1,0 +1,2 @@
+# 提交钩子是 sh 脚本,只能用 LF 换行
+addon/tools/hooks/* text eol=lf

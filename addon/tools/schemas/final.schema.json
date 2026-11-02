@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "last_phase", "stop_reason", "summary"],
+  "properties": {
+    "status": { "type": "string", "enum": ["完成", "停止"] },
+    "last_phase": { "type": "integer", "description": "最后一个已回报的阶段编号,没有就是 0" },
+    "stop_reason": { "type": "string", "description": "停止时写停止条件和原因;完成时写空字符串" },
+    "summary": { "type": "string", "description": "一两句话:做到哪里,lead 接下来要做什么" }
+  }
+}

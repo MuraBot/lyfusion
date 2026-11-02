@@ -1,0 +1,4 @@
+#!/bin/sh
+# 提交钩子:检查追溯信息;task/ 分支上还检查本阶段的回报和证据。规则在 tools/commit_check.py。
+# 安装:在项目根目录运行 git config core.hooksPath tools/hooks(git 工作目录会共用这个设置)
+exec python "$(git rev-parse --show-toplevel)/tools/commit_check.py" "$1"
