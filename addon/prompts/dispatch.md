@@ -19,7 +19,10 @@
 | 独做 | lead 预计 10 轮内做完;判断就是交付物(审美、交互意图);连续排错(积累的上下文就是工作) | lead |
 | 搭档 | 能拆出执行部分:实现加跑测试、跨文件的机械改动、迁移、测试很慢 | 助手 |
 
-拿不准时选独做。搭档模式下 lead 的预算:每个任务 15 轮、3 次交接,超了运行 `ledger.py flag --signal 超预估`。
+一轮 = lead 的一次工具调用。两条都符合时(能拆出执行部分,但 lead 10 轮内能做完),选独做:写简报、等待、审查本身就要 5 轮以上。只读的题(问答、调研)独做。拿不准时选独做。
+搭档模式下 lead 的预算:每个任务 15 轮、3 次交接,超了运行 `ledger.py flag --signal 超预估`。
+
+独做的收尾:跑测试,提交一次(提交说明见"提交")。任务在进度表里的,运行 `ledger.py review --task T5 --result pass --findings 0 --by lead --note "独做"`。不用派工脚本。
 
 ## 搭档:lead 只做判断
 1. 早放手。助手是 L3 时,第 1 次交接可以就是"探索,汇报相关文件路径和片段,先不改";否则 lead 自己快速读几处,再交出去。
@@ -40,7 +43,7 @@
 ## 写简报和派工
 1. `python tools/brief.py new T5 --level L3 --title "标题"`,按 `tasks/T0-template.md` 填。`brief.py check` 不通过,派工脚本拒绝派工。
 2. "已定"只写编号。"猜测"里每条写依据或标"未证实"。高风险时可以把 1 个阶段标成"(检查点)":助手做完就停,lead 看过再续用。
-3. 派工:`tools/codex-dispatch.ps1 -Task T5 -Model 模型名 -Worktree [-From task/T4]`,在后台运行,途中不监视。脚本是监工:缺最终报告就要求补,阶段证据不全又没停下就续"继续";结束后在任务分支提交、记台账、改进度。
+3. 派工:`tools/codex-dispatch.ps1 -Task T5 -Model 模型名 [-Effort high] -Worktree [-From task/T4]`,在后台运行,途中不监视。脚本是监工:缺最终报告就要求补,阶段证据不全又没停下就续"继续";结束后在任务分支提交、记台账、改进度。
 4. 助手停下时,回答它:`-Resume 会话编号 -Message "……"`。回答改变契约时加 `-Contract`,脚本先写进简报"已定"。产品问题 spec 里没有答案,先问 Lily。
 5. 助手会话已经很大时,新开会话,交给它 diff、报告和回答。
 
@@ -71,5 +74,5 @@
 4. 里程碑结束按 LiEC 的收尾做。lead 会话按里程碑换新的。
 
 ## 提交
-- lead 自己的提交:Agent 写 `Claude Code`,Model 写当前模型,Session 写当前会话编号。
+- lead 自己的提交:Agent 写 `Claude Code`,Model 写当前模型,Session 写当前会话编号。提交说明写进文件再 `git commit -F 文件`;Windows PowerShell 5.1 用管道传会失败。
 - 一个简报的会话中途不换模型。便宜的模型不一定省钱,返工也算开销。
