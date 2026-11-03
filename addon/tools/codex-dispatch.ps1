@@ -59,8 +59,8 @@ $TestCommand = ""
 $LintCommand = ""
 # 验收命令不通过时,最多让助手修几次
 $MaxGateFix = 2
-# 交接包里"关键改动"最多放多少行 diff
-$BundleDiffLines = 400
+# 交接包里"关键改动"一共大约放多少行 diff,平分给每个改动的文件
+$BundleDiffLines = 600
 # lead 用 -Accept、-Rollback 提交时,追溯信息里的模型和推理强度
 $LeadModel = "claude-opus-5-5"
 $LeadEffort = "high"
@@ -91,9 +91,9 @@ function Invoke-Logged([hashtable]$Spec, [string]$SpecFile) {
 
 function Get-Tail([string]$Path, [int]$N) { @(Get-Content $Path -Encoding UTF8 -ErrorAction SilentlyContinue | Select-Object -Last $N) }
 
-# 临时目录放进工作目录:沙箱只能写工作目录,pytest 在系统临时目录里会报权限错误(fusion-bench C1-H2)
+# 临时目录放进工作目录,每次运行一个:沙箱只能写工作目录;pytest 清理上次的临时目录会报权限错误(fusion-bench C1-H2、C2-H2)
 function Set-WorkTemp {
-    $t = Join-Path $work "dispatch-logs\tmp"
+    $t = Join-Path $work ("dispatch-logs\tmp\" + (Get-Date -Format "yyyyMMdd-HHmmss"))
     New-Item -ItemType Directory -Force $t | Out-Null
     $env:TEMP = $t; $env:TMP = $t
 }
@@ -425,9 +425,15 @@ function Write-Bundle($r, $gates) {
     $rp = Join-Path $work "$evidence\report.md"
     if (Test-Path $rp) { $b += @("", "## 最终报告") + @(Get-Content $rp -Encoding UTF8 | Select-Object -Skip 2) }
     $ex = @(".", ":(exclude)ledger.jsonl", ":(exclude)progress.json", ":(exclude)tasks", ":(exclude,glob)**/tests/**", ":(exclude,glob)**/test_*", ":(exclude,glob)**/*_test.*")
-    $diff = @(git -C $work diff "$start..HEAD" -- @ex)
-    $b += @("", "## 关键改动(不含测试)", '```diff') + @($diff | Select-Object -First $BundleDiffLines) + @('```')
-    if ($diff.Count -gt $BundleDiffLines) { $b += "(共 $($diff.Count) 行,只放了前 $BundleDiffLines 行。其余用 git diff $start..HEAD -- 文件)" }
+    # 每个改动的文件都放进来,行数平分,免得前几个大文件把关键文件挤掉(fusion-bench C2-H2)
+    $files = @(git -C $work diff --name-only "$start..HEAD" -- @ex)
+    $per = [Math]::Max(40, [int]($BundleDiffLines / [Math]::Max(1, $files.Count)))
+    $b += @("", "## 关键改动(不含测试,每个文件最多 $per 行)")
+    foreach ($fn in $files) {
+        $d = @(git -C $work diff "$start..HEAD" -- $fn | Select-Object -Skip 4)
+        $b += @("", "### $fn", '```diff') + @($d | Select-Object -First $per) + @('```')
+        if ($d.Count -gt $per) { $b += "(共 $($d.Count) 行,其余用 git diff $start..HEAD -- $fn)" }
+    }
     $notes = Get-ModelNotes
     if ($notes.Count) { $b += @("", "## 模型备注($Model):写修改请求时参考") + $notes }
     $b += @("", "## 下一步",
@@ -465,6 +471,7 @@ else {
     if ($Resume) {
         $text = $Message
         if ($Contract) { $text += "(这条决定已写进简报的「已定」)" }
+        $text += "`n最后一条消息写完整的最终报告:包括这次之前做完的全部内容和 responses,不只写这次的改动。"
         # 修改请求存进证据,-Accept 核对每条都有回应
         if ((Get-RequestIds $Message).Count) {
             $Message | Out-File (Join-Path $work "$evidence\requests-latest.md")
@@ -484,7 +491,7 @@ else {
         if (($f -and $f.status -eq "停止") -or -not $r.Thread -or $r.Code -ne 0) { break }
         $missing = Get-MissingEvidence
         if ($f -and $missing.Count -eq 0) { break }
-        $next = if ($missing.Count) { "继续:阶段 $($missing -join '、') 还没有证据($evidence/阶段编号/)。没做完就接着做,做完了就补存验收命令的原始输出。只在全部阶段完成或遇到停止条件时结束,最后一条消息按派工时给的格式写。" }
+        $next = if ($missing.Count) { "继续:阶段 $($missing -join '、') 还没有证据($evidence/阶段编号/)。没做完就接着做,做完了就补存验收命令的原始输出。只在全部阶段完成或遇到停止条件时结束,最后一条消息按派工时给的格式写。最后一条消息写完整的最终报告:包括这次之前做完的全部内容和 responses,不只写这次的改动。" }
                 else { "补最终报告:按派工时给的格式写最后一条消息,再结束。" }
         "监工:第 $i 次续跑。$next"
         $r = Invoke-Resume $r.Thread $next "-c$i"
@@ -498,7 +505,7 @@ else {
         if (-not $bad.Count -or -not $r.Thread -or ($r.Final -and $r.Final.status -eq "停止")) { break }
         $fix = "派工脚本跑了验收命令,没通过,请修好。不要改测试或验收标准来通过。"
         foreach ($g in $bad) { $fix += "`n命令:$($g.Cmd)(退出码 $($g.Code)),输出的最后 40 行:`n" + ((Get-Tail $g.Out 40) -join "`n") }
-        $fix += "`n修好后按派工时给的格式写最后一条消息。"
+        $fix += "`n修好后按派工时给的格式写最后一条消息。最后一条消息写完整的最终报告:包括这次之前做完的全部内容和 responses,不只写这次的改动。"
         "监工:验收命令没通过,第 $j 次让助手修。"
         $r = Invoke-Resume $r.Thread $fix "-g$j"
         $runs += $r; $runNo++

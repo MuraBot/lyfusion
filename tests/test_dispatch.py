@@ -96,7 +96,7 @@ class DispatchTest(unittest.TestCase):
                       scenario="stop")
         self.assertIn('颜色用 "铁灰"', (self.root / "tasks" / "T5.md").read_text(encoding="utf-8"))
         self.assertIn('颜色用 "铁灰"', (self.tmp / "my proj-T5" / "tasks" / "T5.md").read_text(encoding="utf-8"))
-        self.assertTrue(self.calls()[-1]["args"][-1].endswith("已写进简报的「已定」)"))
+        self.assertIn("已写进简报的「已定」)", self.calls()[-1]["args"][-1])
 
     def test_stop_is_not_continued(self):
         r = self.dispatch("-Task", "T5", "-Model", "gpt-6.1-sol", "-Worktree", scenario="stop")
@@ -119,7 +119,8 @@ class DispatchTest(unittest.TestCase):
     def test_message_quotes_survive(self):
         self.dispatch("-Task", "T5", "-Model", "gpt-6.1-sol", "-Resume", "abc", "-Message", '把 "a b" 改成 c', "-NoSupervise",
                       scenario="stop")
-        self.assertEqual(self.calls()[0]["args"][-1], '把 "a b" 改成 c')
+        self.assertTrue(self.calls()[0]["args"][-1].startswith('把 "a b" 改成 c'))
+        self.assertIn("完整的最终报告", self.calls()[0]["args"][-1], "续用后的报告会覆盖前面的,要求写完整(fusion-bench C2-H2)")
 
     def set_test_command(self, cmd, name="TestCommand"):
         ps1 = self.root / "tools" / "codex-dispatch.ps1"

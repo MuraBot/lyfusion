@@ -51,7 +51,7 @@ def main():
     if gitdir and (Path(gitdir) / "MERGE_HEAD").exists():
         return 0
     raw = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
-    msg = "\n".join(l for l in raw.splitlines() if not l.startswith("#"))
+    msg = "\n".join(ln for ln in raw.splitlines() if not ln.startswith("#"))
     errs = problems(msg, git("rev-parse", "--abbrev-ref", "HEAD"))
     for e in errs:
         print("[提交被拒] %s" % e, file=sys.stderr)

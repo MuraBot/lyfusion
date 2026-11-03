@@ -26,13 +26,13 @@
 |---|---|---|
 | 1. 派探索 | 写 `tasks/T5-ask.md`:任务原话(一字不改,已有 spec 的写路径)和 lead 想知道的,最多 3 条;同一次调用里启动 | `-Task T5 -Model 模型 -Explore -AskFile tasks/T5-ask.md` |
 | 2. 读探索包 | 读 `dispatch-logs/evidence/T5/explore.md` | — |
-| 3. 写计划 | 按级别写 `tasks/T5.md`(模板 `tasks/T0-template.md`) | — |
+| 3. 写计划 | 按级别写 `tasks/T5.md`(模板 `tasks/T0-template.md`)。L3 正文不超过 40 行,成功标准写成"命令 期望" | — |
 | 4. 派工 | 一条命令:检查计划、登记进度、记起点、启动 | `-Task T5 -Model 模型 [-Effort high]` |
 | 5. 审查 | 读交接包 `dispatch-logs/evidence/T5/bundle.md` | — |
 | 6. 修改请求 | 写进文件,编号 R1、R2…;同一次调用里续用 | `-Resume 会话编号 -MessageFile 文件` |
 | 7. 验收 | 跑验收命令、核对每条修改请求都有回应、记结论、提交 | `-Task T5 -Accept -Session 会话编号 -Note "看了哪些"` |
 
-- 命令都是 `powershell -NoProfile -ExecutionPolicy Bypass -File tools/codex-dispatch.ps1 ……`,在后台运行,等完成通知,途中不监视。写文件和启动可以放在一次 shell 调用里(heredoc 写文件,再运行脚本)。
+- 命令都是 `powershell -NoProfile -ExecutionPolicy Bypass -File tools/codex-dispatch.ps1 ……`,在后台运行,等完成通知,途中不监视。写文件和启动可以放在一次 shell 调用里(heredoc 写文件,再运行脚本)。启动后就结束这一轮,不读文件、不开 Monitor、不循环等待,完成通知会自己来(fusion-bench 的 lead 各浪费了 3~4 次调用)。
 - 读探索包:先看助手对任务的理解对不对,偏了就在计划里纠正。片段不够时只补读缺的那段(按行号读),最多 2 处。计划里引用 `文件:行号`,不抄代码。
 - 审查只读交接包:报告、验收命令的结果、diff 统计、不含测试的关键改动、模型备注。第一次审查就审仔细,能一次提完的修改请求一次提完。
 - 修 bug 回来:L1 再读一次新交接包;L2、L3 不再审,直接 `-Accept`。脚本替 lead 把关:验收命令不过、有修改请求没回应,都拒绝验收。
@@ -65,7 +65,7 @@
 
 ## 开工前
 1. 阶段 6 的授权清单已经问完 Lily,包括人工验收由谁做。安装钩子:`git config core.hooksPath tools/hooks`。
-2. 填派工脚本开头的"项目设置":`$TestCommand`、`$LintCommand`(各语言的推荐命令见 lyfusion 的 README「lint」)。lint 工具要先装好。
+2. 填派工脚本开头的"项目设置":`$TestCommand`、`$LintCommand`(各语言的推荐命令见 lyfusion 的 README「lint」)。lint 工具要先装好,先跑一次:原有的错误先修掉,或把范围缩到源码目录。
 3. 环境预检:`-Task 预检 -Model 模型名 -Effort low -Preflight "命令"`。每种测试运行器各跑 1 个真实初始化的冒烟测试。
 4. lead 可以改"项目设置",在提交说明里写明。沙箱改成 `danger-full-access` 要 Lily 同意。
 

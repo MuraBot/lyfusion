@@ -25,7 +25,7 @@ Lily 的多 agent 协作与调度技能(Fusion 模式),也是对这套模式的�
 派工脚本的"项目设置"里填 `$LintCommand`,工具要先装好。下面是各语言的推荐命令,都是常用的现成工具:
 | 语言 | 工具 | `$LintCommand` |
 |---|---|---|
-| Python | ruff(`pip install ruff`) | `python -m ruff check --fix .` |
+| Python | ruff(`pip install ruff`) | `python -m ruff check --fix --no-cache .`;老项目先用 `--select E4,E7,E9,F`,只查真错误 |
 | Godot(GDScript) | gdtoolkit(`pip install gdtoolkit`) | `gdlint .` |
 | Java(Gradle) | Spotless 或 Checkstyle 插件 | `gradlew.bat spotlessApply checkstyleMain` |
 | JavaScript / TypeScript | Biome | `npx @biomejs/biome check --write .` |
