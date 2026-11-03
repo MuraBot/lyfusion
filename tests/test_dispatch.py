@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -36,9 +37,9 @@ class DispatchTest(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def dispatch(self, *args, scenario="partial", ok=True):
+    def dispatch(self, *args, scenario="partial", ok=True, linger=False):
         env = {"PATH": str(FAKE) + os.pathsep + os.environ["PATH"], "FAKE_STATE": str(self.state),
-               "FAKE_SCENARIO": scenario, "CLAUDE_TEST_SECRET": "x"}
+               "FAKE_SCENARIO": scenario, "CLAUDE_TEST_SECRET": "x", "FAKE_LINGER": "1" if linger else ""}
         return run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                     str(self.root / "tools" / "codex-dispatch.ps1")] + list(args), self.root, ok=ok, env=env)
 
@@ -99,6 +100,13 @@ class DispatchTest(unittest.TestCase):
     def test_stop_is_not_continued(self):
         r = self.dispatch("-Task", "T5", "-Model", "gpt-6.1-sol", "-Worktree", scenario="stop")
         self.assertEqual(len(self.calls()), 1)
+        self.assertIn("停止原因:产品决定", r.stdout)
+
+    def test_lingering_child_does_not_block(self):
+        # 小熊对比实验(2026-11-02):Codex 退出后,派工脚本和调用它的工具都等后台的 git 关掉输出管道,挂住 7~34 分钟
+        t = time.time()
+        r = self.dispatch("-Task", "T5", "-Model", "gpt-6.1-sol", scenario="stop", linger=True)
+        self.assertLess(time.time() - t, 12)
         self.assertIn("停止原因:产品决定", r.stdout)
 
     def test_bad_brief_is_refused(self):

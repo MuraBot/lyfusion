@@ -42,3 +42,8 @@ elif scenario == "review":
 print(json.dumps({"type": "thread.started", "thread_id": "fake-thread"}))
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100 * n, "cached_input_tokens": 10, "output_tokens": 5}}))
 Path(out).write_text(final if isinstance(final, str) else json.dumps(final, ensure_ascii=False), encoding="utf-8")
+if os.environ.get("FAKE_LINGER"):
+    # 像 Codex 启动时后台拉插件市场的 git:继承了输出管道,比 Codex 本身活得久
+    import subprocess
+    sys.stdout.flush()
+    subprocess.Popen([sys.executable, "-c", "import time; time.sleep(20)"], stdout=sys.stdout, stderr=sys.stderr, close_fds=False)

@@ -10,7 +10,7 @@ Claude 当 lead,拆分、定接口、写简报、审查模块;Codex 助手一口
 | `SKILL.md` | 技能本体。保存技能时用的就是它 |
 | `addon/` | 装进项目的文件,目录结构和项目相同 |
 | `addon/prompts/` | lead 工作说明 `dispatch.md`,助手工作说明 `sidekick.md` |
-| `addon/tools/` | 派工台账 `ledger.py`、Codex 派工脚本 `codex-dispatch.ps1`(含合并命令)、提交检查 `commit_check.py` 和钩子 `hooks/`、最终报告格式 `schemas/` |
+| `addon/tools/` | 派工台账 `ledger.py`、Codex 派工脚本 `codex-dispatch.ps1`(含合并命令)和它的启动器 `run_logged.py`、提交检查 `commit_check.py` 和钩子 `hooks/`、最终报告格式 `schemas/` |
 | `addon/ledger.jsonl` | 空台账。派工脚本每次运行自动记一行,只增不改 |
 | `viewer/pareto-viewer.html` | 帕累托查看器:读实验文件夹里各组的 `ledger.jsonl`,画花费和分数 |
 | `tests/` | 测试。`fake_codex/` 是假的 Codex,不联网、不耗额度 |

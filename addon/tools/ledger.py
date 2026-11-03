@@ -14,7 +14,7 @@
     python tools/ledger.py bug --task T5 [--count 2] --note "敲不动"
     python tools/ledger.py lead --milestone M3 --session 会话编号 --tokens-in 1200 --tokens-cached 950000 --tokens-out 300
     python tools/ledger.py flag --task T5 --flag 接手 --signal 超预估 --note "用了 3 倍 token"
-    python tools/ledger.py score --task T5 --delivery 4 --work 3    Lily 的打分。花费和分数用 viewer/pareto-viewer.html 看
+    python tools/ledger.py score --task T5 --score 6.5 [--delivery 4 --work 3]    Lily 的打分。花费和分数用 viewer/pareto-viewer.html 看
     python tools/ledger.py record ...                      派工脚本调用,一般不用手动运行
 """
 import argparse
@@ -129,9 +129,13 @@ def cmd_lead(a):
 
 
 def cmd_score(a):
-    row = write_row({"kind": "score", "task": a.task, "label": a.label or "", "delivery": a.delivery, "work": a.work,
-                     "note": a.note or ""})
-    print("台账:%s 交付分 %d,作品分 %d" % (row["task"], row["delivery"], row["work"]))
+    if a.score is None and (a.delivery is None or a.work is None):
+        sys.exit("要给 --score,或者同时给 --delivery 和 --work。")
+    if a.score is not None and not 0 <= a.score <= 10:
+        sys.exit("--score 是 0~10 分。")
+    row = write_row({"kind": "score", "task": a.task, "label": a.label or "", "score": a.score, "delivery": a.delivery,
+                     "work": a.work, "note": a.note or ""})
+    print("台账:%s 打分 %s,交付分 %s,作品分 %s" % (row["task"], row["score"], row["delivery"], row["work"]))
 
 
 def cmd_flag(a):
@@ -291,10 +295,11 @@ def main():
     p.add_argument("--cost-usd", type=float, help="拿不到 token 拆分时的估算花费,在 --note 写估算方法")
     p.add_argument("--note")
     p.set_defaults(fn=cmd_lead)
-    p = sub.add_parser("score", help="记 Lily 的打分(1~5),帕累托查看器的纵轴")
+    p = sub.add_parser("score", help="记 Lily 的打分,帕累托查看器的纵轴")
     p.add_argument("--task", required=True)
-    p.add_argument("--delivery", type=int, required=True, choices=range(1, 6), help="交付分:做对了没有")
-    p.add_argument("--work", type=int, required=True, choices=range(1, 6), help="作品分:对照体验目标,好不好")
+    p.add_argument("--score", type=float, help="总分 0~10,可以带小数")
+    p.add_argument("--delivery", type=int, choices=range(1, 6), help="交付分(1~5):做对了没有")
+    p.add_argument("--work", type=int, choices=range(1, 6), help="作品分(1~5):对照体验目标,好不好")
     p.add_argument("--label", help="这一组的名字,例如「lead + gpt-6.1-sol」")
     p.add_argument("--note")
     p.set_defaults(fn=cmd_score)

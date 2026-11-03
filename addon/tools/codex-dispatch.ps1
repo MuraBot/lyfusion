@@ -61,6 +61,13 @@ if ($Worktree -or (Test-Path $wtPath)) { $work = $wtPath }
 $logDir = Join-Path $root "dispatch-logs"
 New-Item -ItemType Directory -Force $logDir | Out-Null
 
+# Codex 和测试命令交给 run_logged.py 运行,不用 &:后台的 git 会占着输出管道让 & 挂住,原因见 run_logged.py
+function Invoke-Logged([hashtable]$Spec, [string]$SpecFile) {
+    $Spec | ConvertTo-Json | Out-File $SpecFile -Encoding UTF8
+    python (Join-Path $root "tools\run_logged.py") $SpecFile | Out-Host
+    return $LASTEXITCODE
+}
+
 # ---- 合并后清理:先保存证据,再删工作目录和分支 ----
 if ($Cleanup) {
     if (-not (Test-Path $wtPath)) { Write-Error "没有工作目录:$wtPath"; exit 1 }
@@ -103,9 +110,8 @@ if ($Merge) {
     $ev = Join-Path $root "dispatch-logs\evidence\$Task\merge"
     New-Item -ItemType Directory -Force $ev | Out-Null
     $started = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Push-Location $wtPath
-    try { $out = cmd /c "$TestCommand 2>&1"; $code = $LASTEXITCODE }
-    finally { Pop-Location }
+    $code = Invoke-Logged @{ shell = $TestCommand; cwd = $wtPath; out = "$logDir\$Task-merge-test.out.txt" } "$logDir\$Task-merge-test.json"
+    $out = Get-Content "$logDir\$Task-merge-test.out.txt" -Encoding UTF8 -ErrorAction SilentlyContinue
     @("命令:$TestCommand", "开始时间:$started", "退出码:$code", "工作目录:$wtPath", "") + @($out) | Out-File (Join-Path $ev "test.txt")
     if ($code -ne 0) { Write-Error "测试失败(退出码 $code),没有合并进 $Base。输出在 $ev\test.txt"; exit 1 }
     git -C $root merge --no-ff --no-edit $branch
@@ -181,12 +187,9 @@ if ($Effort) { $cfg += @("-c", "model_reasoning_effort=$Effort") }
 foreach ($k in $ProjectEnv.Keys) { $cfg += @("-c", "shell_environment_policy.set.$k=$($ProjectEnv[$k])") }
 
 function Invoke-Codex([string[]]$CodexArgs, [string]$Prompt, [string]$Stem) {
-    # Windows PowerShell 5.1 传参时不转义双引号,提示词里的 " 要写成 \"
-    $p = $Prompt -replace '"', '\"'
-    $ca = @($CodexArgs | ForEach-Object { $_ -replace '"', '\"' })
-    Push-Location $work
-    try { & $exe @ca --json -o "$Stem.report.txt" $p > "$Stem.events.jsonl" 2> "$Stem.stderr.log"; $code = $LASTEXITCODE }
-    finally { Pop-Location }
+    $spec = @{ cmd = @($exe) + @($CodexArgs) + @("--json", "-o", "$Stem.report.txt", $Prompt); cwd = $work
+               out = "$Stem.events.jsonl"; err = "$Stem.stderr.log" }
+    $code = Invoke-Logged $spec "$Stem.run.json"
     $lines = Get-Content "$Stem.events.jsonl" -Encoding UTF8 -ErrorAction SilentlyContinue
     $thread = $lines | Where-Object { $_ -match '"thread\.started"' } | Select-Object -First 1 | ConvertFrom-Json
     $turn = $lines | Where-Object { $_ -match '"turn\.completed"' } | Select-Object -Last 1 | ConvertFrom-Json

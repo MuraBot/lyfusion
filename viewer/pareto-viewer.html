@@ -56,8 +56,7 @@ details summary{cursor:pointer;font-weight:600}
 
 <div class="card" id="chartCard" hidden>
   <div class="row" style="margin-bottom:8px">
-    <span>纵轴</span>
-    <select id="yKey"><option value="work">作品分</option><option value="delivery">交付分</option><option value="avg">两分平均</option></select>
+    <span>纵轴:分数(0~10)</span>
     <span>横轴</span>
     <select id="xScale"><option value="log">对数</option><option value="lin">线性</option></select>
   </div>
@@ -85,7 +84,7 @@ details summary{cursor:pointer;font-weight:600}
   · Codex:按每次运行的模型价格算。未命中的输入 = 输入 − 缓存;缓存按缓存价,输出按输出价。<br>
   · 续用会话时 Codex 报的是累计用量。新台账已记差值;旧台账里同一会话的读数一路上涨的,这里换算成差值。<br>
   · lead:有 <code>costUsd</code>(估算)就用它;有输入、缓存、输出三项就按 lead 的价格算;只有上下文大小时算"不知道"。<br>
-  · 分数:台账里 <code>score</code> 行的最后一条。记分:<code>python tools/ledger.py score --task T1 --delivery 4 --work 3</code>。
+  · 分数:台账里 <code>score</code> 行的最后一条,10 分制。只记了交付分和作品分(各 1~5)的,两分相加当分数。记分:<code>python tools/ledger.py score --task T1 --score 6.5</code>。
 </div>
 </main>
 
@@ -184,8 +183,7 @@ function readFiles(list){
 
 function yOf(g){
   if (!g.score) return null;
-  var k = $("yKey").value;
-  return k === "avg" ? (g.score.delivery + g.score.work) / 2 : g.score[k];
+  return g.score.score != null ? g.score.score : g.score.delivery + g.score.work;
 }
 function total(g){ return g.codex == null && g.lead == null ? null : (g.codex || 0) + (g.lead || 0); }
 
@@ -208,9 +206,9 @@ function render(){
   if (log) { xmin = Math.pow(10, Math.floor(Math.log10(xmin))); xmax = Math.pow(10, Math.ceil(Math.log10(xmax))); if (xmin === xmax) xmax *= 10; }
   else { xmin = 0; xmax = xmax * 1.15 || 1; }
   function X(v){ if (v == null || v <= 0 && log) return L; return log ? L + (Math.log10(v) - Math.log10(xmin)) / (Math.log10(xmax) - Math.log10(xmin)) * (W - L - R) : L + (v - xmin) / (xmax - xmin) * (W - L - R); }
-  function Y(v){ return v == null ? H - B + 4 : T + (5 - v) / 5 * (H - T - B - 18); }
+  function Y(v){ return v == null ? H - B + 4 : T + (10 - v) / 10 * (H - T - B - 18); }
   var s = "";
-  for (var y = 0; y <= 5; y++) s += '<line class="gridl" x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(y) + '" y2="' + Y(y) + '"/><text class="axis" x="' + (L - 8) + '" y="' + (Y(y) + 4) + '" text-anchor="end">' + y + '</text>';
+  for (var y = 0; y <= 10; y += 2) s += '<line class="gridl" x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(y) + '" y2="' + Y(y) + '"/><text class="axis" x="' + (L - 8) + '" y="' + (Y(y) + 4) + '" text-anchor="end">' + y + '</text>';
   var ticks = [];
   if (log) for (var e = Math.log10(xmin); e <= Math.log10(xmax) + 1e-9; e++) ticks.push(Math.pow(10, e));
   else for (var i = 0; i <= 5; i++) ticks.push(xmin + (xmax - xmin) * i / 5);
@@ -225,12 +223,12 @@ function render(){
   });
   $("chart").innerHTML = s;
 
-  var h = "<tr><th>组</th><th>模型</th><th>Codex 花费</th><th>lead 花费</th><th>合计</th><th>交付分</th><th>作品分</th><th>Codex 输入</th><th>其中缓存</th><th>输出</th><th></th></tr>";
+  var h = "<tr><th>组</th><th>模型</th><th>Codex 花费</th><th>lead 花费</th><th>合计</th><th>分数</th><th>打分说明</th><th>Codex 输入</th><th>其中缓存</th><th>输出</th><th></th></tr>";
   pts.slice().sort(function(a, b){ return (a.x == null) - (b.x == null) || a.x - b.x; }).forEach(function(p){
     var g = p.g;
     h += "<tr><td>" + esc(g.name) + (g.name !== g.folder ? ' <span class="note">' + esc(g.folder) + "</span>" : "") + "</td><td>" + esc(g.models.join("、") || "-") + "</td><td>" +
       (g.models.length ? usd(g.codex) : "$0") + "</td><td>" + usd(g.lead) + (g.leadEst ? " 估" : "") + "</td><td>" + usd(p.x) + "</td><td>" +
-      (g.score ? g.score.delivery : "-") + "</td><td>" + (g.score ? g.score.work : "-") + "</td><td>" + num(g.tok.in) + "</td><td>" + num(g.tok.cached) + "</td><td>" + num(g.tok.out) + "</td><td>" +
+      (p.y == null ? "-" : p.y) + "</td><td>" + esc(g.score && g.score.note || "") + "</td><td>" + num(g.tok.in) + "</td><td>" + num(g.tok.cached) + "</td><td>" + num(g.tok.out) + "</td><td>" +
       (front.indexOf(p) >= 0 ? '<span class="tag">前沿</span>' : "") + "</td></tr>";
   });
   $("tbl").innerHTML = h;
@@ -255,7 +253,7 @@ function reanalyse(){ if (raw) readFiles(raw); }
 $("resetPrices").onclick = function(){ prices = JSON.parse(JSON.stringify(DEFAULT_PRICES)); save(); renderPrices(); reanalyse(); };
 $("dir").onchange = function(){ raw = this.files; readFiles(raw); };
 $("files").onchange = function(){ raw = this.files; readFiles(raw); };
-$("yKey").onchange = render; $("xScale").onchange = render;
+$("xScale").onchange = render;
 var drop = $("drop");
 ["dragenter", "dragover"].forEach(function(ev){ drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add("on"); }); });
 ["dragleave", "drop"].forEach(function(ev){ drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.remove("on"); }); });
