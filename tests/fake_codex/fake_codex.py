@@ -8,7 +8,8 @@ args = sys.argv[1:]
 state = Path(os.environ["FAKE_STATE"])
 calls = json.loads(state.read_text(encoding="utf-8")) if state.exists() else []
 calls.append({"args": args, "cwd": os.getcwd(), "path0": os.environ["PATH"].split(os.pathsep)[0],
-              "claudeEnv": [k for k in os.environ if k.upper().startswith(("CLAUDE", "ANTHROPIC"))]})
+              "claudeEnv": [k for k in os.environ if k.upper().startswith(("CLAUDE", "ANTHROPIC"))],
+              "temp": os.environ.get("TEMP", "")})
 state.write_text(json.dumps(calls, ensure_ascii=False), encoding="utf-8")
 n = len(calls)
 out = args[args.index("-o") + 1]
@@ -22,6 +23,7 @@ def evidence(phase):
 
 
 final = {"status": "完成", "last_phase": 0, "stop_reason": "", "summary": "假的", "assumptions": ["超时按 5 秒"],
+         "responses": [x for x in os.environ.get("FAKE_RESPONSES", "").split(",") if x],
          "interface_requests": [], "downstream": [], "problems": []}
 if scenario == "partial":
     # 第 1 次只做阶段 1 就说完成(阶段 2 没有证据),第 2 次补上
@@ -34,6 +36,17 @@ elif scenario == "noreport":
     evidence(1)
     evidence(2)
     final = "做完了" if n == 1 else dict(final, last_phase=2)
+elif scenario == "explore":
+    final = "src/a.py:1-3 片段:def hit(): ..."
+elif scenario == "lintfix":
+    # 第 1 次做完两个阶段;lint 不通过后被续用,才补上 lint-ok.txt
+    Path("src").mkdir(exist_ok=True)
+    Path("src/feature.txt").write_text("功能\n", encoding="utf-8")
+    evidence(1)
+    evidence(2)
+    final["last_phase"] = 2
+    if "没通过" in args[-1]:
+        Path("lint-ok.txt").write_text("ok", encoding="utf-8")
 elif scenario == "stop":
     evidence(1)
     final.update(status="停止", last_phase=1, stop_reason="产品决定:颜色")

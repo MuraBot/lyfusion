@@ -1,15 +1,18 @@
-﻿# 把简报派给 Codex 助手,并当监工:缺最终报告就要求补,阶段证据不全又没停下就续跑。试点版。
-# 每次运行自动记台账;运行结束后在任务分支上提交改动,最终报告存成 report.md。用法见 prompts/dispatch.md:
-#   .\tools\codex-dispatch.ps1 -Task T5 -Model gpt-6.1-sol -Worktree [-From task/T4]
-#   .\tools\codex-dispatch.ps1 -Task T5 -Model gpt-6.1-sol -Resume 会话编号 -Message "lead 的回答:……" [-Contract]
+﻿# 把简报派给 Codex 助手,并当监工:缺最终报告就要求补,阶段证据不全又没停下就续跑,验收命令不过就让助手接着修。
+# 每次运行自动记台账;运行结束后由脚本提交助手的改动,打交接包 bundle.md。用法见 prompts/dispatch.md:
+#   .\tools\codex-dispatch.ps1 -Task T5 -Model gpt-6-luna -Explore -AskFile tasks\T5-ask.md   只读探索,产出探索包
+#   .\tools\codex-dispatch.ps1 -Task T5 -Model gpt-6-luna                                    派工:检查简报、登记、记起点、启动
+#   .\tools\codex-dispatch.ps1 -Task T5 -Model gpt-6-luna -Resume 会话编号 -MessageFile 文件 [-Contract]
+#   .\tools\codex-dispatch.ps1 -Task T5 -Accept -Session 会话编号 [-Note "看了哪些"]   跑验收命令、核对修改请求、记结论、提交
+#   .\tools\codex-dispatch.ps1 -Task T5 -Rollback -Session 会话编号                   退回派工前的起点(台账和简报不退)
 #   .\tools\codex-dispatch.ps1 -Task 预检 -Model 模型名 -Effort low -Preflight "构建命令"
-#   .\tools\codex-dispatch.ps1 -Task T5 -Merge [-Playtest]   跑测试,通过才合并进 main,再改状态
-#   .\tools\codex-dispatch.ps1 -Task T5 -Cleanup     合并后删除工作目录和分支,先保存证据
+# 同时开着前端子代理时才用工作目录:派工加 -Worktree [-From task/T4];收尾用 ledger.py review、-Merge [-Playtest]、-Cleanup。
 # 可选参数:
 #   -Effort low/medium/high 等      推理强度;不加就用 Codex 的默认配置
 #   -Sandbox workspace-write 或 danger-full-access   不加就用下面"项目设置"里的默认值
-#   -Contract                       -Message 是改变契约的决定:先写进简报的"已定",再交给助手
-#   -Playtest                       合并后要 Lily 试玩:状态改成 verify,不改成 done
+#   -Message "……"                   续用时的短消息;长的、带引号的用 -MessageFile
+#   -Contract                       消息是改变契约的决定:先写进简报的"已定",再交给助手
+#   -Playtest                       验收或合并后要 Lily 试玩:状态改成 verify,不改成 done
 #   -NoSupervise                    不自动续跑
 # 本文件保存为带 BOM 的 UTF-8,Windows PowerShell 5.1 才能正确读取中文。
 param(
@@ -17,13 +20,20 @@ param(
     [string]$Model,
     [string]$Resume,
     [string]$Message,
+    [string]$MessageFile,
     [switch]$Contract,
+    [switch]$Explore,
+    [string]$AskFile,
     [string]$Base = "main",
     [string]$Effort,
     [ValidateSet("", "workspace-write", "danger-full-access")][string]$Sandbox = "",
     [switch]$Worktree,
     [string]$From,
     [string]$Preflight,
+    [switch]$Accept,
+    [switch]$Rollback,
+    [string]$Session,
+    [string]$Note = "",
     [switch]$Merge,
     [switch]$Playtest,
     [switch]$Cleanup,
@@ -42,8 +52,18 @@ $ProjectEnv = @{}
 $CopyIntoWorktree = @()
 # 一次派工最多自动续跑几次
 $MaxContinue = 3
-# -Merge 在工作目录里跑的测试命令,例如 "gradlew.bat test"。退出码不是 0 就不合并
+# 验收命令:助手做完后脚本跑,不通过就让助手接着修;-Accept 和 -Merge 前再跑。留空就跳过
+# 测试命令,例如 "gradlew.bat test"
 $TestCommand = ""
+# lint 命令,例如 "python -m ruff check --fix ."。各语言的推荐命令见 lyfusion 的 README「lint」
+$LintCommand = ""
+# 验收命令不通过时,最多让助手修几次
+$MaxGateFix = 2
+# 交接包里"关键改动"最多放多少行 diff
+$BundleDiffLines = 400
+# lead 用 -Accept、-Rollback 提交时,追溯信息里的模型和推理强度
+$LeadModel = "claude-opus-5-5"
+$LeadEffort = "high"
 # ---- 项目设置结束 ----
 
 $ErrorActionPreference = "Continue"
@@ -58,12 +78,65 @@ $wtPath = Join-Path (Split-Path $root -Parent) ((Split-Path $root -Leaf) + "-" +
 if ($Worktree -or (Test-Path $wtPath)) { $work = $wtPath }
 $logDir = Join-Path $root "dispatch-logs"
 New-Item -ItemType Directory -Force $logDir | Out-Null
+$evidence = "dispatch-logs/evidence/$Task"
+$stem = Join-Path $logDir ("{0}-{1}" -f $Task, (Get-Date -Format "yyyyMMdd-HHmmss"))
+$effortName = if ($Effort) { $Effort } else { "default" }
 
-# Codex 和测试命令交给 run_logged.py 运行,不用 &:后台的 git 会占着输出管道让 & 挂住,原因见 run_logged.py
+# Codex 和验收命令交给 run_logged.py 运行,不用 &:后台的 git 会占着输出管道让 & 挂住,原因见 run_logged.py
 function Invoke-Logged([hashtable]$Spec, [string]$SpecFile) {
     $Spec | ConvertTo-Json | Out-File $SpecFile -Encoding UTF8
     python (Join-Path $root "tools\run_logged.py") $SpecFile | Out-Host
     return $LASTEXITCODE
+}
+
+function Get-Tail([string]$Path, [int]$N) { @(Get-Content $Path -Encoding UTF8 -ErrorAction SilentlyContinue | Select-Object -Last $N) }
+
+# 临时目录放进工作目录:沙箱只能写工作目录,pytest 在系统临时目录里会报权限错误(fusion-bench C1-H2)
+function Set-WorkTemp {
+    $t = Join-Path $work "dispatch-logs\tmp"
+    New-Item -ItemType Directory -Force $t | Out-Null
+    $env:TEMP = $t; $env:TMP = $t
+}
+
+# 跑测试和 lint 命令,返回每条的结果
+function Invoke-Gates([string]$Tag) {
+    $res = @()
+    foreach ($g in @(@("测试", $TestCommand, "test"), @("lint", $LintCommand, "lint"))) {
+        if (-not $g[1]) { continue }
+        $out = "$stem-$Tag-$($g[2]).out.txt"
+        $code = Invoke-Logged @{ shell = $g[1]; cwd = $work; out = $out } "$out.json"
+        $res += , @{ Name = $g[0]; Cmd = $g[1]; Code = $code; Out = $out }
+    }
+    return , $res
+}
+
+# 模型备注:prompts/models/模型名.md 里「## 备注」下的条目。「## 待观察」的不用
+function Get-ModelNotes {
+    $f = Join-Path $root "prompts\models\$Model.md"
+    $out = @()
+    if (-not ($Model -and (Test-Path $f))) { return , $out }
+    $on = $false
+    foreach ($l in Get-Content $f -Encoding UTF8) {
+        if ($l -match '^## ') { $on = $l -match '^## 备注'; continue }
+        if ($on -and $l -match '^\s*- ') { $out += $l.Trim() }
+    }
+    return , $out
+}
+
+# lead 的提交(-Accept、-Rollback):追溯信息写 lead 的
+function Save-LeadCommit([string]$Title) {
+    if (-not (git -C $root status --porcelain)) { return }
+    $msgFile = "$stem.lead-commit.txt"
+    $msg = "$Title`n`nTask: $Task`nAgent: Claude Code`nModel: $LeadModel`nEffort: $LeadEffort`nSession: $Session`n"
+    [IO.File]::WriteAllText($msgFile, $msg, (New-Object Text.UTF8Encoding $false))
+    git -C $root add -A
+    git -C $root commit -q -F $msgFile
+    if ($LASTEXITCODE -ne 0) { Write-Warning "提交失败,改动还在:$root" }
+}
+
+# 修改请求的编号,例如 R1、R2
+function Get-RequestIds([string]$Text) {
+    @([regex]::Matches($Text, '(?<![A-Za-z0-9])R\d+(?!\d)') | ForEach-Object { $_.Value } | Select-Object -Unique)
 }
 
 # ---- 合并后清理:先保存证据,再删工作目录和分支 ----
@@ -88,7 +161,7 @@ if ($Cleanup) {
     exit 0
 }
 
-# ---- 合并:先在工作目录里合并 main 并跑测试,通过才合并进 main。任何一步失败,main 不变 ----
+# ---- 合并(工作目录模式):先在工作目录里合并 main 并跑测试,通过才合并进 main。任何一步失败,main 不变 ----
 if ($Merge) {
     if (-not $TestCommand) { Write-Error "项目设置里的 TestCommand 没填。先填上合并前要跑的测试命令"; exit 1 }
     if (-not (Test-Path $wtPath)) { Write-Error "没有工作目录:$wtPath"; exit 1 }
@@ -121,8 +194,65 @@ if ($Merge) {
     exit 0
 }
 
+# ---- 验收(直接在主目录改的模式):跑验收命令、核对修改请求都有回应、记审查结论、改进度、提交,一步做完 ----
+if ($Accept) {
+    if (Test-Path $wtPath) { Write-Error "$Task 在工作目录里做:先 ledger.py review,再 -Merge、-Cleanup"; exit 1 }
+    if (-not $Session) { Write-Error "-Accept 要用 -Session 写明 lead 的会话编号(写进提交的追溯信息)"; exit 1 }
+    $ev = Join-Path $root "dispatch-logs\evidence\$Task"
+    Set-WorkTemp
+    $bad = @(Invoke-Gates "accept" | Where-Object { $_.Code -ne 0 })
+    if ($bad.Count) {
+        foreach ($g in $bad) { "$($g.Name) 没通过(退出码 $($g.Code)):$($g.Cmd)"; Get-Tail $g.Out 20 }
+        Write-Error "验收命令没通过,不验收。续用让助手修"; exit 1
+    }
+    $ids = @()
+    $req = Join-Path $ev "requests-latest.md"
+    if (Test-Path $req) {
+        $ids = Get-RequestIds (Get-Content $req -Encoding UTF8 -Raw)
+        $rp = Join-Path $ev "report.md"
+        $done = if (Test-Path $rp) { Get-RequestIds (Get-Content $rp -Encoding UTF8 -Raw) } else { @() }
+        $miss = @($ids | Where-Object { $done -notcontains $_ })
+        if ($miss.Count) { Write-Error "最终报告没有回应这些修改请求:$($miss -join '、')。续用让助手逐条回应"; exit 1 }
+    }
+    $n = if ($Note) { $Note } else { "验收" }
+    python (Join-Path $root "tools\ledger.py") review --task $Task --result pass --findings $ids.Count --by lead --note $n
+    if ($LASTEXITCODE -ne 0) { Write-Error "台账没记上审查结论,不验收"; exit 1 }
+    $status = if ($Playtest) { "verify" } else { "done" }
+    python (Join-Path $root "tools\progress.py") set-status $Task $status 2>$null | Out-Null
+    Save-LeadCommit "${Task}:lead 验收($n)"
+    "已验收 $Task:验收命令通过,修改请求 $($ids.Count) 条都有回应,进度改成 $status,已提交。"
+    exit 0
+}
+
+# ---- 退回:撤销派工以来的改动,回到起点。用 revert,历史不删;台账、进度和简报保留 ----
+if ($Rollback) {
+    if (Test-Path $wtPath) { Write-Error "$Task 在工作目录里做:不合并就是退回"; exit 1 }
+    if (-not $Session) { Write-Error "-Rollback 要用 -Session 写明 lead 的会话编号"; exit 1 }
+    $sf = Join-Path $root "$evidence\start.txt"
+    if (-not (Test-Path $sf)) { Write-Error "没有起点记录:$sf"; exit 1 }
+    $start = (Get-Content $sf -Encoding UTF8 -TotalCount 1).Trim()
+    $dirty = @(git -C $root status --porcelain | Where-Object { $_ -notmatch '(ledger\.jsonl|progress\.json)$' -and $_ -notmatch '^.. "?tasks/' })
+    if ($dirty.Count) { Write-Error "主目录有没提交的改动,先处理:`n$($dirty -join "`n")"; exit 1 }
+    # 台账、进度和简报可能还没提交:先备份,退回后放回原样
+    $keep = Join-Path $logDir "rollback-keep"
+    Remove-Item $keep -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $keep | Out-Null
+    foreach ($k in @("ledger.jsonl", "progress.json", "tasks")) { if (Test-Path (Join-Path $root $k)) { Copy-Item (Join-Path $root $k) $keep -Recurse -Force } }
+    git -C $root revert --no-commit "$start..HEAD"
+    if ($LASTEXITCODE -ne 0) { git -C $root revert --abort; Write-Error "退回失败,已撤销"; exit 1 }
+    foreach ($k in @("ledger.jsonl", "progress.json", "tasks")) { if (Test-Path (Join-Path $keep $k)) { Copy-Item (Join-Path $keep $k) $root -Recurse -Force } }
+    python (Join-Path $root "tools\progress.py") set-status $Task todo 2>$null | Out-Null
+    Save-LeadCommit "${Task}:退回到派工前的起点 $start"
+    "已退回到 $start。台账、进度和简报保留。"
+    exit 0
+}
+
 if (-not $Model) { Write-Error "要用 -Model 写明模型。"; exit 1 }
-if ($Resume -and -not $Message) { Write-Error "续用会话时要用 -Message 写明交给 agent 的内容。"; exit 1 }
+if ($MessageFile) {
+    if (-not (Test-Path $MessageFile)) { Write-Error "找不到 -MessageFile:$MessageFile"; exit 1 }
+    $Message = Get-Content $MessageFile -Encoding UTF8 -Raw
+}
+if ($Resume -and -not $Message) { Write-Error "续用会话时要用 -Message 或 -MessageFile 写明交给 agent 的内容。"; exit 1 }
 if ($Contract -and -not ($Resume -and $Message)) { Write-Error "-Contract 要和 -Resume、-Message 一起用。"; exit 1 }
 $cmd = Get-Command codex -ErrorAction SilentlyContinue
 $pkg = Get-AppxPackage OpenAI.Codex -ErrorAction SilentlyContinue
@@ -135,46 +265,6 @@ $env:PATH = (Split-Path $exe -Parent) + [IO.Path]::PathSeparator + $env:PATH
 $missingCmds = @($NeedCommands | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) })
 $envNote = if ($missingCmds.Count) { "本机没有这些命令:$($missingCmds -join '、')。用替代办法继续,在最终报告里说明,不要因此停下。" } else { "" }
 
-# 改变契约的决定:先写进主目录的简报,下面再把简报带进工作目录。用文件传,避开命令行的引号问题
-if ($Contract) {
-    $decision = Join-Path $logDir "$Task-decision.txt"
-    $Message | Out-File $decision
-    python (Join-Path $root "tools\brief.py") decide $Task --text "@$decision"
-    if ($LASTEXITCODE -ne 0) { Write-Error "决定没有写进简报,不续用。"; exit 1 }
-}
-
-# 简报检查:不通过就不派工
-$brief = $null
-if (-not $Preflight) {
-    $json = python (Join-Path $root "tools\brief.py") phases $Task --json
-    if ($LASTEXITCODE -ne 0) { exit 1 }
-    $brief = $json | ConvertFrom-Json
-    if (-not $brief.ok) { python (Join-Path $root "tools\brief.py") check $Task; Write-Error "简报没通过检查,不派工。"; exit 1 }
-    # 进度由脚本改,lead 每次派工只运行这一条命令。任务不在进度表里时跳过
-    python (Join-Path $root "tools\progress.py") set-status $Task doing 2>$null | Out-Null
-}
-
-# 工作目录:每个简报一个,放在项目文件夹旁边
-if ($Worktree -and -not (Test-Path $wtPath)) {
-    $start = if ($From) { $From } else { "HEAD" }
-    git -C $root worktree add $wtPath -b $branch $start
-    if ($LASTEXITCODE -ne 0) { Write-Error "建立工作目录失败:$wtPath"; exit 1 }
-    foreach ($f in $CopyIntoWorktree) {
-        $src = Join-Path $root $f
-        if (Test-Path $src) {
-            $dst = Join-Path $wtPath $f
-            New-Item -ItemType Directory -Force (Split-Path $dst -Parent) | Out-Null
-            Copy-Item $src $dst -Force
-        }
-        else { Write-Warning "要复制的文件不存在:$f" }
-    }
-}
-
-$evidence = "dispatch-logs/evidence/$Task"
-New-Item -ItemType Directory -Force (Join-Path $work $evidence) | Out-Null
-$schema = Join-Path $root "tools\schemas\final.schema.json"
-$runId = "run-" + (Get-Date -Format "yyyyMMdd-HHmmss")
-
 # Claude 只由 Lily 使用:不把 Claude 的会话令牌和配置带进 Codex 的环境
 $claudeVars = @(Get-ChildItem env: | Where-Object { $_.Name -match '^(CLAUDE|ANTHROPIC)' } | ForEach-Object { $_.Name })
 $claudeVars | ForEach-Object { Remove-Item "env:$_" -ErrorAction SilentlyContinue }
@@ -183,8 +273,13 @@ $claudeVars | ForEach-Object { Remove-Item "env:$_" -ErrorAction SilentlyContinu
 $cfg = @()
 if ($Effort) { $cfg += @("-c", "model_reasoning_effort=$Effort") }
 foreach ($k in $ProjectEnv.Keys) { $cfg += @("-c", "shell_environment_policy.set.$k=$($ProjectEnv[$k])") }
+$schema = Join-Path $root "tools\schemas\final.schema.json"
+$runId = "run-" + (Get-Date -Format "yyyyMMdd-HHmmss")
+$brief = $null
 
 function Invoke-Codex([string[]]$CodexArgs, [string]$Prompt, [string]$Stem) {
+    # npm 装的 codex 是 .cmd:批处理在换行处截断参数,修改请求只剩第一行。换成 ⏎ 再传
+    if ($exe -match '\.(cmd|bat)$') { $Prompt = $Prompt -replace "`r?`n", " ⏎ " }
     $spec = @{ cmd = @($exe) + @($CodexArgs) + @("--json", "-o", "$Stem.report.txt", $Prompt); cwd = $work
                out = "$Stem.events.jsonl"; err = "$Stem.stderr.log" }
     $code = Invoke-Logged $spec "$Stem.run.json"
@@ -211,6 +306,82 @@ function Write-Ledger($r, [string]$Role, [int]$Run) {
     python (Join-Path $root "tools\ledger.py") @la
 }
 
+# ---- 探索:只读,不改文件。产出探索包 explore.md,lead 读它写计划 ----
+if ($Explore) {
+    if (-not $AskFile -or -not (Test-Path $AskFile)) { Write-Error "-Explore 要用 -AskFile 给出任务原话和 lead 的问题所在的文件"; exit 1 }
+    $ask = (Resolve-Path $AskFile).Path
+    $ev = Join-Path $root $evidence
+    New-Item -ItemType Directory -Force $ev | Out-Null
+    $prompt = "${envNote}你是助手,这次只探索代码,不改任何文件。先读 prompts/sidekick.md 的「探索」一节,再读 $ask(任务原话和 lead 的问题),然后在项目里找和任务相关的代码。最后一条消息按「探索」一节的格式写。"
+    $r = Invoke-Codex (@("exec", "-m", $Model) + $cfg + @("-s", "read-only", "-C", $work)) $prompt $stem
+    Write-Ledger $r "探索" 1
+    $body = if (Test-Path "$stem.report.txt") { @(Get-Content "$stem.report.txt" -Encoding UTF8) } else { @("没有探索报告。查看 $stem.stderr.log") }
+    $notes = Get-ModelNotes
+    $pack = @("# $Task 探索包", "") + $body
+    if ($notes.Count) { $pack += @("", "## 模型备注($Model):写计划时参考") + $notes }
+    $path = Join-Path $ev "explore.md"
+    $pack | Out-File $path
+    ""
+    "退出码:$($r.Code)"
+    if ($r.Thread) { "会话编号:$($r.Thread)" }
+    "探索包:$path(lead 只读这一个文件)"
+    exit $r.Code
+}
+
+# 简报检查:不通过就不派工
+if (-not $Preflight) {
+    $json = python (Join-Path $root "tools\brief.py") phases $Task --json
+    if ($LASTEXITCODE -ne 0) { exit 1 }
+    $brief = $json | ConvertFrom-Json
+    if (-not $brief.ok) { python (Join-Path $root "tools\brief.py") check $Task; Write-Error "简报没通过检查,不派工。"; exit 1 }
+    # 助手直接在主目录改:主目录里不能有 lead 没提交的别的改动,不然分不清哪些是助手的
+    if (-not $Resume -and $work -eq $root) {
+        $dirty = @(git -C $root status --porcelain | Where-Object { $_ -notmatch '(ledger\.jsonl|progress\.json)$' -and $_ -notmatch '^.. "?tasks/' })
+        if ($dirty.Count) { Write-Error "主目录有没提交的改动,先提交:`n$($dirty -join "`n")"; exit 1 }
+    }
+    # 登记进度:任务不在进度表里就加上;模板自带的示例任务换成这个任务。lead 每次派工只运行这一条命令
+    $pf = Join-Path $root "progress.json"
+    if (Test-Path $pf) {
+        $prog = Get-Content $pf -Encoding UTF8 -Raw | ConvertFrom-Json
+        $t = @($prog.tasks | Where-Object { $_.id -eq $Task })
+        $head = Get-Content (Join-Path $root "tasks\$Task.md") -Encoding UTF8 -TotalCount 1
+        $title = if ($head -match '^#\s*任务\s*\S+?[::]\s*(.+)$') { $Matches[1].Trim() } else { $Task }
+        if (-not $t.Count) { python (Join-Path $root "tools\progress.py") add-task $title --milestone $prog.currentMilestone --id $Task --card "tasks/$Task.md" | Out-Null }
+        elseif ($t[0].title -like "示例任务*") { python (Join-Path $root "tools\progress.py") edit-task $Task --title $title --card "tasks/$Task.md" | Out-Null }
+        python (Join-Path $root "tools\progress.py") set-status $Task doing 2>$null | Out-Null
+    }
+}
+
+# 改变契约的决定:先写进主目录的简报,下面再把简报带进工作目录。用文件传,避开命令行的引号问题
+if ($Contract) {
+    $decision = Join-Path $logDir "$Task-decision.txt"
+    $Message | Out-File $decision
+    python (Join-Path $root "tools\brief.py") decide $Task --text "@$decision"
+    if ($LASTEXITCODE -ne 0) { Write-Error "决定没有写进简报,不续用。"; exit 1 }
+}
+
+# 工作目录:同时开着前端子代理时才用,放在项目文件夹旁边
+if ($Worktree -and -not (Test-Path $wtPath)) {
+    $start = if ($From) { $From } else { "HEAD" }
+    git -C $root worktree add $wtPath -b $branch $start
+    if ($LASTEXITCODE -ne 0) { Write-Error "建立工作目录失败:$wtPath"; exit 1 }
+    foreach ($f in $CopyIntoWorktree) {
+        $src = Join-Path $root $f
+        if (Test-Path $src) {
+            $dst = Join-Path $wtPath $f
+            New-Item -ItemType Directory -Force (Split-Path $dst -Parent) | Out-Null
+            Copy-Item $src $dst -Force
+        }
+        else { Write-Warning "要复制的文件不存在:$f" }
+    }
+}
+
+New-Item -ItemType Directory -Force (Join-Path $work $evidence) | Out-Null
+Set-WorkTemp
+# 起点:第一次派工时的提交。交接包的 diff 和 -Rollback 都以它为准
+$startFile = Join-Path $work "$evidence\start.txt"
+if (-not $Preflight -and -not (Test-Path $startFile)) { git -C $work rev-parse HEAD | Out-File $startFile }
+
 # 证据目录是空的阶段。阶段做没做完,以证据为准,不以助手的话为准
 function Get-MissingEvidence {
     @(@($brief.phases) | ForEach-Object { $_.n } | Where-Object {
@@ -219,11 +390,11 @@ function Get-MissingEvidence {
     })
 }
 
-# 最终报告存成 report.md:lead 读它,不读助手的过程。超过 60 行就提醒
+# 最终报告存成 report.md。超过 60 行就提醒
 function Save-Report($f) {
     $out = @("# $Task 最终报告", "", "- 状态:$($f.status) · 最后阶段 $($f.last_phase)", "- 摘要:$($f.summary)")
     if ($f.stop_reason) { $out += "- 停止原因:$($f.stop_reason)" }
-    foreach ($s in @(@("假设", "assumptions"), @("接口修改请求", "interface_requests"), @("给下游", "downstream"), @("问题", "problems"))) {
+    foreach ($s in @(@("修改请求的回应", "responses"), @("假设", "assumptions"), @("接口修改请求", "interface_requests"), @("给下游", "downstream"), @("问题", "problems"))) {
         $items = @($f.($s[1]) | Where-Object { $_ })
         $out += @("", "## $($s[0])")
         $out += $(if ($items.Count) { $items | ForEach-Object { "- $_" } } else { "- 无" })
@@ -234,10 +405,48 @@ function Save-Report($f) {
     return $path
 }
 
-$effortName = if ($Effort) { $Effort } else { "default" }
-$stem = Join-Path $logDir ("{0}-{1}" -f $Task, (Get-Date -Format "yyyyMMdd-HHmmss"))
-$reportPath = $null
+# 交接包:lead 审查只读这一个文件。报告、验收命令、diff 统计、关键改动(不含测试)、模型备注、下一步命令
+function Write-Bundle($r, $gates) {
+    $start = (Get-Content $startFile -Encoding UTF8 -TotalCount 1).Trim()
+    $f = $r.Final
+    $b = @("# $Task 交接包", "")
+    if ($f) { $b += "- 状态:$($f.status) · 最后阶段 $($f.last_phase) · $($f.summary)"; if ($f.stop_reason) { $b += "- 停止原因:$($f.stop_reason)" } }
+    else { $b += "- 没有最终报告。查看 $($r.Stem).stderr.log" }
+    if ($r.Thread) { $b += "- 会话编号:$($r.Thread)" }
+    $b += "- 起点提交:$start"
+    $b += @("", "## 验收命令")
+    if (-not @($gates).Count) { $b += "- 项目设置里没有 TestCommand 和 LintCommand" }
+    foreach ($g in @($gates)) {
+        $b += "- $($g.Name):$($g.Cmd) · 退出码 $($g.Code)"
+        $n = if ($g.Code -ne 0) { 20 } else { 3 }
+        $b += @('```') + (Get-Tail $g.Out $n) + @('```')
+    }
+    $b += @("", "## 改动", '```') + @(git -C $work diff --stat "$start..HEAD") + @('```')
+    $rp = Join-Path $work "$evidence\report.md"
+    if (Test-Path $rp) { $b += @("", "## 最终报告") + @(Get-Content $rp -Encoding UTF8 | Select-Object -Skip 2) }
+    $ex = @(".", ":(exclude)ledger.jsonl", ":(exclude)progress.json", ":(exclude)tasks", ":(exclude,glob)**/tests/**", ":(exclude,glob)**/test_*", ":(exclude,glob)**/*_test.*")
+    $diff = @(git -C $work diff "$start..HEAD" -- @ex)
+    $b += @("", "## 关键改动(不含测试)", '```diff') + @($diff | Select-Object -First $BundleDiffLines) + @('```')
+    if ($diff.Count -gt $BundleDiffLines) { $b += "(共 $($diff.Count) 行,只放了前 $BundleDiffLines 行。其余用 git diff $start..HEAD -- 文件)" }
+    $notes = Get-ModelNotes
+    if ($notes.Count) { $b += @("", "## 模型备注($Model):写修改请求时参考") + $notes }
+    $b += @("", "## 下一步",
+        "- 要改:修改请求写进文件(编号 R1、R2…),-Task $Task -Model $Model -Resume $($r.Thread) -MessageFile 文件",
+        "- 验收:-Task $Task -Accept -Session 会话编号 -Note ""看了哪些""",
+        "- 整个退回:-Task $Task -Rollback -Session 会话编号")
+    $path = Join-Path $work "$evidence\bundle.md"
+    $b | Out-File $path
+    return $path
+}
 
+function Invoke-Resume([string]$Thread, [string]$Text, [string]$Suffix) {
+    $a = @("exec", "resume", $Thread, "-m", $Model) + $cfg + @("-c", "sandbox_mode=$Sandbox") + @("--output-schema", $schema)
+    return Invoke-Codex $a $Text "$stem$Suffix"
+}
+
+$reportPath = $null
+$bundlePath = $null
+$runNo = 0
 if ($Preflight) {
     $prompt = "环境预检。只运行这条命令一次:$Preflight 。不修改任何文件,不修复问题。stop_reason 写退出码和输出的最后 30 行,其他数组写空。"
     $r = Invoke-Codex (@("exec", "-m", $Model) + $cfg + @("-s", $Sandbox, "-C", $work, "--output-schema", $schema)) $prompt $stem
@@ -245,21 +454,30 @@ if ($Preflight) {
     $runs = @($r)
 }
 else {
-    $start = "${envNote}你是助手。读 prompts/sidekick.md、AGENTS.md 和 tasks/$Task.md(简报),从阶段 1 一口气做到最后一个阶段,途中不和 lead 通信。每个阶段做完,把验收命令的原始输出存到 $evidence/阶段编号/,然后直接开始下一个阶段。不要提交,派工脚本会在运行结束后提交。只在全部阶段完成、做完检查点阶段或遇到停止条件时结束,要 lead 回答的问题写进最后一条消息。"
+    $gateCmds = @(@($TestCommand, $LintCommand) | Where-Object { $_ })
+    $gateNote = if ($gateCmds.Count) { "做完后派工脚本会跑验收命令($($gateCmds -join ';')),不通过会让你接着修,你也可以先自己跑。" } else { "" }
+    $notes = Get-ModelNotes
+    $noteText = if ($notes.Count) { "照着避开这些以前出过的问题:" + ($notes -join " ") } else { "" }
+    $start = "${envNote}你是助手。读 prompts/sidekick.md、AGENTS.md 和 tasks/$Task.md(简报),从阶段 1 一口气做到最后一个阶段,途中不和 lead 通信。每个阶段做完,把验收命令的原始输出存到 $evidence/阶段编号/,然后直接开始下一个阶段。${gateNote}${noteText}不要提交,派工脚本会在运行结束后提交。只在全部阶段完成、做完检查点阶段或遇到停止条件时结束,要 lead 回答的问题写进最后一条消息。"
     # 简报只由 lead 改。把主目录里最新的简报(含写回的决定)带进工作目录
     if ($work -ne $root) { Copy-Item (Join-Path $root "tasks\$Task.md") (Join-Path $work "tasks\$Task.md") -Force }
     $runs = @()
     if ($Resume) {
-        $note = if ($Contract) { "(这条决定已写进简报的「已定」)" } else { "" }
-        $a = @("exec", "resume", $Resume, "-m", $Model) + $cfg + @("-c", "sandbox_mode=$Sandbox") + @("--output-schema", $schema)
-        $r = Invoke-Codex $a "${envNote}$Message$note" $stem
+        $text = $Message
+        if ($Contract) { $text += "(这条决定已写进简报的「已定」)" }
+        # 修改请求存进证据,-Accept 核对每条都有回应
+        if ((Get-RequestIds $Message).Count) {
+            $Message | Out-File (Join-Path $work "$evidence\requests-latest.md")
+            $text += "`n最终报告的 responses 里逐条写「R编号:怎么改的」。"
+        }
+        $r = Invoke-Resume $Resume "${envNote}$text" ""
     }
     else {
         $a = @("exec", "-m", $Model) + $cfg + @("-s", $Sandbox, "-C", $work) + @("--output-schema", $schema)
         $r = Invoke-Codex $a $start $stem
     }
-    $runs += $r
-    Write-Ledger $r "助手" 1
+    $runs += $r; $runNo++
+    Write-Ledger $r "助手" $runNo
     # 监工:没有最终报告就要求补;阶段证据不全、又没停下,就续"继续"
     for ($i = 1; -not $NoSupervise -and $i -le $MaxContinue; $i++) {
         $f = $r.Final
@@ -269,24 +487,40 @@ else {
         $next = if ($missing.Count) { "继续:阶段 $($missing -join '、') 还没有证据($evidence/阶段编号/)。没做完就接着做,做完了就补存验收命令的原始输出。只在全部阶段完成或遇到停止条件时结束,最后一条消息按派工时给的格式写。" }
                 else { "补最终报告:按派工时给的格式写最后一条消息,再结束。" }
         "监工:第 $i 次续跑。$next"
-        $stem2 = "$stem-c$i"
-        $a = @("exec", "resume", $r.Thread, "-m", $Model) + $cfg + @("-c", "sandbox_mode=$Sandbox") + @("--output-schema", $schema)
-        $r = Invoke-Codex $a $next $stem2
-        $runs += $r
-        Write-Ledger $r "助手" ($i + 1)
+        $r = Invoke-Resume $r.Thread $next "-c$i"
+        $runs += $r; $runNo++
+        Write-Ledger $r "助手" $runNo
+    }
+    # 验收命令:不通过就让助手接着修。lead 看到的总是跑过测试和 lint 的结果
+    $gates = Invoke-Gates "g0"
+    for ($j = 1; -not $NoSupervise -and $j -le $MaxGateFix; $j++) {
+        $bad = @($gates | Where-Object { $_.Code -ne 0 })
+        if (-not $bad.Count -or -not $r.Thread -or ($r.Final -and $r.Final.status -eq "停止")) { break }
+        $fix = "派工脚本跑了验收命令,没通过,请修好。不要改测试或验收标准来通过。"
+        foreach ($g in $bad) { $fix += "`n命令:$($g.Cmd)(退出码 $($g.Code)),输出的最后 40 行:`n" + ((Get-Tail $g.Out 40) -join "`n") }
+        $fix += "`n修好后按派工时给的格式写最后一条消息。"
+        "监工:验收命令没通过,第 $j 次让助手修。"
+        $r = Invoke-Resume $r.Thread $fix "-g$j"
+        $runs += $r; $runNo++
+        Write-Ledger $r "助手" $runNo
+        $gates = Invoke-Gates "g$j"
     }
     if ($r.Final) { $reportPath = Save-Report $r.Final }
-    # 助手不提交。在任务分支上由脚本提交,追溯信息写好,lead 看 git diff
-    if ($work -ne $root -and (git -C $work status --porcelain)) {
-        $sess = if ($r.Thread) { $r.Thread } else { $runId }
-        $sum = if ($r.Final) { $r.Final.summary } else { "没有最终报告" }
-        $msgFile = "$stem.commit.txt"
-        $msg = "${Task}:助手的改动($runId)`n`n$sum`n`nTask: $Task`nAgent: Codex`nModel: $Model`nEffort: $effortName`nSession: $sess`n"
-        [IO.File]::WriteAllText($msgFile, $msg, (New-Object Text.UTF8Encoding $false))
-        git -C $work add -A
-        git -C $work commit -q -F $msgFile
-        if ($LASTEXITCODE -ne 0) { Write-Warning "提交失败,改动还在工作目录里:$work" }
+    # 助手不提交,由脚本提交,追溯信息写好。主目录模式不带台账、进度和简报,它们由 lead 的 -Accept 提交
+    if (git -C $work status --porcelain) {
+        if ($work -eq $root) { git -C $work add -A -- . ":(exclude)ledger.jsonl" ":(exclude)progress.json" ":(exclude)tasks" }
+        else { git -C $work add -A }
+        if (git -C $work diff --cached --name-only) {
+            $sess = if ($r.Thread) { $r.Thread } else { $runId }
+            $sum = if ($r.Final) { $r.Final.summary } else { "没有最终报告" }
+            $msgFile = "$stem.commit.txt"
+            $msg = "${Task}:助手的改动($runId)`n`n$sum`n`nTask: $Task`nAgent: Codex`nModel: $Model`nEffort: $effortName`nSession: $sess`n"
+            [IO.File]::WriteAllText($msgFile, $msg, (New-Object Text.UTF8Encoding $false))
+            git -C $work commit -q -F $msgFile
+            if ($LASTEXITCODE -ne 0) { Write-Warning "提交失败,改动还在:$work" }
+        }
     }
+    $bundlePath = Write-Bundle $r $gates
 }
 
 # ---- 汇总 ----
@@ -302,10 +536,10 @@ if ($u) { "token 用量(会话累计):输入 $($u.Usage.input_tokens),其中缓�
 if ($brief) {
     $missing = Get-MissingEvidence
     "证据:$(Join-Path $work $evidence)    没有证据的阶段:$(if ($missing.Count) { $missing -join '、' } else { '无' })"
-    if ($work -ne $root) { "改动:git -C `"$work`" diff --stat $Base...HEAD" }
 }
 if ($last.Final) { "最后一条消息:$($last.Final.status) · 阶段 $($last.Final.last_phase) · $($last.Final.summary)"; if ($last.Final.stop_reason) { "停止原因:$($last.Final.stop_reason)" } }
 elseif (Test-Path "$($last.Stem).report.txt") { Get-Content "$($last.Stem).report.txt" -Encoding UTF8 }
 else { "没有最后一条消息。查看 $($last.Stem).stderr.log" }
 if ($reportPath) { "最终报告:$reportPath" }
+if ($bundlePath) { "交接包:$bundlePath(lead 审查只读这一个文件)" }
 exit $last.Code

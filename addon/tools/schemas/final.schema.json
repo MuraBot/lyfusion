@@ -1,12 +1,13 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["status", "last_phase", "stop_reason", "summary", "assumptions", "interface_requests", "downstream", "problems"],
+  "required": ["status", "last_phase", "stop_reason", "summary", "responses", "assumptions", "interface_requests", "downstream", "problems"],
   "properties": {
     "status": { "type": "string", "enum": ["完成", "停止"] },
     "last_phase": { "type": "integer", "description": "最后一个做完并存了证据的阶段编号,没有就是 0" },
     "stop_reason": { "type": "string", "description": "停止时写:哪种停止条件、要 lead 回答的问题、选项和推荐。检查点阶段做完写「检查点」。完成时写空字符串" },
     "summary": { "type": "string", "description": "一两句话:做成了什么" },
+    "responses": { "type": "array", "items": { "type": "string" }, "description": "续用时 lead 给了修改请求(R1、R2…):逐条写「R编号:怎么改的」。没有就是空数组" },
     "assumptions": { "type": "array", "items": { "type": "string" }, "description": "简报没写清、你按假设定下的事;没采纳的猜测和理由。一条一句" },
     "interface_requests": { "type": "array", "items": { "type": "string" }, "description": "要改别人的接口时:你在本模块做了什么适配,请求怎么改" },
     "downstream": { "type": "array", "items": { "type": "string" }, "description": "新增的接口和给下游的约定,例如数据格式、单位、坐标方向" },

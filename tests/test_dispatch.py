@@ -37,9 +37,10 @@ class DispatchTest(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def dispatch(self, *args, scenario="partial", ok=True, linger=False):
+    def dispatch(self, *args, scenario="partial", ok=True, linger=False, responses=""):
         env = {"PATH": str(FAKE) + os.pathsep + os.environ["PATH"], "FAKE_STATE": str(self.state),
-               "FAKE_SCENARIO": scenario, "CLAUDE_TEST_SECRET": "x", "FAKE_LINGER": "1" if linger else ""}
+               "FAKE_SCENARIO": scenario, "CLAUDE_TEST_SECRET": "x", "FAKE_LINGER": "1" if linger else "",
+               "FAKE_RESPONSES": responses}
         return run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                     str(self.root / "tools" / "codex-dispatch.ps1")] + list(args), self.root, ok=ok, env=env)
 
@@ -120,11 +121,90 @@ class DispatchTest(unittest.TestCase):
                       scenario="stop")
         self.assertEqual(self.calls()[0]["args"][-1], '把 "a b" 改成 c')
 
-    def set_test_command(self, cmd):
+    def set_test_command(self, cmd, name="TestCommand"):
         ps1 = self.root / "tools" / "codex-dispatch.ps1"
         text = ps1.read_bytes().decode("utf-8")
-        ps1.write_bytes(re.sub(r'\$TestCommand = "[^"]*"', '$TestCommand = "%s"' % cmd, text).encode("utf-8"))
-        run(["git", "commit", "-q", "-am", "测试命令:%s" % cmd], self.root)
+        ps1.write_bytes(re.sub(r'\$%s = "[^"]*"' % name, '$%s = "%s"' % (name, cmd), text).encode("utf-8"))
+        run(["git", "commit", "-q", "-am", "%s:%s" % (name, cmd)], self.root)
+
+    def progress(self, task="T5"):
+        prog = json.loads((self.root / "progress.json").read_text(encoding="utf-8"))
+        return [t for t in prog["tasks"] if t["id"] == task]
+
+    def test_explore_is_read_only_and_writes_pack(self):
+        models = self.root / "prompts" / "models"
+        models.mkdir(parents=True, exist_ok=True)
+        (models / "gpt-6-luna.md").write_text("# gpt-6-luna\n\n## 备注\n- 列出要保留的原有行为\n\n## 待观察\n- 还没定的\n",
+                                              encoding="utf-8")
+        ask = self.root / "tasks" / "T5-ask.md"
+        ask.write_text("任务原话:敲铁砧\n", encoding="utf-8")
+        r = self.dispatch("-Task", "T5", "-Model", "gpt-6-luna", "-Explore", "-AskFile", str(ask), scenario="explore")
+        c = self.calls()
+        self.assertEqual(len(c), 1)
+        self.assertEqual(c[0]["args"][c[0]["args"].index("-s") + 1], "read-only")
+        self.assertNotIn("--output-schema", c[0]["args"])
+        self.assertIn(str(ask), c[0]["args"][-1])
+        pack = (self.root / "dispatch-logs" / "evidence" / "T5" / "explore.md").read_text(encoding="utf-8-sig")
+        self.assertIn("src/a.py:1-3", pack)
+        self.assertIn("- 列出要保留的原有行为", pack)
+        self.assertNotIn("还没定的", pack, "待观察的不带上")
+        self.assertIn("探索包:", r.stdout)
+        self.assertEqual(self.ledger()[0]["role"], "探索")
+
+    def test_root_mode_gates_bundle_accept(self):
+        # v4(2026-11-03):助手直接在主目录改,脚本跑测试和 lint,不过就让助手修,打交接包;lead 用 -Accept 一步验收
+        (self.root / "lintcheck.py").write_text("import os, sys\nprint('lint')\nsys.exit(0 if os.path.exists('lint-ok.txt') else 1)\n",
+                                                encoding="utf-8")
+        run(["git", "add", "-A"], self.root)
+        run(["git", "commit", "-q", "-m", "lint 脚本"], self.root)
+        self.set_test_command("git --version")
+        self.set_test_command("python lintcheck.py", "LintCommand")
+        (self.root / "draft.txt").write_text("x", encoding="utf-8")
+        self.assertIn("draft.txt", self.dispatch("-Task", "T5", "-Model", "gpt-6-luna", ok=False).stderr)
+        (self.root / "draft.txt").unlink()
+        r = self.dispatch("-Task", "T5", "-Model", "gpt-6-luna", scenario="lintfix")
+        c = self.calls()
+        self.assertEqual(len(c), 2, r.stdout)
+        self.assertIn("python lintcheck.py", c[1]["args"][-1])
+        self.assertTrue(c[0]["temp"].startswith(str(self.root)), "临时目录要在工作目录里")
+        self.assertEqual(Path(c[0]["cwd"]), self.root)
+        self.assertEqual([t["status"] for t in self.progress()], ["doing"], "派工时登记任务")
+        self.assertEqual(self.progress()[0]["title"], "铁砧敲击")
+        ev = self.root / "dispatch-logs" / "evidence" / "T5"
+        bundle = (ev / "bundle.md").read_text(encoding="utf-8-sig")
+        for s in ("## 验收命令", "lint:python lintcheck.py · 退出码 0", "src/feature.txt", "## 关键改动", "## 最终报告", "-Accept"):
+            self.assertIn(s, bundle)
+        self.assertNotIn("lintcheck.py\n", bundle.split("## 关键改动")[1], "起点之前的提交不算")
+        body = run(["git", "log", "-1", "--format=%B"], self.root).stdout
+        self.assertIn("Agent: Codex", body)
+        left = run(["git", "status", "--porcelain"], self.root).stdout
+        self.assertIn("progress.json", left, "台账和进度不进助手的提交")
+        self.assertNotIn("src/", left)
+        # 修改请求编号:报告没回应完就不验收
+        req = self.tmp / "req.md"
+        req.write_text('R1 改名 "a b"\nR2 补测试\n', encoding="utf-8")
+        self.dispatch("-Task", "T5", "-Model", "gpt-6-luna", "-Resume", "fake-thread", "-MessageFile", str(req), "-NoSupervise",
+                      scenario="lintfix", responses="R1:改了")
+        self.assertIn('R1 改名 "a b"', self.calls()[-1]["args"][-1])
+        self.assertIn("-Session", self.dispatch("-Task", "T5", "-Accept", ok=False).stderr)
+        self.assertIn("R2", self.dispatch("-Task", "T5", "-Accept", "-Session", "s1", ok=False).stderr)
+        self.dispatch("-Task", "T5", "-Model", "gpt-6-luna", "-Resume", "fake-thread", "-MessageFile", str(req), "-NoSupervise",
+                      scenario="lintfix", responses="R1:改了,R2:补了")
+        self.dispatch("-Task", "T5", "-Accept", "-Session", "s1", "-Note", "看了交接包")
+        self.assertEqual([(t["status"], t["review"]) for t in self.progress()], [("done", "pass")])
+        self.assertEqual(run(["git", "status", "--porcelain"], self.root).stdout, "")
+        body = run(["git", "log", "-1", "--format=%B"], self.root).stdout
+        for line in ("Agent: Claude Code", "Session: s1", "Task: T5"):
+            self.assertIn(line, body)
+
+    def test_rollback_keeps_ledger(self):
+        self.dispatch("-Task", "T5", "-Model", "gpt-6-luna", "-NoSupervise")
+        self.assertTrue((self.root / "src" / "feature.txt").exists())
+        self.dispatch("-Task", "T5", "-Rollback", "-Session", "s1")
+        self.assertFalse((self.root / "src" / "feature.txt").exists())
+        self.assertEqual(len(self.ledger()), 1, "台账不退")
+        self.assertEqual([t["status"] for t in self.progress()], ["todo"])
+        self.assertEqual(run(["git", "status", "--porcelain"], self.root).stdout, "")
 
     def test_merge_and_cleanup(self):
         self.dispatch("-Task", "T5", "-Model", "gpt-6.1-sol", "-Worktree")
@@ -136,8 +216,7 @@ class DispatchTest(unittest.TestCase):
         # 合并:测试命令、审查结论、主目录干净,缺一样都不合并
         self.assertIn("TestCommand", self.dispatch("-Task", "T5", "-Merge", ok=False).stderr)
         self.set_test_command("git nosuchcmd")
-        run([sys.executable, "tools/progress.py", "add-task", "铁砧", "--milestone", "M1", "--id", "T5"], self.root)
-        # 派工时脚本代 lead 改进度
+        # 派工时脚本代 lead 登记任务、改进度
         self.dispatch("-Task", "T5", "-Model", "gpt-6.1-sol", "-Resume", "fake-thread", "-Message", "继续", "-NoSupervise",
                       scenario="stop")
         prog = json.loads((self.root / "progress.json").read_text(encoding="utf-8"))
