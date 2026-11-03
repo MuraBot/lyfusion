@@ -1,6 +1,6 @@
 ---
 name: lyfusion
-description: lyfusion,Lily 的多 agent 协作与调度(Fusion 模式):Claude 当 lead 拆分、定接口、写简报、审查模块;Codex 助手一口气做完简报,只在开头和结尾交换产物(边界交接);派工脚本、合并命令、提交钩子、派工台账;以及对这套模式的试点数据和复盘研究。用于协作方式是 multi 的 LiEC 项目:派工给 Codex、模块审查与合并,或复盘和改进多 agent 协作。
+description: lyfusion,Lily 的多 agent 协作与调度(Fusion 模式):1 个 Claude lead 先选独做或搭档,只做判断(简报、审查、接手);1 个 Codex 助手一口气做完简报,只在开头和结尾交换产物(边界交接);派工脚本、合并命令、提交钩子、派工台账;以及对这套模式的试点数据和复盘研究。用于协作方式是 multi 的 LiEC 项目:派工给 Codex、模块审查与合并,或复盘和改进多 agent 协作。
 ---
 
 # lyfusion

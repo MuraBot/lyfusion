@@ -2,13 +2,12 @@
 # 每次运行自动记台账;运行结束后在任务分支上提交改动,最终报告存成 report.md。用法见 prompts/dispatch.md:
 #   .\tools\codex-dispatch.ps1 -Task T5 -Model gpt-6.1-sol -Worktree [-From task/T4]
 #   .\tools\codex-dispatch.ps1 -Task T5 -Model gpt-6.1-sol -Resume 会话编号 -Message "lead 的回答:……" [-Contract]
-#   .\tools\codex-dispatch.ps1 -Task T5 -Model 模型名 -Review    默认不审查,lead 判断高风险时才开。每次新开会话
 #   .\tools\codex-dispatch.ps1 -Task 预检 -Model 模型名 -Effort low -Preflight "构建命令"
 #   .\tools\codex-dispatch.ps1 -Task T5 -Merge [-Playtest]   跑测试,通过才合并进 main,再改状态
 #   .\tools\codex-dispatch.ps1 -Task T5 -Cleanup     合并后删除工作目录和分支,先保存证据
 # 可选参数:
 #   -Effort low/medium/high 等      推理强度;不加就用 Codex 的默认配置
-#   -Sandbox workspace-write 或 danger-full-access   不加就用下面"项目设置"里的默认值。审查固定只读
+#   -Sandbox workspace-write 或 danger-full-access   不加就用下面"项目设置"里的默认值
 #   -Contract                       -Message 是改变契约的决定:先写进简报的"已定",再交给助手
 #   -Playtest                       合并后要 Lily 试玩:状态改成 verify,不改成 done
 #   -NoSupervise                    不自动续跑
@@ -19,7 +18,6 @@ param(
     [string]$Resume,
     [string]$Message,
     [switch]$Contract,
-    [switch]$Review,
     [string]$Base = "main",
     [string]$Effort,
     [ValidateSet("", "workspace-write", "danger-full-access")][string]$Sandbox = "",
@@ -124,10 +122,8 @@ if ($Merge) {
 }
 
 if (-not $Model) { Write-Error "要用 -Model 写明模型。"; exit 1 }
-if ($Resume -and -not $Message -and -not $Review) { Write-Error "续用会话时要用 -Message 写明交给 agent 的内容。"; exit 1 }
+if ($Resume -and -not $Message) { Write-Error "续用会话时要用 -Message 写明交给 agent 的内容。"; exit 1 }
 if ($Contract -and -not ($Resume -and $Message)) { Write-Error "-Contract 要和 -Resume、-Message 一起用。"; exit 1 }
-# 续用的审查会话可能不重新检查,只复述上一轮的报告(CraftTax 对比实验 2026-11-02)
-if ($Review -and $Resume) { Write-Error "审查每次新开会话,不加 -Resume。"; exit 1 }
 $cmd = Get-Command codex -ErrorAction SilentlyContinue
 $pkg = Get-AppxPackage OpenAI.Codex -ErrorAction SilentlyContinue
 if ($cmd) { $exe = $cmd.Source }
@@ -149,11 +145,13 @@ if ($Contract) {
 
 # 简报检查:不通过就不派工
 $brief = $null
-if (-not $Review -and -not $Preflight) {
+if (-not $Preflight) {
     $json = python (Join-Path $root "tools\brief.py") phases $Task --json
     if ($LASTEXITCODE -ne 0) { exit 1 }
     $brief = $json | ConvertFrom-Json
     if (-not $brief.ok) { python (Join-Path $root "tools\brief.py") check $Task; Write-Error "简报没通过检查,不派工。"; exit 1 }
+    # 进度由脚本改,lead 每次派工只运行这一条命令。任务不在进度表里时跳过
+    python (Join-Path $root "tools\progress.py") set-status $Task doing 2>$null | Out-Null
 }
 
 # 工作目录:每个简报一个,放在项目文件夹旁边
@@ -221,7 +219,7 @@ function Get-MissingEvidence {
     })
 }
 
-# 最终报告存成 report.md:lead 和审查者读它,不读助手的过程。超过 60 行就提醒
+# 最终报告存成 report.md:lead 读它,不读助手的过程。超过 60 行就提醒
 function Save-Report($f) {
     $out = @("# $Task 最终报告", "", "- 状态:$($f.status) · 最后阶段 $($f.last_phase)", "- 摘要:$($f.summary)")
     if ($f.stop_reason) { $out += "- 停止原因:$($f.stop_reason)" }
@@ -244,18 +242,6 @@ if ($Preflight) {
     $prompt = "环境预检。只运行这条命令一次:$Preflight 。不修改任何文件,不修复问题。stop_reason 写退出码和输出的最后 30 行,其他数组写空。"
     $r = Invoke-Codex (@("exec", "-m", $Model) + $cfg + @("-s", $Sandbox, "-C", $work, "--output-schema", $schema)) $prompt $stem
     Write-Ledger $r "预检" 1
-    $runs = @($r)
-}
-elseif ($Review) {
-    # 交审前先把 main 合并进任务分支,让简报和接口是最新的
-    if ($work -ne $root) {
-        git -C $work merge --no-edit $Base
-        if ($LASTEXITCODE -ne 0) { git -C $work merge --abort; Write-Error "合并 $Base 进 $branch 时有冲突。先解决冲突,再审查。"; exit 1 }
-    }
-    $prompt = "读 prompts/review.md 和 tasks/$Task.md(简报)。用 git diff $Base...HEAD 查看这个模块的全部改动。验收证据在 $evidence/,每个阶段一个文件夹;助手的最终报告是 $evidence/report.md。按 review.md 做对抗审查,不修改任何文件。最后一条消息是 review.md 格式的审查报告。"
-    $a = @("exec", "-m", $Model) + $cfg + @("-s", "read-only", "-C", $work)
-    $r = Invoke-Codex $a $prompt $stem
-    Write-Ledger $r "审查" 1
     $runs = @($r)
 }
 else {
@@ -290,7 +276,7 @@ else {
         Write-Ledger $r "助手" ($i + 1)
     }
     if ($r.Final) { $reportPath = Save-Report $r.Final }
-    # 助手不提交。在任务分支上由脚本提交,追溯信息写好,lead 和审查者看 git diff
+    # 助手不提交。在任务分支上由脚本提交,追溯信息写好,lead 看 git diff
     if ($work -ne $root -and (git -C $work status --porcelain)) {
         $sess = if ($r.Thread) { $r.Thread } else { $runId }
         $sum = if ($r.Final) { $r.Final.summary } else { "没有最终报告" }
@@ -307,7 +293,7 @@ else {
 $last = $runs[-1]
 ""
 "退出码:$($last.Code)    运行次数:$($runs.Count)"
-"沙箱:$(if ($Review) { 'read-only' } else { $Sandbox })    工作目录:$work"
+"沙箱:$Sandbox    工作目录:$work"
 if ($last.Thread) { "会话编号:$($last.Thread)(续用时传给 -Resume)" }
 # Codex 报的是整个会话的累计用量,所以只看最后一次;每次的差值在台账里
 $u = @($runs | Where-Object { $_.Usage }) | Select-Object -Last 1

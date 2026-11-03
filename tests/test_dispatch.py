@@ -126,24 +126,22 @@ class DispatchTest(unittest.TestCase):
         ps1.write_bytes(re.sub(r'\$TestCommand = "[^"]*"', '$TestCommand = "%s"' % cmd, text).encode("utf-8"))
         run(["git", "commit", "-q", "-am", "测试命令:%s" % cmd], self.root)
 
-    def test_review_merge_and_cleanup(self):
+    def test_merge_and_cleanup(self):
         self.dispatch("-Task", "T5", "-Model", "gpt-6.1-sol", "-Worktree")
         wt = self.tmp / "my proj-T5"
         (self.root / "new-on-main.txt").write_text("x", encoding="utf-8")
         run(["git", "add", "-A"], self.root)
         run(["git", "commit", "-q", "-m", "main 前进"], self.root)
-        r = self.dispatch("-Task", "T5", "-Model", "other", "-Review", "-Resume", "old", scenario="review", ok=False)
-        self.assertIn("审查每次新开会话", r.stderr)
-        r = self.dispatch("-Task", "T5", "-Model", "other", "-Review", scenario="review")
-        self.assertTrue((wt / "new-on-main.txt").exists(), "交审前要把 main 合并进任务分支")
-        self.assertIn("read-only", self.calls()[-1]["args"])
-        self.assertIn("report.md", self.calls()[-1]["args"][-1])
-        self.assertIn("审查报告", r.stdout)
         self.assertIn("没合并", self.dispatch("-Task", "T5", "-Cleanup", ok=False).stderr)
         # 合并:测试命令、审查结论、主目录干净,缺一样都不合并
         self.assertIn("TestCommand", self.dispatch("-Task", "T5", "-Merge", ok=False).stderr)
         self.set_test_command("git nosuchcmd")
         run([sys.executable, "tools/progress.py", "add-task", "铁砧", "--milestone", "M1", "--id", "T5"], self.root)
+        # 派工时脚本代 lead 改进度
+        self.dispatch("-Task", "T5", "-Model", "gpt-6.1-sol", "-Resume", "fake-thread", "-Message", "继续", "-NoSupervise",
+                      scenario="stop")
+        prog = json.loads((self.root / "progress.json").read_text(encoding="utf-8"))
+        self.assertEqual([t["status"] for t in prog["tasks"] if t["id"] == "T5"], ["doing"])
         self.assertIn("审查结果是 none", self.dispatch("-Task", "T5", "-Merge", ok=False).stderr)
         run([sys.executable, "tools/ledger.py", "review", "--task", "T5", "--result", "pass", "--findings", "0"], self.root)
         (self.root / "draft.txt").write_text("x", encoding="utf-8")
@@ -155,6 +153,7 @@ class DispatchTest(unittest.TestCase):
         self.set_test_command("git --version")
         self.dispatch("-Task", "T5", "-Merge")
         self.assertTrue((self.root / "src" / "feature.txt").exists())
+        self.assertTrue((wt / "new-on-main.txt").exists(), "合并前要把 main 合并进任务分支")
         test_txt = (self.root / "dispatch-logs" / "evidence" / "T5" / "merge" / "test.txt").read_text(encoding="utf-8-sig")
         self.assertIn("退出码:0", test_txt)
         self.assertIn("git version", test_txt)

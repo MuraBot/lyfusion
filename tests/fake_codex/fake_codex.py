@@ -37,8 +37,6 @@ elif scenario == "noreport":
 elif scenario == "stop":
     evidence(1)
     final.update(status="停止", last_phase=1, stop_reason="产品决定:颜色")
-elif scenario == "review":
-    final = "## 审查报告\n无问题"
 print(json.dumps({"type": "thread.started", "thread_id": "fake-thread"}))
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100 * n, "cached_input_tokens": 10, "output_tokens": 5}}))
 Path(out).write_text(final if isinstance(final, str) else json.dumps(final, ensure_ascii=False), encoding="utf-8")

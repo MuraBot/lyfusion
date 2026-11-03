@@ -1,7 +1,7 @@
 # lyfusion
 
 Lily 的多 agent 协作与调度技能(Fusion 模式),也是对这套模式的研究记录。
-Claude 当 lead,拆分、定接口、写简报、审查模块;Codex 助手一口气做完简报。双方只在任务的开头和结尾交换产物(边界交接)。
+1 个 Claude lead 加 1 个 Codex 助手(轻 lead,v3):lead 先选独做或搭档,搭档时只做判断(写规格级简报、看 diff、接手),Codex 助手一口气做完简报。双方只在任务的开头和结尾交换产物(边界交接)。
 建立在 LiEC 技能(`C:\AI WithMe\LiEC`)的项目之上。2026-11-02 从 lilys-project-flow 拆出,之前的历史在那个仓库的标签 `final-before-split`。
 
 ## 里面有什么
