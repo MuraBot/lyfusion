@@ -12,9 +12,9 @@
     python tools/ledger.py level                           按台账建议每个"模型 · 模块"的自主级别
     python tools/ledger.py review --task T5 --result pass --findings 0    同时运行 progress.py set-review
     python tools/ledger.py bug --task T5 [--count 2] --note "敲不动"
-    python tools/ledger.py lead --milestone M3 --session 会话编号 --tokens-in 1200 --tokens-cached 950000 --tokens-out 300
+    python tools/ledger.py lead --milestone M3 --session 会话编号 [--task T5] --calls 40 --tokens-in 1200 ...    记会话的累计读数
     python tools/ledger.py flag --task T5 --flag 接手 --signal 超预估 --note "用了 3 倍 token"
-    python tools/ledger.py score --task T5 --score 6.5 [--delivery 4 --work 3]    Lily 的打分。花费和分数用 viewer/pareto-viewer.html 看
+    python tools/ledger.py score --task T5 --score 6.5 [--delivery 4.5 --work 3]    Lily 的打分。花费和分数用 viewer/pareto-viewer.html 看
     python tools/ledger.py record ...                      派工脚本调用,一般不用手动运行
 """
 import argparse
@@ -122,10 +122,18 @@ def cmd_bug(a):
 
 
 def cmd_lead(a):
-    row = write_row({"kind": "lead", "milestone": a.milestone, "session": a.session, "tokensIn": a.tokens_in,
+    row = write_row({"kind": "lead", "milestone": a.milestone, "session": a.session, "task": a.task or "", "tokensIn": a.tokens_in,
                      "tokensCached": a.tokens_cached, "tokensOut": a.tokens_out, "calls": a.calls,
                      "context": a.context, "costUsd": a.cost_usd, "note": a.note or ""})
     print("台账:lead %s 会话 %s 的用量读数 · 缓存读取 %d" % (row["milestone"], row["session"], row["tokensCached"]))
+
+
+def half_point(s):
+    """交付分、作品分:1~5,可以打半分(HEX M1 Lily 打了交付 4.5)"""
+    v = float(s)
+    if not (1 <= v <= 5 and v * 2 == int(v * 2)):
+        raise argparse.ArgumentTypeError("是 1~5 分,可以打半分,例如 4.5")
+    return v
 
 
 def cmd_score(a):
@@ -181,6 +189,19 @@ def lead_usage(rows):
     return out
 
 
+def lead_segments(rows):
+    """每次读数和同一会话上一次读数的差,按记读数时写的任务分段。会话的第 1 次读数从 0 算。"""
+    last, out = {}, []
+    keys = ("tokensIn", "tokensCached", "tokensOut", "calls")
+    for r in rows:
+        if r.get("kind") != "lead":
+            continue
+        prev = last.get((r["milestone"], r["session"]))
+        out.append((r["milestone"], r.get("task") or "-", {k: r[k] - (prev[k] if prev else 0) for k in keys}))
+        last[(r["milestone"], r["session"])] = r
+    return out
+
+
 def cmd_show(a):
     rows = read_rows()
     runs = [r for r in rows if r.get("kind") == "run"]
@@ -212,6 +233,9 @@ def cmd_show(a):
         u = lead[ms]
         print("lead · %s:输入 %d,缓存读取 %d,输出 %d,调用 %d 次" % (ms, u["tokensIn"], u["tokensCached"], u["tokensOut"],
                                                              u["calls"]))
+        for m, task, d in lead_segments(rows):
+            if m == ms and task != "-":
+                print("  到 %s 为止的这一段:调用 %d 次,输入 %d,缓存读取 %d" % (task, d["calls"], d["tokensIn"], d["tokensCached"]))
     print("一次通过=模块第 1 次审查就是 pass;发现=审查意见条数。成本 ≈ 上下文 × 调用次数,看缓存读取。"
           "样本少于 5 个模块的分组,先不要下结论。")
 
@@ -286,9 +310,11 @@ def main():
     p.add_argument("--count", type=int, default=1)
     p.add_argument("--note")
     p.set_defaults(fn=cmd_bug)
-    p = sub.add_parser("lead", help="记 lead 会话的用量读数(从 Claude 应用的用量工具读)")
+    p = sub.add_parser("lead", help="记 lead 会话的累计读数(Claude 应用用量工具上的数),不是这一段的增量。"
+                                     "脚本按同一会话前后两次读数相减,算出每个里程碑和每段任务的用量")
     p.add_argument("--milestone", required=True)
     p.add_argument("--session", required=True)
+    p.add_argument("--task", help="刚做完的任务(独做的也记)。show 会列出每段任务的用量")
     tokens(p)
     p.add_argument("--calls", type=int, default=0, help="调用次数,应用显示了就填")
     p.add_argument("--context", type=int, default=0, help="上下文大小。用量工具只给这个时,token 三项留空")
@@ -298,8 +324,8 @@ def main():
     p = sub.add_parser("score", help="记 Lily 的打分,帕累托查看器的纵轴")
     p.add_argument("--task", required=True)
     p.add_argument("--score", type=float, help="总分 0~10,可以带小数")
-    p.add_argument("--delivery", type=int, choices=range(1, 6), help="交付分(1~5):做对了没有")
-    p.add_argument("--work", type=int, choices=range(1, 6), help="作品分(1~5):对照体验目标,好不好")
+    p.add_argument("--delivery", type=half_point, help="交付分(1~5,可以打半分):做对了没有")
+    p.add_argument("--work", type=half_point, help="作品分(1~5,可以打半分):对照体验目标,好不好")
     p.add_argument("--label", help="这一组的名字,例如「lead + gpt-6.1-sol」")
     p.add_argument("--note")
     p.set_defaults(fn=cmd_score)

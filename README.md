@@ -42,6 +42,9 @@ python tests/test_budget.py --show
 测试用旁边文件夹里 LiEC 的模板加上 `addon/` 建项目。LiEC 在别处时,设置环境变量 `LIEC_HOME`。
 `test_dispatch.py` 只在 Windows 上运行。规则文档有行数上限,提高上限要 Lily 同意。
 
+## 依赖 LiEC 的部分
+lyfusion 现在装在 LiEC 的项目模板上,用到 LiEC 的:计划模板 `tasks/T0-template.md`、`tools/brief.py`(派工前检查计划)、`tools/progress.py`(登记进度)、`tools/check.py` 和 `doc-rules.json`(文档检查),以及模板的 `AGENTS.md`、`CLAUDE.md`、`learning.md`。v5 要把 lyfusion 拆成能单独用的(Lily 2026-11-06),这一节是拆分的起点。
+
 ## 需要
 - Python 3(只用标准库)、git、Windows PowerShell 5.1。
 - Codex CLI:在 Codex 桌面应用的安装包里,派工脚本自己找,不需要在 PATH 里。

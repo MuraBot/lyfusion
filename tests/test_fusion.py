@@ -164,6 +164,12 @@ class FusionTest(unittest.TestCase):
         L("lead", "--milestone", "M3", "--session", "s2", "--tokens-in", "50", "--tokens-cached", "500", "--tokens-out", "5",
           "--calls", "3")
         self.assertIn("lead · M3:输入 250,缓存读取 4500,输出 25,调用 23 次", L("show").stdout)
+        # HEX M1:每个任务做完记一次累计读数(独做的也记),show 列出每段
+        L("lead", "--milestone", "M4", "--session", "s3", "--task", "T1", "--calls", "95")
+        L("lead", "--milestone", "M4", "--session", "s3", "--task", "T2", "--calls", "116")
+        out = L("show").stdout
+        self.assertIn("到 T1 为止的这一段:调用 95 次", out)
+        self.assertIn("到 T2 为止的这一段:调用 21 次", out)
         # Codex 续用会话报的是累计用量:同一会话记差值
         for n in ("1000", "1500"):
             L("record", "--task", "T5", "--role", "助手", "--agent", "Codex", "--model", "m", "--session", "th",
@@ -172,6 +178,8 @@ class FusionTest(unittest.TestCase):
         self.assertEqual([r["tokensIn"] for r in rows if r["kind"] == "run"], [1000, 500])
         L("score", "--task", "T5", "--delivery", "4", "--work", "3", "--label", "lead + sol")
         L("score", "--task", "T5", "--delivery", "6", "--work", "3", ok=False)
+        L("score", "--task", "T5", "--delivery", "4.5", "--work", "5")
+        L("score", "--task", "T5", "--delivery", "4.3", "--work", "5", ok=False)
         L("score", "--task", "T5", "--score", "4.5", "--note", "初版 6 分")
         L("score", "--task", "T5", "--score", "11", ok=False)
         L("score", "--task", "T5", "--work", "3", ok=False)

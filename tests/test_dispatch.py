@@ -37,10 +37,10 @@ class DispatchTest(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def dispatch(self, *args, scenario="partial", ok=True, linger=False, responses=""):
+    def dispatch(self, *args, scenario="partial", ok=True, linger=False, responses="", questions=""):
         env = {"PATH": str(FAKE) + os.pathsep + os.environ["PATH"], "FAKE_STATE": str(self.state),
                "FAKE_SCENARIO": scenario, "CLAUDE_TEST_SECRET": "x", "FAKE_LINGER": "1" if linger else "",
-               "FAKE_RESPONSES": responses}
+               "FAKE_RESPONSES": responses, "FAKE_QUESTIONS": questions}
         return run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                     str(self.root / "tools" / "codex-dispatch.ps1")] + list(args), self.root, ok=ok, env=env)
 
@@ -74,7 +74,7 @@ class DispatchTest(unittest.TestCase):
         # 助手不提交;脚本在任务分支上提交,追溯信息写好
         self.assertEqual(run(["git", "status", "--porcelain"], wt).stdout, "")
         body = run(["git", "log", "-1", "--format=%B"], wt).stdout
-        for line in ("Task: T5", "Agent: Codex", "Model: gpt-6.1-sol", "Effort: default", "Session: fake-thread"):
+        for line in ("Task: T5", "Agent: Codex", "Model: gpt-6.1-sol", "Effort: high", "Session: fake-thread"):
             self.assertIn(line, body)
 
     def test_supervisor_asks_for_missing_report(self):
@@ -120,7 +120,7 @@ class DispatchTest(unittest.TestCase):
         self.dispatch("-Task", "T5", "-Model", "gpt-6.1-sol", "-Resume", "abc", "-Message", '把 "a b" 改成 c', "-NoSupervise",
                       scenario="stop")
         self.assertTrue(self.calls()[0]["args"][-1].startswith('把 "a b" 改成 c'))
-        self.assertIn("完整的最终报告", self.calls()[0]["args"][-1], "续用后的报告会覆盖前面的,要求写完整(fusion-bench C2-H2)")
+        self.assertIn("T5 的完整最终报告", self.calls()[0]["args"][-1], "续用后的报告会覆盖前面的,要求写完整(fusion-bench C2-H2)")
 
     def set_test_command(self, cmd, name="TestCommand"):
         ps1 = self.root / "tools" / "codex-dispatch.ps1"
@@ -185,18 +185,94 @@ class DispatchTest(unittest.TestCase):
         req = self.tmp / "req.md"
         req.write_text('R1 改名 "a b"\nR2 补测试\n', encoding="utf-8")
         self.dispatch("-Task", "T5", "-Model", "gpt-6-luna", "-Resume", "fake-thread", "-MessageFile", str(req), "-NoSupervise",
-                      scenario="lintfix", responses="R1:改了")
+                      scenario="lintfix", responses="T5-R1:改了")
         self.assertIn('R1 改名 "a b"', self.calls()[-1]["args"][-1])
         self.assertIn("-Session", self.dispatch("-Task", "T5", "-Accept", ok=False).stderr)
         self.assertIn("R2", self.dispatch("-Task", "T5", "-Accept", "-Session", "s1", ok=False).stderr)
         self.dispatch("-Task", "T5", "-Model", "gpt-6-luna", "-Resume", "fake-thread", "-MessageFile", str(req), "-NoSupervise",
-                      scenario="lintfix", responses="R1:改了,R2:补了")
+                      scenario="lintfix", responses="T5-R1:改了,T5-R2:补了")
         self.dispatch("-Task", "T5", "-Accept", "-Session", "s1", "-Note", "看了交接包")
         self.assertEqual([(t["status"], t["review"]) for t in self.progress()], [("done", "pass")])
         self.assertEqual(run(["git", "status", "--porcelain"], self.root).stdout, "")
         body = run(["git", "log", "-1", "--format=%B"], self.root).stdout
         for line in ("Agent: Claude Code", "Session: s1", "Task: T5"):
             self.assertIn(line, body)
+
+    def test_sidekick_branch_is_undone(self):
+        # HEX T9(2026-11-05):助手自己建了分支。脚本切回原分支、删掉它,改动照常提交在原分支上
+        r = self.dispatch("-Task", "T5", "-Model", "gpt-6-luna", "-NoSupervise", scenario="branch")
+        self.assertIn("不要建分支", self.calls()[0]["args"][-1])
+        self.assertIn("已切回 main", r.stdout + r.stderr)
+        self.assertEqual(run(["git", "rev-parse", "--abbrev-ref", "HEAD"], self.root).stdout.strip(), "main")
+        self.assertNotIn("task/T5", run(["git", "branch"], self.root).stdout)
+        self.assertIn("src/feature.txt", run(["git", "show", "--stat", "HEAD"], self.root).stdout)
+
+    def test_new_task_resume_sends_start_prompt(self):
+        # HEX M1~M2:lead 续用会话派新任务,开工提示、模型备注、主目录检查都被跳过了。续用不带消息 = 开始做任务
+        (self.root / "draft.txt").write_text("x", encoding="utf-8")
+        self.assertIn("draft.txt", self.dispatch("-Task", "T5", "-Model", "gpt-6-luna", "-Resume", "explore-thread", ok=False).stderr)
+        (self.root / "draft.txt").unlink()
+        self.dispatch("-Task", "T5", "-Model", "gpt-6-luna", "-Resume", "explore-thread", "-NoSupervise")
+        c = self.calls()[-1]
+        self.assertEqual(c["args"][:3], ["exec", "resume", "explore-thread"])
+        self.assertIn("这是新任务 T5", c["args"][-1])
+        self.assertIn("改造现有代码", c["args"][-1], "带上模型备注")
+        self.assertIn("model_reasoning_effort=high", c["args"], "默认推理强度 high(Lily 2026-11-06)")
+        # 正文里顺带提到的"T7 的 R3"不是修改请求(HEX T8、T11 被记成了修改请求)
+        msg = self.tmp / "msg.md"
+        msg.write_text("照 T7 的 R3 写卡片\n", encoding="utf-8")
+        self.dispatch("-Task", "T5", "-Model", "gpt-6-luna", "-Resume", "fake-thread", "-MessageFile", str(msg), "-NoSupervise")
+        self.assertFalse((self.root / "dispatch-logs" / "evidence" / "T5" / "requests-latest.md").exists())
+
+    def test_env_failure_is_not_given_to_sidekick(self):
+        # HEX T12:证书错误被当成代码问题交给助手修,助手关掉了证书检查
+        (self.root / "envfail.py").write_text('print("Failed to validate certificate for host")\nraise SystemExit(1)\n', encoding="utf-8")
+        run(["git", "add", "-A"], self.root)
+        run(["git", "commit", "-q", "-m", "envfail"], self.root)
+        self.set_test_command("python envfail.py")
+        self.dispatch("-Task", "T5", "-Model", "gpt-6-luna", scenario="lintfix")
+        self.assertEqual(len(self.calls()), 1, "环境错误不让助手修")
+        bundle = (self.root / "dispatch-logs" / "evidence" / "T5" / "bundle.md").read_text(encoding="utf-8-sig")
+        self.assertIn("环境错误", bundle)
+
+    def test_bundle_flags_weakened_tests_and_forbidden(self):
+        t = self.root / "src" / "test" / "FooTest.java"
+        t.parent.mkdir(parents=True, exist_ok=True)
+        t.write_text("class FooTest {\n  void a() { assertEquals(2.0, x); }\n}\n", encoding="utf-8")
+        run(["git", "add", "-A"], self.root)
+        run(["git", "commit", "-q", "-m", "原有测试"], self.root)
+        self.dispatch("-Task", "T5", "-Model", "gpt-6-luna", scenario="sneaky")
+        bundle = (self.root / "dispatch-logs" / "evidence" / "T5" / "bundle.md").read_text(encoding="utf-8-sig")
+        self.assertIn("原有测试里删掉的断言", bundle)
+        self.assertIn("assertEquals(2.0, x)", bundle)
+        self.assertNotIn("### src/test/FooTest.java", bundle, "Java 的测试不算关键改动")
+        self.assertIn("## 禁止的操作", bundle)
+        self.assertIn("forbidden.txt", self.dispatch("-Task", "T5", "-Accept", "-Session", "s1", ok=False).stderr)
+
+    def test_questions_session_and_scope(self):
+        # HEX:助手问的分支问题没人答;-Session 填成助手的;临时探针越出可写范围;探索比实现早 4 小时
+        brief = GOOD_BRIEF.replace("- 可写范围:src/\n", "- 可写范围:`src/feature.txt`、`src/test/`\n")
+        (self.root / "tasks" / "T5.md").write_text(brief, encoding="utf-8")
+        t = self.root / "src" / "test" / "FooTest.java"
+        t.parent.mkdir(parents=True, exist_ok=True)
+        t.write_text("class FooTest {}\n", encoding="utf-8")
+        ev = self.root / "dispatch-logs" / "evidence" / "T5"
+        ev.mkdir(parents=True, exist_ok=True)
+        (ev / "explore.md").write_text("# 探索包\n", encoding="utf-8")
+        os.utime(ev / "explore.md", (time.time() - 3600, time.time() - 3600))
+        run(["git", "add", "-A"], self.root)
+        run(["git", "commit", "-q", "-m", "探索之后的代码"], self.root)
+        self.dispatch("-Task", "T5", "-Model", "gpt-6-luna", scenario="sneaky", questions="要不要切到 task/T5 分支")
+        self.assertIn("探索之后代码又有", self.calls()[0]["args"][-1])
+        bundle = (ev / "bundle.md").read_text(encoding="utf-8-sig")
+        self.assertTrue(bundle.split("## 验收命令")[0].count("要不要切到 task/T5 分支"), "要 lead 回答的问题放在交接包最前面")
+        for s in ("## 要 lead 回答的问题", "## 可写范围之外改过的文件", "tmp/Probe.java", "探索包可能过时"):
+            self.assertIn(s, bundle)
+        (ev / "forbidden.txt").unlink()
+        self.assertIn("助手的会话编号", self.dispatch("-Task", "T5", "-Accept", "-Session", "fake-thread", ok=False).stderr)
+        self.assertIn("要 lead 回答", self.dispatch("-Task", "T5", "-Accept", "-Session", "s1", "-Note", "看了交接包", ok=False).stderr)
+        self.dispatch("-Task", "T5", "-Accept", "-Session", "s1", "-Note", "答:不切分支,在 main 上改")
+        self.assertEqual([t["status"] for t in self.progress()], ["done"])
 
     def test_rollback_keeps_ledger(self):
         self.dispatch("-Task", "T5", "-Model", "gpt-6-luna", "-NoSupervise")
