@@ -67,7 +67,7 @@
 1. 阶段 6 的授权清单已经问完 Lily,包括人工验收由谁做。安装钩子:`git config core.hooksPath tools/hooks`。
 2. 填派工脚本开头的"项目设置":`$TestCommand`、`$LintCommand`(各语言的推荐命令见 lyfusion 的 README「lint」)。lint 工具要先装好,先跑一次:原有的错误先修掉,或把范围缩到源码目录。项目的硬规则能用脚本查的(例如卡片只显示当前值),写成检查脚本加进 `$LintCommand`:只写在 `AGENTS.md` 里,助手会漏。项目的禁令补进 `$ForbiddenPattern`,助手用了就拒绝验收。
 3. 环境预检:`-Task 预检 -Model 模型名 -Effort low -Preflight "命令"`。每种测试运行器各跑 1 个真实初始化的冒烟测试。
-4. lead 可以改"项目设置",在提交说明里写明。沙箱改成 `danger-full-access` 要 Lily 同意。
+4. lead 可以改"项目设置",在提交说明里写明。沙箱改成 `danger-full-access` 要 Lily 同意。速度档 `$ServiceTier` 填 `fast` 约快 1.5 倍、额度用得更快,开不开问 Lily。
 
 ## 接手
 出现任意 1 条,lead 处理,并运行 `ledger.py flag --task T5 --flag 接手 --signal 信号`:

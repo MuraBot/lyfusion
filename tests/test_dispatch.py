@@ -218,6 +218,15 @@ class DispatchTest(unittest.TestCase):
         self.assertIn("这是新任务 T5", c["args"][-1])
         self.assertIn("改造现有代码", c["args"][-1], "带上模型备注")
         self.assertIn("model_reasoning_effort=high", c["args"], "默认推理强度 high(Lily 2026-11-06)")
+        self.assertNotIn("service_tier=fast", c["args"], "速度档默认是标准")
+        # 速度档(v4.2.1):填了 fast 才传给 Codex,台账记下
+        self.set_test_command("fast", "ServiceTier")
+        self.dispatch("-Task", "T5", "-Model", "gpt-6-luna", "-Resume", "explore-thread", "-NoSupervise")
+        self.assertIn("service_tier=fast", self.calls()[-1]["args"])
+        self.assertEqual(self.ledger()[-1]["tier"], "fast")
+        self.set_test_command("slow", "ServiceTier")
+        r = self.dispatch("-Task", "T5", "-Model", "gpt-6-luna", "-Resume", "explore-thread", "-NoSupervise")
+        self.assertIn("不支持速度档 slow", r.stdout + r.stderr)
         # 正文里顺带提到的"T7 的 R3"不是修改请求(HEX T8、T11 被记成了修改请求)
         msg = self.tmp / "msg.md"
         msg.write_text("照 T7 的 R3 写卡片\n", encoding="utf-8")

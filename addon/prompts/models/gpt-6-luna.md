@@ -4,6 +4,7 @@
 
 ## 配置
 推理强度:2026-11-06 起探索和实现统一用 high。Lily 定的,依据是 Cognition 的文章,设置在派工脚本的 `$DefaultEffort`。fusion-bench 和 HEX 的 M1、M2 用的是 max,对照旧数据时要分开看。
+速度档:有快速档 `service_tier=fast`(Codex 模型目录写的是 1.5x speed),派工脚本的 `$ServiceTier`。台账的 `tier` 记了每次运行用的档。
 
 ## 备注
 - 改造现有代码时容易改掉原有行为(报错文字、空行和空值的处理、编号规则、路径解析)。动手前先列出要保留的原有行为,逐条写回归测试。出处:fusion-bench C-H2(seed 空库检查、CSV 空白行、next_id)。C-H3(悬挂引用的报错文字、相对路径),2026-11-03,L3。

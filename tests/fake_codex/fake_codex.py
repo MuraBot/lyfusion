@@ -72,6 +72,10 @@ elif scenario == "sneaky":
 elif scenario == "stop":
     evidence(1)
     final.update(status="停止", last_phase=1, stop_reason="产品决定:颜色")
+# 模型不支持的速度档:真的 Codex 发一条错误事件,照常跑(2026-11-06 实测)
+tier = [a.split("=", 1)[1] for a in args if a.startswith("service_tier=")]
+if tier and tier[0] != "fast":
+    print(json.dumps({"type": "error", "message": "Configured service tier `%s` is not advertised as supported for model `m` and will be omitted from requests." % tier[0]}))
 print(json.dumps({"type": "thread.started", "thread_id": "fake-thread"}))
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100 * n, "cached_input_tokens": 10, "output_tokens": 5}}))
 Path(out).write_text(final if isinstance(final, str) else json.dumps(final, ensure_ascii=False), encoding="utf-8")

@@ -96,7 +96,7 @@ def cmd_record(a):
         delta = cum
     row = write_row(dict({"kind": "run", "task": a.task, "role": a.role, "agent": a.agent, "model": a.model,
                           "effort": a.effort or "default", "session": a.session or "", "module": a.module or "",
-                          "level": a.level or "", "run": a.run}, **delta, cum=cum, note=a.note or ""))
+                          "level": a.level or "", "tier": a.tier or "", "run": a.run}, **delta, cum=cum, note=a.note or ""))
     print("台账:%s %s 第 %d 次运行 · %s · 输入 %d" % (row["task"], row["role"], row["run"], row["model"], row["tokensIn"]))
 
 
@@ -294,6 +294,7 @@ def main():
     p.add_argument("--session")
     p.add_argument("--module")
     p.add_argument("--level")
+    p.add_argument("--tier", help="Codex 的速度档,例如 fast;标准速度不传")
     p.add_argument("--run", type=int, default=1, help="这个任务的第几次运行(含自动续跑)")
     tokens(p)
     p.add_argument("--note")

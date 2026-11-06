@@ -70,6 +70,8 @@ $BigSession = 30000000
 $BundleDiffLines = 600
 # 助手的推理强度,派工不加 -Effort 时用它。Lily 2026-11-06:gpt-6-luna 统一用 high(依据 Cognition 的文章);留空就用 Codex 的默认配置
 $DefaultEffort = "high"
+# 速度档。留空是标准速度;"fast" 是快速档,约 1.5 倍速度,Codex 额度用得更快(Lily 2026-11-06 加)。开不开问 Lily
+$ServiceTier = ""
 # lead 用 -Accept、-Rollback 提交时,追溯信息里的模型和推理强度
 $LeadModel = "claude-opus-5-5"
 $LeadEffort = "high"
@@ -316,6 +318,7 @@ $claudeVars | ForEach-Object { Remove-Item "env:$_" -ErrorAction SilentlyContinu
 # 配置写成 key=value;值不加引号时 Codex 按普通文字处理
 $cfg = @()
 if ($Effort) { $cfg += @("-c", "model_reasoning_effort=$Effort") }
+if ($ServiceTier) { $cfg += @("-c", "service_tier=$ServiceTier") }
 foreach ($k in $ProjectEnv.Keys) { $cfg += @("-c", "shell_environment_policy.set.$k=$($ProjectEnv[$k])") }
 $schema = Join-Path $root "tools\schemas\final.schema.json"
 $runId = "run-" + (Get-Date -Format "yyyyMMdd-HHmmss")
@@ -345,6 +348,7 @@ function Write-Ledger($r, [string]$Role, [int]$Run) {
     $la = @("record", "--task", $Task, "--role", $Role, "--agent", "Codex", "--model", $Model, "--effort", $effortName,
         "--run", $Run, "--tokens-in", $tin, "--tokens-cached", $tc, "--tokens-out", $to, "--note", $runId)
     if ($r.Thread) { $la += @("--session", $r.Thread) }
+    if ($ServiceTier) { $la += @("--tier", $ServiceTier) }
     if ($brief -and $brief.level) { $la += @("--level", $brief.level) }
     if ($brief -and $brief.module) { $la += @("--module", ($brief.module -replace '"', '\"')) }
     python (Join-Path $root "tools\ledger.py") @la
@@ -649,11 +653,15 @@ else {
 $last = $runs[-1]
 ""
 "退出码:$($last.Code)    运行次数:$($runs.Count)"
-"沙箱:$Sandbox    工作目录:$work"
+"沙箱:$Sandbox    推理强度:$effortName    速度档:$(if ($ServiceTier) { $ServiceTier } else { '标准' })    工作目录:$work"
 if ($last.Thread) { "会话编号:$($last.Thread)(续用时传给 -Resume)" }
 # Codex 报的是整个会话的累计用量,所以只看最后一次;每次的差值在台账里
 $u = @($runs | Where-Object { $_.Usage }) | Select-Object -Last 1
 if ($u) { "token 用量(会话累计):输入 $($u.Usage.input_tokens),其中缓存 $($u.Usage.cached_input_tokens),输出 $($u.Usage.output_tokens)" }
+# 模型不支持填的速度档时,Codex 只发一条错误事件,照常用标准速度跑(2026-11-06 实测)
+if ($ServiceTier -and @($runs | ForEach-Object { Get-Content "$($_.Stem).events.jsonl" -Encoding UTF8 -ErrorAction SilentlyContinue } | Where-Object { $_ -match 'service tier .* is not advertised' }).Count) {
+    Write-Warning "$Model 不支持速度档 $ServiceTier,这次用的是标准速度"
+}
 if ($u -and $u.Usage.input_tokens -gt $BigSession) { Write-Warning "助手会话已经很大(累计输入 $($u.Usage.input_tokens)):下个任务不要续用它,续用那个任务自己的探索会话或新开" }
 "日志:$stem.*"
 if ($brief) {
