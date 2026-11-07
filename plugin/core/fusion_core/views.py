@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .config import current_model_settings
+from .util import CMD
 
 STATE_CN = {"exploring": "探索中", "explored": "探索完成", "planned": "待派工", "running": "助手在做",
             "blocked": "待回答", "checking": "检查中", "in_review": "待审", "integrating": "验收中",
@@ -22,8 +23,13 @@ LEAD_GUIDE = """lyfusion 已开:这个项目的代码活交给 Codex 助手做,�
 审查包不够看时,用 Read 看具体文件。看进度 fusion-core status;放弃任务 fusion-core cancel。"""
 
 
+def lead_guide() -> str:
+    """注入给 lead 的使用说明:模板里的 fusion-core 换成安装目录里的完整命令(插件不能带 bin/)。"""
+    return LEAD_GUIDE.replace("fusion-core ", CMD + " ")
+
+
 def session_context(root, cfg, state, source=None) -> str:
-    return LEAD_GUIDE
+    return lead_guide()
 
 
 def task_line(task: dict) -> str:

@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-# lyfusion 引擎的启动脚本(插件启用时在 PATH 里)。只运行插件自己目录里的代码。
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PY="$(command -v python || command -v python3)"
-exec "$PY" "$DIR/../core/fusion-core.py" "$@"

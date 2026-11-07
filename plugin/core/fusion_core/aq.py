@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from . import validate
-from .util import FusionError, any_match, git
+from .util import CMD, FusionError, any_match, git
 
 
 def read_input(value: str | None, stdin) -> str:
@@ -68,7 +68,7 @@ def review_pack(root: Path, task: dict, state: dict, round_no: int) -> str:
         lines += ["", "## 违规"]
         lines.extend(f"- {v['why']} ({v['where']})" for v in violations)
         lines.append(
-            '验收要 `fusion-core accept --waive "原因"`;有禁止操作时,原因里要写用户的原话。'
+            f'验收要 `{CMD} accept --waive "原因"`;有禁止操作时,原因里要写用户的原话。'
         )
     report = task.get("latest_report") or {}
     blocked = task["state"] == "blocked" or report.get("status") == "blocked"
@@ -122,10 +122,10 @@ def review_pack(root: Path, task: dict, state: dict, round_no: int) -> str:
 def next_step_text(task: dict, check: dict) -> str:
     report = task.get("latest_report") or {}
     if task.get("state") == "blocked" or report.get("status") == "blocked":
-        return "下一步: fusion-core revise -(回答助手的问题)"
+        return f"下一步: {CMD} revise -(回答助手的问题)"
     failed = any(not result.get("passed") for result in check.get("results", []))
     if failed or check.get("violations"):
         return (
-            '下一步: fusion-core revise -(或确认后 fusion-core accept --waive "原因")'
+            f'下一步: {CMD} revise -(或确认后 {CMD} accept --waive "原因")'
         )
-    return "下一步: fusion-core accept(要改就 fusion-core revise -)"
+    return f"下一步: {CMD} accept(要改就 {CMD} revise -)"

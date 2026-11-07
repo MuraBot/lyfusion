@@ -9,7 +9,8 @@
 | 引擎 fusion-core | `core/` | Python 标准库和 sqlite;运行 Codex、检查候选并集成 |
 | SessionStart 钩子 | `hooks/hooks.json` | Fusion 开启时注入简短使用说明 |
 | 命令 | `commands/fusion.md` | `/fusion on`、`off`、`status`、`model`、`effort`、`fast`、`test` |
-| `bin/` | `fusion-core`、`fusion-core.cmd` | 引擎的命令行入口 |
+
+插件不带 `bin/`(claude.ai 托管的插件不允许):lead 用 `python "<安装目录>/core/fusion-core.py" <子命令>` 运行引擎,完整路径由 SessionStart 注入的使用说明给出;`/fusion` 命令用 `${CLAUDE_PLUGIN_ROOT}`。
 
 lead 在 Bash 后台运行四个主流程命令,每条命令会等待结果并写入 `fusion/explore.md` 或 `fusion/review.md`。跨任务设计决定保存在 `fusion/decisions.md`。
 

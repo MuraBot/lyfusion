@@ -185,6 +185,11 @@ def python_exe() -> str:
     return sys.executable or "python"
 
 
+# lead 在 Bash 里运行引擎的命令。插件不能带 bin/(claude.ai 托管的插件不允许),
+# 所以写安装目录里 fusion-core.py 的绝对路径;SessionStart 注入的使用说明和各命令的"下一步"都用它
+CMD = f'python "{(Path(__file__).resolve().parent.parent / "fusion-core.py").as_posix()}"'
+
+
 # ---- 脱敏:写进 runs/ 的日志按常见的密钥格式遮掉。做不到完美,所以 runs/ 永远不进 git ----
 _SECRETS = [
     (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"), "[已遮掉的私钥]"),

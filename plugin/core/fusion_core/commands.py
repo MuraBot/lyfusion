@@ -13,7 +13,7 @@ class Ctx:
     def __init__(self, root: Path, actor: str = "lead"):
         self.root = Path(root)
         if not config_mod.is_fusion_project(self.root):
-            raise FusionError("这个项目没有打开 Fusion。先运行 fusion-core on")
+            raise FusionError("这个项目没有打开 Fusion。先运行 /fusion on")
         self.cfg = config_mod.load(self.root)
         self.conn = store.connect(self.root)
         self.actor = actor

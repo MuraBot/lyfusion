@@ -6,6 +6,7 @@ import json
 from fusion_core import cli, codex, gitops, views
 from fusion_core.aq import review_pack
 from fusion_core.commands import cmd_accept, cmd_delegate
+from fusion_core.util import CMD
 from test_flow import GOOD, plan_farewell
 
 
@@ -104,7 +105,7 @@ def test_conflict_detail_recommends_revise_on_latest_base(proj, monkeypatch):
     proj.do(cmd_accept, "T1")
     proj.drain()
     detail = proj.task()["integration"]["detail"]
-    assert "用 fusion-core revise 让助手在最新的主分支上解决" in detail
+    assert f"用 {CMD} revise 让助手在最新的主分支上解决" in detail
     assert "接" + "管" not in detail and "take" + "over" not in detail
 
 

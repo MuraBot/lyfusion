@@ -14,9 +14,9 @@ from . import config as config_mod
 from .commands import Ctx, cmd_accept, cmd_cancel, cmd_delegate, cmd_explore, cmd_revise
 from .state import active_task, replay
 from .supervisor import Supervisor
-from .util import FusionError, git
+from .util import CMD, FusionError, git
 
-USAGE = views.LEAD_GUIDE
+USAGE = views.lead_guide()
 
 
 def _root(args):
@@ -56,7 +56,7 @@ def _wait(root: Path, task_id: str, *, explore: bool = False) -> dict:
             for signal in new_signals:
                 if signal["kind"] == "stalled":
                     raise FusionError(
-                        f"{signal['detail']}\n请再运行同一条命令继续等,或运行 fusion-core cancel --task {task_id}",
+                        f"{signal['detail']}\n请再运行同一条命令继续等,或运行 {CMD} cancel --task {task_id}",
                         code=2,
                     )
             time.sleep(0.2)
@@ -114,7 +114,7 @@ def _write_explore(root, tid, state, original: str | None, continued: bool = Fal
     )
     if continued:
         print("已有运行在进行,接着等它;这次的输入没有用")
-    print("下一步: fusion-core delegate")
+    print(f"下一步: {CMD} delegate -(计划 JSON 用 heredoc 传)")
 
 
 def _do_explore(args, root):
@@ -232,7 +232,7 @@ def _do_accept(args, root):
         ctx.close()
     if out.get("commit"):
         print(
-            f"提交: {out['commit']}\n快进分支: {config_mod.load(root)['base_branch']}\n下一步: fusion-core status"
+            f"提交: {out['commit']}\n快进分支: {config_mod.load(root)['base_branch']}\n下一步: {CMD} status"
         )
         return
     state = _wait(root, out["task"])
@@ -240,16 +240,16 @@ def _do_accept(args, root):
     if task["state"] != "accepted":
         detail = (task.get("integration") or {}).get("detail", task["state"])
         if "未提交" in detail:
-            message = "lead 工作目录有没提交的改动,快进会冲突:先提交或撤销,再运行 fusion-core accept"
+            message = f"lead 工作目录有没提交的改动,快进会冲突:先提交或撤销,再运行 {CMD} accept"
         elif "冲突" in detail:
             message = (
-                "合并冲突,已退回审查:用 fusion-core revise 让助手在最新的主分支上解决"
+                f"合并冲突,已退回审查:用 {CMD} revise 让助手在最新的主分支上解决"
             )
         else:
             message = f"集成失败:{detail}"
         raise FusionError(message, code=2)
     print(
-        f"提交: {task['accepted_commit']}\n快进分支: {config_mod.load(root)['base_branch']}\n下一步: fusion-core status"
+        f"提交: {task['accepted_commit']}\n快进分支: {config_mod.load(root)['base_branch']}\n下一步: {CMD} status"
     )
 
 
@@ -268,7 +268,7 @@ def _preflight(root: Path) -> dict:
     add(
         "Fusion 已打开",
         fusion,
-        str(root / "fusion") if fusion else "运行 fusion-core on",
+        str(root / "fusion") if fusion else "运行 /fusion on",
     )
     cfg = (
         config_mod.load(root)
@@ -373,7 +373,7 @@ def main(argv=None) -> int:
             ctx = Ctx(root)
             try:
                 out = cmd_cancel(ctx, args.task, "lead 取消")
-                print(f"已取消: {out['task']}\n下一步: fusion-core status")
+                print(f"已取消: {out['task']}\n下一步: {CMD} status")
             finally:
                 ctx.close()
         elif args.cmd == "status":

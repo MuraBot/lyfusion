@@ -16,6 +16,7 @@ from . import aq, checks, codex, gitops, prompts, store, validate
 from . import config as config_mod
 from .state import TERMINAL, current_station, replay
 from .util import (
+    CMD,
     FusionError,
     git,
     globs_overlap,
@@ -449,7 +450,7 @@ class Supervisor:
                                 "data": {
                                     "kind": "stalled",
                                     "detail": f"{run['id']} 已经 {int(idle // 60)} 分钟没有新事件。"
-                                    f"可以重新运行同一命令继续等,或运行 fusion-core cancel",
+                                    f"可以重新运行同一命令继续等,或运行 {CMD} cancel",
                                 },
                             }
                         ]
@@ -824,7 +825,7 @@ class Supervisor:
                         "data": {
                             "ok": False,
                             "conflicts": msg,
-                            "detail": f"合并 {base_branch} 时有冲突:{msg}。用 fusion-core revise 让助手在最新的主分支上解决",
+                            "detail": f"合并 {base_branch} 时有冲突:{msg}。用 {CMD} revise 让助手在最新的主分支上解决",
                         },
                     }
                 ]

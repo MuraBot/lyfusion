@@ -22,6 +22,21 @@ def test_removed_public_surfaces_are_absent():
     assert list(hook["hooks"]) == ["SessionStart"]
 
 
+def test_no_bin_dir_and_guide_has_full_command():
+    # claude.ai 托管的插件不能带顶层 bin/;lead 用使用说明里的完整命令运行引擎
+    from fusion_core.util import CMD
+    from fusion_core.views import lead_guide
+
+    assert not (PLUGIN / "bin").exists()
+    assert (CORE / "fusion-core.py").exists() and CMD.endswith('/core/fusion-core.py"')
+    guide = lead_guide()
+    for sub in ("explore -", "delegate -", "revise -", "accept", "status", "cancel"):
+        assert f"{CMD} {sub}" in guide, sub
+    assert "fusion-core " not in guide.replace(CMD, "")
+    command = (PLUGIN / "commands/fusion.md").read_text(encoding="utf-8")
+    assert '${CLAUDE_PLUGIN_ROOT}/core/fusion-core.py' in command
+
+
 def test_usage_matches_design_and_is_short():
     source = DESIGN.read_text(encoding="utf-8")
     section = source.split("```text\n", 1)[1].split("\n```", 1)[0]

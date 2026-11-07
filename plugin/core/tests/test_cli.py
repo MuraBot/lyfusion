@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 from conftest import CORE, report
+from fusion_core.util import CMD
 
 
 def cli(proj, *args, input_text=None):
@@ -324,7 +325,7 @@ def test_blocked_review_uses_summary_and_next_step(proj):
     }
     review = review_pack(proj.root, task, {"candidates": {}}, 1)
     assert "状态:停下:需要 lead 回答" in review
-    assert review.rstrip().endswith("下一步: fusion-core revise -(回答助手的问题)")
+    assert review.rstrip().endswith(f"下一步: {CMD} revise -(回答助手的问题)")
 
 
 def test_accept_conflict_error_gives_revise_action(proj):
@@ -339,7 +340,7 @@ def test_accept_conflict_error_gives_revise_action(proj):
     accepted = cli(proj, "accept")
     assert accepted.returncode == 2
     assert (
-        "合并冲突,已退回审查:用 fusion-core revise 让助手在最新的主分支上解决"
+        f"合并冲突,已退回审查:用 {CMD} revise 让助手在最新的主分支上解决"
         in accepted.stderr.decode("utf-8")
     )
 
@@ -355,7 +356,7 @@ def test_accept_dirty_lead_tree_error_gives_cleanup_action(proj):
     accepted = cli(proj, "accept")
     assert accepted.returncode == 2
     assert (
-        "lead 工作目录有没提交的改动,快进会冲突:先提交或撤销,再运行 fusion-core accept"
+        f"lead 工作目录有没提交的改动,快进会冲突:先提交或撤销,再运行 {CMD} accept"
         in accepted.stderr.decode("utf-8")
     )
 
