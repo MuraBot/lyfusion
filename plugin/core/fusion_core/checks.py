@@ -84,6 +84,17 @@ def scan_forbidden(cfg: dict, commands: list[dict], added: list[tuple[str, str]]
     return hits
 
 
+def plan_checks(cfg: dict, plan: dict) -> list[tuple[int, dict]]:
+    """计划里的检查,去掉和项目测试、lint 完全相同(期望退出码 0)的那些:同一条命令不跑两遍、不列两行。"""
+    project = {(cfg.get(k) or "").strip() for k in ("test", "lint")} - {""}
+    out = []
+    for i, check in enumerate(plan.get("checks") or [], 1):
+        if check["run"].strip() in project and check.get("expect", 0) in (0, None):
+            continue
+        out.append((i, check))
+    return out
+
+
 def pipeline(root: Path, cfg: dict, state: dict, task: dict, candidate: dict, worktree: Path,
              run_dir: Path, commands: list[dict]) -> dict:
     logs = run_dir / "checks"
@@ -95,7 +106,7 @@ def pipeline(root: Path, cfg: dict, state: dict, task: dict, candidate: dict, wo
         results.append(run_one("测试", cfg["test"], worktree, cfg, logs / "test.log"))
     if cfg.get("lint"):
         results.append(run_one("lint", cfg["lint"], worktree, cfg, logs / "lint.log"))
-    for i, check in enumerate(task["plan"].get("checks", []), 1):
+    for i, check in plan_checks(cfg, task["plan"]):
         results.append(run_one(f"检查 {i}", check["run"], worktree, cfg, logs / f"check-{i}.log", check.get("expect", 0)))
 
     tests_changed = [item for item in changed if any_match(item["old"] or item["path"], cfg.get("tests_glob"))

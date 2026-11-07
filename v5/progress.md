@@ -82,3 +82,4 @@
 - 2026-11-06:M1 引擎完成(41 个测试);真实 Codex 跑通 2 个任务;M2 外壳写好并打包;探针测完 S2、S3,S4 没触发;J1 出好(起点 19.75 分,参考答案 100 分);预实验 J1 的 PB、PC 开跑
 - 2026-11-07:v5.0.0-aq.1 补回 v4 的助手说明;本地标签 `v5.0.0-aq.1`,zip `dist/lyfusion-plugin-5.0.0-aq.1.zip`
 - 2026-11-07:fusion-bench H2 插件版测试(C5,lead Opus 5.5 high 新会话,助手 luna high):**100 分**(v4 C2 是 96.97,助手 luna max);lead 22 次工具调用(Bash 18,另 4 次是桌面应用的任务列表和收尾);约 24 分钟;Codex 515 万输入/3.8 万输出,约 $0.09;每周额度 39%→40%。详见 `fusion-bench/results/summary-2026-11-03.md` 末尾。lead 的意见(探索可跳过要写明、decisions.md 要不要提交、审查包加工位路径、同一检查去重、默认禁止跑格式化器)留给下一版
+- 2026-11-07:v5.0.0-aq.2 按 H2 测试 lead 的意见改:探索写成每个任务都先做;引擎在 delegate、revise 时自动提交 `fusion/decisions.md`;审查包加候选和工位一行,同一条命令只跑一次、只列一行;助手说明禁止整项目跑格式化器。75 个测试、lint 通过,没有重跑真实 Codex。lead 的 Claude 用量(mod 的 `$.session.usage()`)放进 M3。见设计 §15。本地标签 `v5.0.0-aq.2`,zip `dist/lyfusion-plugin-5.0.0-aq.2.zip`

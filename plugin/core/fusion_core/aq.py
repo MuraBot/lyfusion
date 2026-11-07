@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import validate
+from . import gitops, validate
 from .util import CMD, FusionError, any_match, git
 
 
@@ -45,6 +45,8 @@ def review_pack(root: Path, task: dict, state: dict, round_no: int) -> str:
         "## 检查",
     ]
     for result in check.get("results", []):
+        if result["name"] == "旧测试跑新代码":
+            continue  # 下面单独一行
         status = "通过" if result["passed"] else "未通过"
         lines.append(
             f"- {result['name']}: `{result['cmd']}` {status}(退出码 {result['exit']})"
@@ -100,6 +102,11 @@ def review_pack(root: Path, task: dict, state: dict, round_no: int) -> str:
     scope = (task.get("plan") or {}).get("scope") or []
     lines += ["", "## 改动"]
     if candidate:
+        station = _station_path(root, task, state)
+        lines.append(
+            f"候选 `{candidate['commit'][:10]}`(基于 `{candidate['base'][:10]}`);"
+            f"工位 `{station}`(只看不改,要改用 revise)。完整 diff:`git diff {candidate['base'][:10]} {candidate['commit'][:10]}`"
+        )
         numstat = git(
             "diff", "--numstat", candidate["base"], candidate["commit"], cwd=root
         )
@@ -117,6 +124,15 @@ def review_pack(root: Path, task: dict, state: dict, round_no: int) -> str:
         lines.append("- 无代码候选")
     lines.append(next_step)
     return "\n".join(lines) + "\n"
+
+
+def _station_path(root: Path, task: dict, state: dict) -> str:
+    for run_id in reversed(task.get("runs") or []):
+        name = (state["runs"].get(run_id) or {}).get("station")
+        if name:
+            line = (state["stations"].get(name) or {}).get("line", "main")
+            return gitops.station_dir(root, line).as_posix()
+    return gitops.station_dir(root).as_posix()
 
 
 def next_step_text(task: dict, check: dict) -> str:

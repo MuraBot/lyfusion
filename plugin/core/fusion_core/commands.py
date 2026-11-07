@@ -6,7 +6,7 @@ from pathlib import Path
 from . import config as config_mod
 from . import store, validate, views
 from .state import TERMINAL, active_task, replay
-from .util import FusionError
+from .util import FusionError, git
 
 
 class Ctx:
@@ -58,6 +58,22 @@ def current_task(state: dict, task_id: str | None = None) -> dict:
     return active_task(state)
 
 
+DECISIONS = "fusion/decisions.md"
+
+
+def commit_decisions(root: Path) -> str | None:
+    """decisions.md 有改动就只提交这一个文件(检查点)。失败不挡派工,返回原因给 lead 看。"""
+    if not (root / DECISIONS).exists():
+        return None
+    code, out, _ = git("status", "--porcelain", "--", DECISIONS, cwd=root, check=False)
+    if code != 0 or not out.strip():
+        return None
+    git("add", "--", DECISIONS, cwd=root, check=False)
+    code, _, err = git("commit", "-q", "-m", "fusion: 更新设计决定(decisions.md)", "--", DECISIONS,
+                       cwd=root, check=False)
+    return None if code == 0 else f"没能提交 {DECISIONS}:{err.strip()[:200]}"
+
+
 def cmd_explore(ctx: Ctx, original: str) -> dict:
     if not isinstance(original, str) or not original.strip():
         raise FusionError("探索输入不能为空;请写任务原话和问题")
@@ -85,11 +101,12 @@ def cmd_delegate(ctx: Ctx, raw_plan: dict, task_id: str | None = None) -> dict:
         _wip_check(state, excluding=tid)
         _emit(ctx, [{"type": "plan_updated", "task": tid,
                      "data": {"plan": plan, "version": task["version"] + 1}}])
+    note = commit_decisions(ctx.root)
     state = replay(store.read(ctx.conn))
     rid = f"r{state['next_run']}"
     _emit(ctx, [{"type": "run_requested", "task": tid,
                  "data": {"run": rid, "kind": "implement"}}])
-    return {"task": tid, "run": rid}
+    return {"task": tid, "run": rid, "decisions_note": note}
 
 
 def cmd_revise(ctx: Ctx, task_id: str | None, text: str) -> dict:
@@ -104,12 +121,13 @@ def cmd_revise(ctx: Ctx, task_id: str | None, text: str) -> dict:
     limit = ctx.cfg.get("max_change_rounds", 3)
     if task["change_rounds"] >= limit:
         raise FusionError(f"{task['id']} 已经提过 {limit} 轮修改意见。按约定先停下来问用户:继续改,还是取消。", code=2)
+    note = commit_decisions(ctx.root)
     rid = f"r{state['next_run']}"
     _emit(ctx, [{"type": "changes_requested", "task": task["id"],
                  "data": {"round": task["change_rounds"] + 1}},
                 {"type": "run_requested", "task": task["id"],
                  "data": {"run": rid, "kind": "changes", "message": text.strip()}}])
-    return {"task": task["id"], "run": rid, "round": task["change_rounds"] + 1}
+    return {"task": task["id"], "run": rid, "round": task["change_rounds"] + 1, "decisions_note": note}
 
 
 def cmd_accept(ctx: Ctx, task_id: str | None = None, waive: str | None = None) -> dict:

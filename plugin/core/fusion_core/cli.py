@@ -162,6 +162,8 @@ def _do_delegate(args, root):
         finally:
             ctx.close()
         tid = out["task"]
+        if out.get("decisions_note"):
+            print(out["decisions_note"])
         state = _wait(root, tid)
     task = state["tasks"][tid]
     path = _write_review(
@@ -205,6 +207,8 @@ def _do_revise(args, root):
         finally:
             ctx.close()
         tid = out["task"]
+        if out.get("decisions_note"):
+            print(out["decisions_note"])
         state = _wait(root, tid)
     task = state["tasks"][tid]
     round_no = task["change_rounds"] + 1

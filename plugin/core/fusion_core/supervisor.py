@@ -840,7 +840,7 @@ class Supervisor:
             results.append(
                 checks.run_one("集成:lint", cfg["lint"], wt, cfg, rdir / "lint.log")
             )
-        for i, c in enumerate(task["plan"].get("checks", []), 1):
+        for i, c in checks.plan_checks(cfg, task["plan"]):
             results.append(
                 checks.run_one(
                     f"集成:检查 {i}",
