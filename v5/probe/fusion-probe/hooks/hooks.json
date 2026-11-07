@@ -1,0 +1,14 @@
+{
+  "description": "fusion-probe:记录钩子的输入,并注入一小段可识别的文字",
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "python", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/probe_hook.py", "SessionStart"] } ] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "python", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/probe_hook.py", "UserPromptSubmit"] } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Write|Edit|MultiEdit", "hooks": [ { "type": "command", "command": "python", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/probe_hook.py", "PreToolUse"] } ] }
+    ]
+  }
+}

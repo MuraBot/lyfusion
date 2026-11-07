@@ -1,0 +1,14 @@
+{
+  "description": "lyfusion:只注入使用说明、状态行和编辑提示;不批准、不阻止任何操作。项目没打开 Fusion 时什么都不输出",
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "python", "args": ["${CLAUDE_PLUGIN_ROOT}/core/fusion-core.py", "hook", "session-start"] } ] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "python", "args": ["${CLAUDE_PLUGIN_ROOT}/core/fusion-core.py", "hook", "prompt"] } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Write|Edit|MultiEdit", "hooks": [ { "type": "command", "command": "python", "args": ["${CLAUDE_PLUGIN_ROOT}/core/fusion-core.py", "hook", "pre-edit"] } ] }
+    ]
+  }
+}

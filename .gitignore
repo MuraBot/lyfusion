@@ -1,2 +1,7 @@
 # Python 缓存
 __pycache__/
+.pytest_cache/
+plugin/core/tests/_work/
+v5/probe-project/
+v5/smoke-real/
+v5/dist/

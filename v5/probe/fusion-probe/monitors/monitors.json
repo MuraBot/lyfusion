@@ -1,0 +1,7 @@
+[
+  {
+    "name": "probe-ticks",
+    "command": "python \"${CLAUDE_PLUGIN_ROOT}/monitors/ticks.py\"",
+    "description": "fusion-probe: prints two timed lines to test notification delivery"
+  }
+]

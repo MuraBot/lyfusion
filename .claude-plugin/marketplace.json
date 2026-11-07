@@ -1,0 +1,17 @@
+{
+  "name": "lyfusion-local",
+  "owner": { "name": "MuraBot" },
+  "description": "Lily 的本地插件市场,只在本机用,不发布",
+  "plugins": [
+    {
+      "name": "lyfusion",
+      "source": "./plugin",
+      "description": "lyfusion v5:Claude lead + Codex 助手的双代理协作(开发中)"
+    },
+    {
+      "name": "fusion-probe",
+      "source": "./v5/probe/fusion-probe",
+      "description": "M0 预研用的测试插件"
+    }
+  ]
+}

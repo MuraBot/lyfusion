@@ -1,0 +1,245 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 1065" role="img" aria-label="lyfusion v5.0.0-a 架构图">
+  <title>lyfusion v5.0.0-a 架构</title>
+  <style>
+    :root { --bg:#faf9f6; --layer:#f1efe9; --layerS:#dcd8ce; --box:#ffffff; --boxS:#cfcabe; --ink:#2b2a27; --mute:#6b6860;
+            --warm:#b4532a; --warmF:#fbeee6; --teal:#1f6f6a; --tealF:#e3f1ef; --blue:#2f5fa7; --blueF:#e8eef8; --line:#8a867c; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#1c1b19; --layer:#262522; --layerS:#3a3833; --box:#2d2c29; --boxS:#46443e; --ink:#ecebe6; --mute:#a6a39a;
+              --warm:#e59a72; --warmF:#3a2a22; --teal:#6cc4bb; --tealF:#1f3432; --blue:#8fb2ea; --blueF:#233047; --line:#8f8b82; }
+    }
+    text { font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif; fill: var(--ink); }
+    .bg { fill: var(--bg); }
+    .layer { fill: var(--layer); stroke: var(--layerS); stroke-width: 1; }
+    .box { fill: var(--box); stroke: var(--boxS); stroke-width: 1; }
+    .lead { fill: var(--warmF); stroke: var(--warm); stroke-width: 1.5; }
+    .acc { fill: var(--tealF); stroke: var(--teal); stroke-width: 1.5; }
+    .codex { fill: var(--blueF); stroke: var(--blue); stroke-width: 1.5; }
+    .chip { fill: var(--box); stroke: var(--boxS); stroke-width: 1; }
+    .chipW { fill: var(--box); stroke: var(--warm); stroke-width: 1; }
+    .ar { fill: none; stroke: var(--line); stroke-width: 1.5; }
+    .ah { fill: var(--line); }
+    .dot { fill: var(--teal); }
+    .dotB { fill: var(--box); stroke: var(--line); stroke-width: 1.5; }
+    .t { font-size: 22px; font-weight: 700; }
+    .h { font-size: 13px; font-weight: 700; }
+    .hl { font-size: 15px; font-weight: 700; }
+    .b { font-size: 12px; }
+    .s { font-size: 11px; fill: var(--mute); }
+    .lbl { font-size: 13px; font-weight: 700; fill: var(--mute); }
+    .m { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px; }
+    .ms { font-family: Consolas, "Cascadia Mono", monospace; font-size: 11px; fill: var(--mute); }
+    .wk { fill: var(--warm); }
+    .tl { fill: var(--teal); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="ah"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1280" height="1065"/>
+
+  <!-- 标题 -->
+  <text class="t" x="40" y="46">lyfusion v5.0.0-a 架构</text>
+  <text class="s" x="40" y="70" style="font-size:13px">评审后第 2 版 · 2026-11-06 · 质量是门槛 · 规则变程序 · 续用由引擎记住</text>
+
+  <!-- A. Claude Code 会话 -->
+  <rect class="layer" x="30" y="88" width="1220" height="160" rx="14"/>
+  <text class="lbl" x="50" y="112">Claude Code 会话 · 用户自己打开</text>
+
+  <rect class="box" x="50" y="124" width="110" height="104" rx="10"/>
+  <text class="hl" x="105" y="166" text-anchor="middle">用户</text>
+  <text class="s" x="105" y="190" text-anchor="middle">对话 · 选助手</text>
+  <text class="s" x="105" y="206" text-anchor="middle">签人工检查</text>
+
+  <path class="ar" d="M162,176 L178,176" marker-start="url(#ah)" marker-end="url(#ah)"/>
+
+  <rect class="lead" x="180" y="124" width="710" height="104" rx="10"/>
+  <text class="hl" x="200" y="152">lead · Claude</text>
+  <text class="s" x="312" y="152">前沿模型,只做需要判断的事</text>
+  <rect class="chipW" x="200" y="174" width="116" height="30" rx="15"/><text class="b" x="258" y="194" text-anchor="middle">写决定完整的计划</text>
+  <rect class="chipW" x="324" y="174" width="68" height="30" rx="15"/><text class="b" x="358" y="194" text-anchor="middle">先做样例</text>
+  <rect class="chipW" x="400" y="174" width="92" height="30" rx="15"/><text class="b" x="446" y="194" text-anchor="middle">回答阻塞问题</text>
+  <rect class="chipW" x="500" y="174" width="128" height="30" rx="15"/><text class="b" x="564" y="194" text-anchor="middle">审查(默认第 2 层)</text>
+  <rect class="chipW" x="636" y="174" width="80" height="30" rx="15"/><text class="b" x="676" y="194" text-anchor="middle">处理决定债</text>
+  <rect class="chipW" x="724" y="174" width="146" height="30" rx="15"/><text class="b" x="797" y="194" text-anchor="middle">验收 / 退回 / 接管</text>
+
+  <rect class="box" x="910" y="124" width="320" height="104" rx="10"/>
+  <text class="h" x="926" y="146">Fusion 栏</text>
+  <text class="s" x="996" y="146">输入框上方</text>
+  <rect class="acc" x="926" y="156" width="44" height="22" rx="11"/><text class="b tl" x="948" y="171" text-anchor="middle">● 开</text>
+  <rect class="chip" x="976" y="156" width="86" height="22" rx="11"/><text class="m" x="1019" y="171" text-anchor="middle">gpt-6-luna</text>
+  <rect class="chip" x="1068" y="156" width="44" height="22" rx="11"/><text class="m" x="1090" y="171" text-anchor="middle">high</text>
+  <rect class="chip" x="1118" y="156" width="58" height="22" rx="11"/><text class="b" x="1147" y="171" text-anchor="middle">快速档</text>
+  <text class="b" x="926" y="199">T3 运行中 · 1 个问题待答 · 决定债 2</text>
+  <text class="s" x="926" y="217">本任务 lead 1.2M · 助手 4.8M(缓存 96%)</text>
+
+  <g transform="translate(0,34)">
+  <!-- B. 插件外壳 -->
+  <rect class="layer" x="30" y="266" width="1220" height="158" rx="14"/>
+  <text class="lbl" x="50" y="291">插件外壳 · 只做入口和界面</text>
+
+  <rect class="box" x="50" y="300" width="112" height="110" rx="10"/>
+  <text class="h m" x="64" y="324" style="font-weight:700">/fusion</text>
+  <text class="b" x="64" y="346">开关和设置</text>
+  <text class="ms" x="64" y="372">bin/</text>
+  <text class="ms" x="64" y="390">fusion-core</text>
+
+  <rect class="box" x="180" y="300" width="164" height="110" rx="10"/>
+  <text class="h" x="194" y="324">MCP 工具</text>
+  <text class="b" x="194" y="346"><tspan class="m">fusion_*</tspan> 共 12 个</text>
+  <text class="ms" x="194" y="366">plan · delegate</text>
+  <text class="ms" x="194" y="383">answer · review</text>
+  <text class="ms" x="194" y="400">accept · takeover …</text>
+
+  <rect class="box" x="362" y="300" width="164" height="110" rx="10"/>
+  <text class="h" x="376" y="324">skill</text>
+  <text class="b" x="376" y="346">三句话分类工作</text>
+  <text class="b" x="376" y="364">三组边界</text>
+  <text class="b" x="376" y="382">先做样例</text>
+  <text class="b" x="376" y="400">处理决定债</text>
+
+  <rect class="box" x="544" y="300" width="164" height="110" rx="10"/>
+  <text class="h" x="558" y="324">hooks</text>
+  <text class="b" x="558" y="346"><tspan class="m">SessionStart</tspan></text>
+  <text class="b" x="558" y="364">新对话、压缩后都注入</text>
+  <text class="b" x="558" y="382">每次提问一行状态</text>
+  <text class="b" x="558" y="400"><tspan class="m">PreToolUse</tspan> 编辑提示</text>
+
+  <rect class="box" x="726" y="300" width="164" height="110" rx="10"/>
+  <text class="h" x="740" y="324">monitor</text>
+  <text class="b" x="740" y="346">跟随事件库</text>
+  <text class="b" x="740" y="364">候选待审</text>
+  <text class="b" x="740" y="382">阻塞问题 · 信号</text>
+  <text class="b" x="740" y="400">→ 通知 lead</text>
+
+  <rect class="box" x="910" y="300" width="320" height="110" rx="10"/>
+  <text class="h" x="926" y="324">mod(桌面端)</text>
+  <text class="b" x="926" y="346">Fusion 栏:开关、助手模型、强度、快速档</text>
+  <text class="b" x="926" y="364"><tspan class="m">turn.step</tspan> → 记 lead 用量</text>
+  <text class="b" x="926" y="382">用户签字按钮</text>
+  <text class="s" x="926" y="400">缺了也能用:/fusion 命令 + 注入的状态行</text>
+
+  </g>
+
+  <g transform="translate(0,70)">
+  <!-- C. fusion-core 引擎 -->
+  <rect class="layer" x="30" y="442" width="1220" height="212" rx="14"/>
+  <text class="lbl" x="50" y="467">fusion-core 引擎</text>
+
+  <rect class="box" x="50" y="478" width="290" height="160" rx="10"/>
+  <text class="h" x="64" y="502"><tspan class="m" style="font-weight:700">fusion-core serve</tspan></text>
+  <text class="b" x="64" y="526">MCP 服务器 + 运行监督</text>
+  <text class="b" x="64" y="546">同一项目只有一个监督者</text>
+  <text class="b" x="64" y="566">启动时对账:进程、分支</text>
+  <text class="b" x="64" y="586">Codex 子进程独立运行,</text>
+  <text class="b" x="64" y="606">Claude Code 关了也能跑完</text>
+  <text class="s" x="64" y="628">Python 标准库 · 能脱离 Claude Code 测试</text>
+
+  <path class="ar" d="M341,500 L358,500" marker-end="url(#ah)"/>
+  <rect class="chip" x="360" y="478" width="150" height="44" rx="10"/><text class="b" x="435" y="505" text-anchor="middle">命令:JSON 进出</text>
+  <path class="ar" d="M511,500 L528,500" marker-end="url(#ah)"/>
+  <rect class="chip" x="530" y="478" width="150" height="44" rx="10"/><text class="b" x="605" y="505" text-anchor="middle">校验:任务单、报告</text>
+  <path class="ar" d="M681,500 L698,500" marker-end="url(#ah)"/>
+  <rect class="chip" x="700" y="478" width="150" height="44" rx="10"/><text class="b" x="775" y="505" text-anchor="middle">状态机:前置状态</text>
+  <path class="ar" d="M851,500 L868,500" marker-end="url(#ah)"/>
+  <rect class="acc" x="870" y="478" width="360" height="44" rx="10"/>
+  <text class="h tl" x="886" y="505">事件库</text>
+  <text class="b" x="936" y="505"><tspan class="m">fusion.db</tspan> · sqlite3 WAL · 唯一写入口</text>
+
+  <rect class="acc" x="360" y="540" width="300" height="98" rx="10"/>
+  <text class="h tl" x="374" y="562">工位表 · 续用由这里记住</text>
+  <text class="b" x="374" y="584">Codex 会话编号 · 模型 · 强度 · 快速档</text>
+  <text class="b" x="374" y="604">工作目录 · 当前上下文 · 接替关系</text>
+  <text class="b" x="374" y="624">lead 只看到工位名,从不碰会话编号</text>
+
+  <rect class="box" x="680" y="540" width="270" height="98" rx="10"/>
+  <text class="h" x="694" y="562">检查流水线</text>
+  <text class="b" x="694" y="584">测试 · lint · 验收检查</text>
+  <text class="b" x="694" y="604">旧测试跑新代码 · 范围</text>
+  <text class="b" x="694" y="624">用户能感知的文件 · 禁止操作</text>
+
+  <rect class="box" x="970" y="540" width="260" height="98" rx="10"/>
+  <text class="h" x="984" y="562">验收和集成</text>
+  <text class="b" x="984" y="584">只认点名的冻结候选</text>
+  <text class="b" x="984" y="604">合并 main → 集成检查</text>
+  <text class="b" x="984" y="624">压成一个提交 → 快进 main</text>
+
+  </g>
+
+  <g transform="translate(0,104)">
+  <!-- D. 代码和运行 -->
+  <rect class="layer" x="30" y="672" width="1220" height="180" rx="14"/>
+  <text class="lbl" x="50" y="697">代码和运行</text>
+
+  <rect class="codex" x="50" y="708" width="290" height="128" rx="10"/>
+  <text class="h" x="64" y="732">Codex 工位 <tspan class="m" style="font-weight:700">main#2</tspan></text>
+  <text class="b" x="64" y="756"><tspan class="m">codex exec --json / resume</tspan></text>
+  <text class="b" x="64" y="776">沙箱只能写工位目录</text>
+  <text class="b" x="64" y="796">去掉 <tspan class="m">CLAUDE*</tspan>、<tspan class="m">ANTHROPIC*</tspan> 环境变量</text>
+  <text class="b" x="64" y="816">阻塞问题 → 结束本次运行</text>
+
+  <path class="ar" d="M341,772 L388,772" marker-end="url(#ah)"/><text class="s" x="364" y="764" text-anchor="middle">写文件</text>
+
+  <rect class="box" x="390" y="708" width="380" height="128" rx="10"/>
+  <text class="h" x="404" y="732">工位目录 <tspan class="m" style="font-weight:700">项目-fusion/</tspan></text>
+  <text class="s" x="560" y="732">git worktree,放在项目旁边</text>
+  <text class="b" x="404" y="756">任务分支 <tspan class="m">fusion/T3</tspan> · 每次运行一个候选</text>
+  <path class="ar" d="M432,790 L508,790"/>
+  <path class="ar" d="M532,790 L608,790"/>
+  <circle class="dotB" cx="420" cy="790" r="9"/>
+  <circle class="dot" cx="520" cy="790" r="9"/>
+  <circle class="dot" cx="620" cy="790" r="9"/>
+  <text class="s" x="420" y="820" text-anchor="middle">起点(main)</text>
+  <text class="ms" x="520" y="820" text-anchor="middle">T3.c1</text>
+  <text class="ms" x="620" y="820" text-anchor="middle">T3.c2 待审</text>
+  <text class="s" x="660" y="794">检查、审查、</text>
+  <text class="s" x="660" y="810">验收都绑定候选</text>
+
+  <path class="ar" d="M771,772 L818,772" marker-end="url(#ah)"/><text class="s" x="795" y="764" text-anchor="middle">合并</text>
+
+  <rect class="box" x="820" y="708" width="410" height="128" rx="10"/>
+  <text class="h" x="836" y="732">项目 · main</text>
+  <text class="b wk" x="930" y="732">lead 直接改这里</text>
+  <text class="b" x="836" y="756"><tspan class="m">fusion/intent.md</tspan> 由事件库生成,进 git</text>
+  <text class="b" x="836" y="776"><tspan class="m">fusion/config.json</tspan> 进 git</text>
+  <text class="b" x="836" y="796"><tspan class="m">local.json</tspan> · <tspan class="m">fusion.db</tspan> · <tspan class="m">runs/</tspan> 不进 git</text>
+  <text class="s" x="836" y="818">代码归 git · 流程状态归事件库 · 原始日志归 runs/</text>
+
+  </g>
+
+  <g transform="translate(0,95)">
+  <!-- 一次任务 -->
+  <text class="h" x="40" y="919">一次任务</text>
+  <rect class="chip" x="130" y="900" width="75" height="28" rx="14"/><text class="m" x="167" y="919" text-anchor="middle">planned</text>
+  <path class="ar" d="M206,914 L243,914" marker-end="url(#ah)"/>
+  <rect class="chip" x="245" y="900" width="75" height="28" rx="14"/><text class="m" x="282" y="919" text-anchor="middle">running</text>
+  <path class="ar" d="M321,914 L358,914" marker-end="url(#ah)"/>
+  <rect class="chip" x="360" y="900" width="83" height="28" rx="14"/><text class="m" x="401" y="919" text-anchor="middle">checking</text>
+  <path class="ar" d="M444,914 L481,914" marker-end="url(#ah)"/>
+  <rect class="chip" x="483" y="900" width="90" height="28" rx="14"/><text class="m" x="528" y="919" text-anchor="middle">in_review</text>
+  <path class="ar" d="M574,914 L611,914" marker-end="url(#ah)"/>
+  <rect class="chip" x="613" y="900" width="105" height="28" rx="14"/><text class="m" x="665" y="919" text-anchor="middle">integrating</text>
+  <path class="ar" d="M719,914 L756,914" marker-end="url(#ah)"/>
+  <rect class="acc" x="758" y="900" width="83" height="28" rx="14"/><text class="m tl" x="799" y="919" text-anchor="middle">accepted</text>
+  <text class="s" x="282" y="948" text-anchor="middle">阻塞 ⇄ blocked</text>
+  <text class="s" x="401" y="948" text-anchor="middle">失败就让助手修,≤2 次</text>
+  <text class="s" x="528" y="948" text-anchor="middle">修改意见 → running</text>
+  <text class="s" x="665" y="948" text-anchor="middle">冲突 → in_review</text>
+  <text class="b" x="880" y="919">任何时候:退回 · 取消 · 接管</text>
+  <text class="s" x="880" y="940">小事不建任务,lead 直接做</text>
+  </g>
+
+  <!-- 跨层箭头(最后画,压在各层上面) -->
+  <path class="ar" d="M262,230 L262,332" marker-end="url(#ah)"/><text class="s" x="269" y="279">调用工具</text>
+  <path class="ar" d="M444,332 L444,230" marker-end="url(#ah)"/><text class="s" x="451" y="279">方法</text>
+  <path class="ar" d="M626,332 L626,230" marker-end="url(#ah)"/><text class="s" x="633" y="279">注入状态和决定</text>
+  <path class="ar" d="M808,332 L808,230" marker-end="url(#ah)"/><text class="s" x="815" y="279">通知</text>
+  <path class="ar" d="M1070,332 L1070,230" marker-start="url(#ah)" marker-end="url(#ah)"/><text class="s" x="1077" y="279">显示 · 设置</text>
+  <path class="ar" d="M262,446 L262,546" marker-end="url(#ah)"/><text class="s" x="269" y="491">命令(JSON)</text>
+  <path class="ar" d="M900,546 L900,486 L808,486 L808,446" marker-end="url(#ah)"/><text class="s" x="818" y="479">跟随事件</text>
+  <path class="ar" d="M1070,446 L1070,546" marker-start="url(#ah)" marker-end="url(#ah)"/><text class="s" x="1077" y="491">设置 · 用量记录</text>
+  <path class="ar" d="M195,710 L195,810" marker-end="url(#ah)"/><text class="s" x="202" y="755">启动 / 续用</text>
+  <path class="ar" d="M725,710 L725,810" marker-end="url(#ah)"/><text class="s" x="732" y="755">提交候选 · 跑检查</text>
+  <path class="ar" d="M1100,710 L1100,810" marker-end="url(#ah)"/><text class="s" x="1107" y="755">验收后快进</text>
+</svg>

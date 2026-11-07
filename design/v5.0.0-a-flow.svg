@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 905" role="img" aria-label="lyfusion v5.0.0-a 协作流程">
+  <title>lyfusion v5.0.0-a 协作流程</title>
+  <style>
+    :root { --bg:#ffffff; --hatch:#e6e6e6; --box:#ffffff; --boxS:#333333; --ink:#1f1f1f; --mute:#666666; --line:#222222;
+            --blueF:#dae3f3; --blueS:#3355dd; --greenF:#d9ead3; --greenS:#5a9a45; --teal:#1f6f6a; --tealF:#e3f1ef; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#1c1b19; --hatch:#2c2b28; --box:#262522; --boxS:#b9b6ae; --ink:#ecebe6; --mute:#a6a39a; --line:#cfccc4;
+              --blueF:#233047; --blueS:#8fb2ea; --greenF:#22331f; --greenS:#8cc47a; --teal:#6cc4bb; --tealF:#1f3432; }
+    }
+    text { font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif; fill: var(--ink); }
+    .bg { fill: var(--bg); }
+    .hl { stroke: var(--hatch); stroke-width: 1; }
+    .box { fill: var(--box); stroke: var(--boxS); stroke-width: 1.2; }
+    .opt { fill: var(--box); stroke: var(--boxS); stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .start { fill: var(--blueF); stroke: var(--blueS); stroke-width: 1.5; }
+    .end { fill: var(--greenF); stroke: var(--greenS); stroke-width: 1.5; }
+    .pill { fill: var(--tealF); stroke: var(--teal); stroke-width: 1.2; }
+    .note { fill: var(--tealF); stroke: var(--teal); stroke-width: 1.2; }
+    .ar { fill: none; stroke: var(--line); stroke-width: 1.3; }
+    .dash { fill: none; stroke: var(--mute); stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .br { fill: none; stroke: var(--teal); stroke-width: 1.5; }
+    .ah { fill: var(--line); }
+    .ahm { fill: var(--mute); }
+    .lane { font-size: 21px; }
+    .t { font-size: 15px; }
+    .s { font-size: 11.5px; fill: var(--mute); }
+    .lb { font-size: 11.5px; fill: var(--mute); }
+    .p { font-size: 12.5px; fill: var(--teal); font-weight: 700; }
+    .ps { font-size: 11px; fill: var(--teal); }
+    .nt { font-size: 13px; fill: var(--teal); font-weight: 700; }
+  </style>
+  <defs>
+    <pattern id="hatch" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <line class="hl" x1="0" y1="0" x2="0" y2="10"/>
+    </pattern>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="ah"/>
+    </marker>
+    <marker id="ahm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="ahm"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="800" height="905"/>
+
+  <!-- 泳道 -->
+  <rect x="30" y="58" width="320" height="790" fill="url(#hatch)"/>
+  <rect x="450" y="58" width="320" height="790" fill="url(#hatch)"/>
+  <text class="lane" x="190" y="40" text-anchor="middle">lead(主代理)</text>
+  <text class="lane" x="610" y="40" text-anchor="middle">助手(Codex)</text>
+
+  <!-- 小事直接做 -->
+  <path class="dash" d="M80,103 L52,103 L52,813 L78,813" marker-end="url(#ahm)"/>
+  <text class="lb" transform="rotate(-90 66 458)" x="66" y="462" text-anchor="middle">小事:lead 直接做,不用派工</text>
+
+  <!-- 同一个工位 -->
+  <path class="br" d="M733,146 L742,146 L742,616 L733,616"/>
+  <path class="br" d="M742,616 L742,765 L722,765"/>
+
+  <!-- 连线(先画,压在方框下面) -->
+  <path class="ar" d="M200,126 L200,174 L478,174" marker-end="url(#ah)"/>
+  <path class="ar" d="M600,202 L600,252 L322,252" marker-end="url(#ah)"/>
+  <text class="lb" x="400" y="244" text-anchor="middle">相关文件和约定</text>
+  <path class="ar" d="M200,282 L200,300" marker-end="url(#ah)"/>
+  <path class="ar" d="M322,332 L478,332" marker-end="url(#ah)"/>
+  <text class="lb" x="400" y="324" text-anchor="middle">任务单 + 样例</text>
+  <path class="ar" d="M478,406 L322,406" marker-end="url(#ah)"/>
+  <text class="lb" x="400" y="398" text-anchor="middle">阻塞问题(本次运行结束)</text>
+  <path class="ar" d="M322,436 L478,436" marker-end="url(#ah)"/>
+  <text class="lb" x="400" y="452" text-anchor="middle">回答后续用</text>
+  <path class="ar" d="M600,452 L600,520 L322,520" marker-end="url(#ah)"/>
+  <path class="ar" d="M200,550 L200,568" marker-end="url(#ah)"/>
+  <path class="ar" d="M322,593 L478,593" marker-end="url(#ah)"/>
+  <path class="ar" d="M600,616 L600,690 L322,690" marker-end="url(#ah)"/>
+  <path class="ar" d="M200,720 L200,788" marker-end="url(#ah)"/>
+
+  <!-- lead 一侧 -->
+  <rect class="start" x="80" y="80" width="240" height="46" rx="3"/>
+  <text class="t" x="200" y="108" text-anchor="middle">用户任务</text>
+
+  <rect class="box" x="80" y="222" width="240" height="60" rx="3"/>
+  <text class="t" x="200" y="246" text-anchor="middle">写意图记录和计划</text>
+  <text class="s" x="200" y="268" text-anchor="middle">必须遵守 · 可以自己定 · 必须上报</text>
+
+  <rect class="box" x="80" y="302" width="240" height="60" rx="3"/>
+  <text class="t" x="200" y="326" text-anchor="middle">先做样例</text>
+  <text class="s" x="200" y="348" text-anchor="middle">判断类的工作,lead 亲手做</text>
+
+  <rect class="opt" x="80" y="392" width="240" height="56" rx="3"/>
+  <text class="t" x="200" y="415" text-anchor="middle">回答阻塞问题</text>
+  <text class="s" x="200" y="436" text-anchor="middle">可以顺手升格为决定</text>
+
+  <rect class="box" x="80" y="490" width="240" height="60" rx="3"/>
+  <text class="t" x="200" y="514" text-anchor="middle">审查候选</text>
+  <text class="s" x="200" y="536" text-anchor="middle">默认看第 2 层 · 处理决定债</text>
+
+  <rect class="box" x="80" y="570" width="240" height="46" rx="3"/>
+  <text class="t" x="200" y="598" text-anchor="middle">提修改意见</text>
+
+  <rect class="box" x="80" y="660" width="240" height="60" rx="3"/>
+  <text class="t" x="200" y="684" text-anchor="middle">验收</text>
+  <text class="s" x="200" y="706" text-anchor="middle">只认审查过的那个候选</text>
+
+  <rect class="end" x="80" y="790" width="240" height="46" rx="3"/>
+  <text class="t" x="200" y="818" text-anchor="middle">最终代码</text>
+
+  <!-- 助手一侧 -->
+  <rect class="box" x="480" y="146" width="240" height="56" rx="3"/>
+  <text class="t" x="600" y="170" text-anchor="middle">代码探索</text>
+  <text class="s" x="600" y="191" text-anchor="middle">只读</text>
+
+  <rect class="box" x="480" y="302" width="240" height="150" rx="3"/>
+  <text class="t" x="600" y="352" text-anchor="middle">照计划和样例写代码</text>
+  <text class="t" x="600" y="376" text-anchor="middle">编写测试</text>
+  <text class="t" x="600" y="400" text-anchor="middle">修复 Lint</text>
+  <text class="s" x="600" y="426" text-anchor="middle">自己做的选择 → 记成决定债</text>
+
+  <rect class="box" x="480" y="570" width="240" height="46" rx="3"/>
+  <text class="t" x="600" y="598" text-anchor="middle">按意见修改</text>
+
+  <rect class="note" x="480" y="712" width="242" height="96" rx="8"/>
+  <text class="nt" x="494" y="736">同一个工位,会话自动续用</text>
+  <text class="ps" x="494" y="758">探索、实现、续用、修改都接着上一次</text>
+  <text class="ps" x="494" y="776">换任务、换对话也自动接上</text>
+  <text class="ps" x="494" y="794">lead 从不碰会话编号</text>
+
+  <!-- 程序做的关卡(压在连线上) -->
+  <rect class="pill" x="362" y="507" width="156" height="26" rx="13"/>
+  <text class="p" x="440" y="525" text-anchor="middle">程序:跑检查 · 发信号</text>
+  <text class="ps" x="440" y="550" text-anchor="middle">没过就让助手修,最多 2 次</text>
+
+  <rect class="pill" x="388" y="677" width="104" height="26" rx="13"/>
+  <text class="p" x="440" y="695" text-anchor="middle">程序:再跑检查</text>
+
+  <rect class="pill" x="112" y="741" width="176" height="26" rx="13"/>
+  <text class="p" x="200" y="759" text-anchor="middle">程序:合并 main · 集成检查</text>
+
+  <!-- 图例 -->
+  <rect class="pill" x="30" y="868" width="58" height="22" rx="11"/>
+  <text class="p" x="59" y="884" text-anchor="middle">程序</text>
+  <text class="lb" x="96" y="884">程序做的关卡,不靠模型自觉</text>
+  <rect class="opt" x="300" y="868" width="40" height="22" rx="3"/>
+  <text class="lb" x="348" y="884">有阻塞问题时才发生</text>
+  <line class="dash" x1="490" y1="879" x2="530" y2="879"/>
+  <text class="lb" x="538" y="884">可选的捷径</text>
+</svg>

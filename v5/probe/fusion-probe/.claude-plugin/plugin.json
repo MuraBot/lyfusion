@@ -1,0 +1,6 @@
+{
+  "name": "fusion-probe",
+  "version": "0.0.1",
+  "description": "M0 预研用的测试插件:检查 MCP、钩子、monitor 在本机的表现(lyfusion v5)",
+  "author": { "name": "MuraBot" }
+}

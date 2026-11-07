@@ -1,0 +1,7 @@
+[
+  {
+    "name": "fusion-events",
+    "command": "python \"${CLAUDE_PLUGIN_ROOT}/core/fusion-core.py\" --project \"${CLAUDE_PROJECT_DIR}\" events --follow --audience lead",
+    "description": "lyfusion:助手跑完、提阻塞问题、检查出结果、验收结束时通知 lead。项目没打开 Fusion 时不输出任何东西"
+  }
+]
