@@ -17,6 +17,9 @@ Lily 的多 agent 协作与调度技能(Fusion 模式),也是对这套模式的�
 | `tests/` | 测试。`fake_codex/` 是假的 Codex,不联网、不耗额度 |
 | `suggestions/` | 试点数据、复盘、协议草案,按日期存放 |
 | `updates/` | 每次更新的简报和迁移说明 |
+| `plugin/` | v5 的 Claude Code 插件(当前 v5.0.0-aq):引擎 fusion-core、SessionStart 钩子、`/fusion` 命令。说明见 `plugin/README.md` |
+| `design/` | 设计文档。v5.0.0-aq 的改动见 `design/v5.0.0-aq.md` |
+| `v5/` | v5 的进度 `progress.md`、预研 `spikes.md`、打包脚本 `build_plugin.py`、aq 迭代的派工证据 `aq-run/` |
 
 ## 安装到项目
 见 `SKILL.md` 的"安装到项目"。装好后项目里多出:台账 `ledger.jsonl`、派工日志和证据 `dispatch-logs/`(不提交)。
