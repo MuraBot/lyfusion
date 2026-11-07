@@ -211,3 +211,21 @@ def test_old_database_event_types_are_ignored():
     assert state["tasks"] == {}
 
 
+
+
+def test_v5a_database_with_task_planned_replays():
+    """v5.0.0-a 的真实库用 task_planned 建任务,后面跟着 run_requested;重放不能崩,编号要接着往下排。"""
+    from fusion_core.state import empty, replay
+    events = [
+        {"seq": 1, "type": "task_planned", "task": "T1", "ts": "t1",
+         "data": {"version": 1, "plan": {"goal": "加 wrap", "notes": "按宽度折行", "items": [{"id": "W1"}]}}},
+        {"seq": 2, "type": "intent_changed", "task": None, "ts": "t2", "data": {}},
+        {"seq": 3, "type": "run_requested", "task": "T1", "ts": "t3", "data": {"run": "r1", "kind": "implement"}},
+        {"seq": 4, "type": "debt_added", "task": "T1", "ts": "t4", "data": {}},
+        {"seq": 5, "type": "review_viewed", "task": "T1", "ts": "t5", "data": {}},
+    ]
+    state = replay(events, empty())
+    task = state["tasks"]["T1"]
+    assert task["plan"] == {"goal": "加 wrap", "brief": "按宽度折行", "checks": [], "scope": []}
+    assert task["runs"] == ["r1"]
+    assert state["next_task"] == 2 and state["next_run"] == 2

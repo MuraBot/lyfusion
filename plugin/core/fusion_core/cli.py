@@ -105,7 +105,7 @@ def _write_explore(root, tid, state, original: str | None, continued: bool = Fal
     answer = state["explore_answers"].get(run, {}).get("answer", "")
     station = state["runs"][run].get("station")
     session = (state["stations"].get(station) or {}).get("thread") or "(未绑定)"
-    artifact = f"任务编号:{tid}\n助手会话编号:{session}\n\n# 探索结果\n\n## 任务原话\n{original.rstrip()}\n\n## 助手回答\n{answer.rstrip()}\n"
+    artifact = f"任务编号:{tid}\n助手会话编号:{session}\n\n# 探索结果\n\n## lead 的原文\n{original.rstrip()}\n\n## 助手回答\n{answer.rstrip()}\n"
     path = root / "fusion" / "explore.md"
     path.write_text(artifact, encoding="utf-8")
     aq.save_history(root, tid, "explore.md", artifact)

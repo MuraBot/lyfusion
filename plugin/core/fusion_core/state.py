@@ -233,8 +233,17 @@ def _engine_error(s, e, d, tid):
     del s["engine_errors"][:-20]
 
 
+def _legacy_task_planned(s, e, d, tid):
+    """v5.0.0-a 的库用 task_planned 建任务。只留 aq 计划的 4 个字段,让后面的旧事件和编号接得上。"""
+    old = d.get("plan") or {}
+    plan = {"goal": str(old.get("goal") or ""), "brief": str(old.get("notes") or ""), "checks": [], "scope": []}
+    _task_created(s, e, {"plan": plan, "state": "planned"}, tid)
+    s["tasks"][tid]["version"] = d.get("version", 1)
+
+
 HANDLERS = {
-    "task_created": _task_created, "plan_updated": _plan_updated, "lead_session": _lead_session,
+    "task_created": _task_created, "task_planned": _legacy_task_planned,
+    "plan_updated": _plan_updated, "lead_session": _lead_session,
     "run_requested": _run_requested, "station_created": _station_created, "station_retired": _station_retired,
     "thread_bound": _thread_bound, "run_started": _run_started, "run_ended": _run_ended,
     "explore_answered": _explore_answered, "question_asked": _question_asked,
