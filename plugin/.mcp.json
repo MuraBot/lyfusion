@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "fusion": {
-      "command": "python",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/core/fusion-core.py", "serve"]
-    }
-  }
-}

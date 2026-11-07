@@ -1,8 +1,6 @@
 """给助手的提示。规则短、任务单完整;同一个任务里续用时只发增量。"""
 from __future__ import annotations
 
-from . import intent as intent_doc
-
 RULES = """你是 lyfusion 的助手,和一个 lead 合作:lead 负责设计和判断,你负责按任务单实现。
 规则:
 1. 只在当前目录(你的工位目录)里工作。不要 git 提交、不要切分支、不要推送,提交由引擎做。
@@ -15,7 +13,7 @@ RULES = """你是 lyfusion 的助手,和一个 lead 合作:lead 负责设计和�
 6. 不要关闭证书检查、不要跳过钩子、不要为了通过检查删改原有测试。只能改任务单 tests_may_change 允许的测试。
 7. 做完后跑项目的测试和 lint。最终回复只输出符合格式的 JSON 报告,不要别的文字。"""
 
-REPORT_REMINDER = "最终回复只输出 JSON 报告(summary、items、decisions、choices、questions、assumptions、downstream、problems)。"
+REPORT_REMINDER = "最终回复只输出 JSON 报告(status、summary、questions、choices、problems)。status 为 done 或 blocked。"
 
 
 def _items_block(task: dict, ids: list[str]) -> str:
@@ -30,8 +28,6 @@ def _items_block(task: dict, ids: list[str]) -> str:
             src = task["items"].get(it["follows"], {})
             commit = src.get("done_commit") or "(见 lead 的最新提交)"
             out.append(f"  照样例做:{it['follows']}「{src.get('title', '')}」,提交 {commit}")
-        if it.get("decisions"):
-            out.append(f"  引用的决定:{', '.join(it['decisions'])}")
         for cid in it.get("checks") or []:
             c = checks.get(cid)
             if not c:
@@ -47,8 +43,6 @@ def _items_block(task: dict, ids: list[str]) -> str:
 
 def task_prompt(state: dict, cfg: dict, task: dict, items: list[str], handoff: str | None, first: bool) -> str:
     p = task["plan"]
-    refs = list(dict.fromkeys(list(p.get("decisions") or []) +
-                              [r for i in items for r in task["items"][i].get("decisions") or []]))
     b = p.get("bounds") or {}
     parts = []
     if first:
@@ -61,8 +55,6 @@ def task_prompt(state: dict, cfg: dict, task: dict, items: list[str], handoff: s
                  + "可以自己定:\n" + "\n".join(f"- {x}" for x in b.get("free") or ["(无)"]) + "\n"
                  + "必须上报(碰到就提阻塞问题):\n" + "\n".join(f"- {x}" for x in b.get("escalate") or ["(无)"]))
     parts.append("## 本次要做的工作项\n" + _items_block(task, items))
-    if refs:
-        parts.append("## 相关决定(全文)\n" + intent_doc.for_prompt(state, refs))
     if p.get("tests_may_change"):
         parts.append("## 允许修改的测试\n" + "\n".join(f"- {t['glob']}(依据 {t['decision']})" for t in p["tests_may_change"]))
     cmds = [x for x in (cfg.get("test"), cfg.get("lint")) if x]
@@ -75,12 +67,12 @@ def task_prompt(state: dict, cfg: dict, task: dict, items: list[str], handoff: s
     return "\n\n".join(parts)
 
 
-def fix_prompt(failures: str) -> str:
+def fix_prompt(failures: str, decisions: str = "") -> str:
     return ("## 检查没有通过\n下面是引擎跑出来的失败输出。请修好,然后再跑一遍测试。"
-            "不要改弱原有测试。\n\n" + failures + "\n\n" + REPORT_REMINDER)
+            "不要改弱原有测试。\n\n" + failures + "\n\n## 跨任务设计决定\n" + decisions + "\n\n" + REPORT_REMINDER)
 
 
-def changes_prompt(comments: list[dict], overruled: list[dict]) -> str:
+def changes_prompt(comments: list[dict], overruled: list[dict], decisions: str = "") -> str:
     lines = ["## lead 的修改意见"]
     for c in comments:
         ref = f"[{c['ref']}] " if c.get("ref") else ""
@@ -89,7 +81,7 @@ def changes_prompt(comments: list[dict], overruled: list[dict]) -> str:
             lines.append(f"  期望的结果:{c['expect']}")
     for o in overruled:
         lines.append(f"- 驳回你自定的选择 {o['eid']}:{o.get('what', '')}。{o.get('note') or ''}")
-    lines += ["", REPORT_REMINDER]
+    lines += ["", "## 跨任务设计决定", decisions, "", REPORT_REMINDER]
     return "\n".join(lines)
 
 
@@ -101,7 +93,7 @@ def answer_prompt(answers: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def explore_prompt(questions: list[str], task: dict | None) -> str:
+def explore_prompt(questions: list[str], task: dict | None, decisions: str = "") -> str:
     lines = ["你是 lyfusion 的助手。这是只读探索:只读代码、不要修改任何文件。",
              "请逐条回答下面的问题。回答要具体:写出文件路径和行号、现有约定、容易踩的坑。"]
     if task:
@@ -109,10 +101,11 @@ def explore_prompt(questions: list[str], task: dict | None) -> str:
     lines.append("")
     for i, q in enumerate(questions, 1):
         lines.append(f"{i}. {q}")
+    lines.extend(["", "## 跨任务设计决定", decisions])
     return "\n".join(lines)
 
 
-def handoff_summary(state: dict, old: dict, refs: list[str]) -> str:
+def handoff_summary(state: dict, old: dict, refs: list[str] | None = None) -> str:
     """换工位时由引擎拼交接摘要,不让臃肿的旧会话自己写。"""
     lines = [f"上一个工位 {old['name']} 做过的任务:{', '.join(old['tasks']) or '(无)'}"]
     if old.get("files"):
@@ -128,6 +121,4 @@ def handoff_summary(state: dict, old: dict, refs: list[str]) -> str:
             rep = (state["runs"][rid].get("report") or {})
             for prob in rep.get("problems") or []:
                 lines.append(f"  已知问题:{prob}")
-    if refs:
-        lines.append("\n当前有效的相关决定:\n" + intent_doc.for_prompt(state, refs))
     return "\n".join(lines)

@@ -13,9 +13,9 @@ KIND_CN = {"implement": "实现", "fix": "修复", "changes": "按意见修改",
            "report": "补报告", "explore": "只读探索"}
 SIGNAL_CN = {"check_failed": "检查失败", "blocked": "阻塞", "perceivable_touched": "改了用户能感知的文件",
              "violation": "违规", "stalled": "卡住"}
-SESSION_LIMIT = 100  # SessionStart 注入的总行数上限(角色说明 60 + 状态 40)
+SESSION_LIMIT = 20
 
-LEAD_GUIDE = """# Fusion 已打开(lyfusion v5.0.0-a)
+OLD_LEAD_GUIDE = """# Fusion 已打开(lyfusion v5.0.0-a)
 你是 lead:理解用户、做判断、写计划、审查和验收。助手(Codex)在独立的工位目录里按任务单实现。
 工具是 fusion_*(在延迟工具列表里时,先用 ToolSearch 搜 fusion 加载)。任务状态、助手会话、检查证据
 都由引擎记录,你不用自己记会话编号或续用命令。
@@ -56,6 +56,19 @@ LEAD_GUIDE = """# Fusion 已打开(lyfusion v5.0.0-a)
 - 证据只认引擎跑出来的;不要在工位目录里改代码或提交。
 - 违规(关证书检查、跳过钩子、改弱测试)不放行;确实要放行,先问用户,把用户原话写进 waive。
 - 遇到权限、环境、账号问题,停下来告诉用户。"""
+
+LEAD_GUIDE = """lyfusion 已开:这个项目的代码活交给 Codex 助手做,你(lead)只做 4 件事。
+每条命令都在 Bash 里用 run_in_background 运行。命令自己等到有结果才结束,结束时会叫醒你:
+不要开 Monitor、不要 sleep、不要轮询。醒来后直接读结果文件。
+1. 探索:fusion-core explore - <<'EOF' …… EOF
+   写用户的任务原话(一字不改)和你想知道的,最多 3 条,编号 Q1~Q3。结果:fusion/explore.md
+2. 派工:fusion-core delegate - <<'EOF' {计划} EOF   续用探索的会话。结果:fusion/review.md
+   计划是 JSON:{\"goal\": \"一句话\", \"brief\": \"Markdown 正文\", \"checks\": [{\"run\": \"命令\", \"expect\": 0}], \"scope\": [\"src/**\"]}
+   checks、scope 可省。brief 推荐小标题:目标、决定、不要做的事、已知的坑。
+3. 修改:fusion-core revise - <<'EOF' 修改意见 EOF   自由文字,助手的问题也在这里回答。结果:fusion/review.md
+4. 验收:fusion-core accept   合并、重跑检查、压成 1 个提交、快进主分支。
+跨任务都要守的设计决定写进 fusion/decisions.md(普通文件,直接编辑),引擎每次派工把全文带给助手。
+审查包不够看时,用 Read 看具体文件。看进度 fusion-core status;放弃任务 fusion-core cancel。"""
 
 
 def _short(text, n=80) -> str:
@@ -342,26 +355,7 @@ def station_lines(s) -> list[str]:
 # ---------------- 注入 ----------------
 
 def session_context(root: Path, cfg: dict, s: dict, source: str | None) -> str:
-    state_lines = ["", "## 现在的状态" + ("(对话压缩后恢复)" if source == "compact" else "")]
-    live = [t for t in s["tasks"].values() if t["state"] not in TERMINAL]
-    state_lines += [f"- {task_line(s, t)}" for t in live] or ["- 没有进行中的任务"]
-    state_lines += station_lines(s)
-    for q in open_questions(s, blocking=True):
-        state_lines.append(f"- 待答 {q['id']}({q['task']}):{_short(q['text'], 100)}")
-    active = sorted((d for d in s["decisions"].values() if d["status"] == "active"), key=lambda d: int(d["id"][1:]))
-    if active:
-        relevant = set()
-        for t in live:
-            relevant |= {r.split("@")[0] for r in t["plan"].get("decisions") or []}
-        state_lines.append(f"有效决定 {len(active)} 条(全文 fusion/intent.md):")
-        shown = [d for d in active if d["id"] in relevant] + [d for d in active if d["id"] not in relevant]
-        room = 40 - len(state_lines) - 1
-        for d in shown[:max(0, room)]:
-            state_lines.append(f"- {d['id']}@{d['version']} {d.get('category')}:{_short(d.get('content'), 70)}")
-        if len(shown) > room > 0:
-            state_lines.append(f"- ……还有 {len(shown) - room} 条")
-    text = LEAD_GUIDE + "\n" + "\n".join(state_lines[:40])
-    return text
+    return LEAD_GUIDE
 
 
 def prompt_line(s) -> str:

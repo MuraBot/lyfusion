@@ -10,7 +10,7 @@ import time
 import traceback
 from pathlib import Path
 
-from . import checks, codex, config as config_mod, gitops, intent as intent_doc, prompts, store, validate
+from . import aq, checks, codex, config as config_mod, gitops, prompts, store, validate
 from .state import TERMINAL, current_station, replay
 from .util import FusionError, git, globs_overlap, kill_tree, now, pid_alive, redact_file
 
@@ -183,7 +183,6 @@ class Supervisor:
         """找到或换一个工位。返回 (工位, 要写的事件, 交接摘要)。"""
         events, handoff, pred = [], None, None
         sk = cfg["local"]["sidekick"]
-        refs = list(task["plan"].get("decisions") or [])
         st = current_station(s, "main")
         first_run_of_task = not any(s["runs"][r]["status"] != "requested" and s["runs"][r]["kind"] != "explore"
                                     for r in task["runs"])
@@ -200,13 +199,13 @@ class Supervisor:
                 reason = "新任务的文件范围和这个工位做过的文件不在同一个目录(换了主题)"
             if reason:
                 events.append({"type": "station_retired", "data": {"station": st["name"], "reason": reason}})
-                handoff = prompts.handoff_summary(s, st, refs)
+                handoff = prompts.handoff_summary(s, st)
                 pred, st = st["name"], None
         if st is None:
             if pred is None and s["stations"]:
                 last = list(s["stations"].values())[-1]
                 pred = last["name"]
-                handoff = handoff or prompts.handoff_summary(s, last, refs)
+                handoff = handoff or prompts.handoff_summary(s, last)
             st, ev = self._new_station(s, cfg, pred)
             events.append(ev)
         return st, events, handoff
@@ -234,10 +233,11 @@ class Supervisor:
                 prompt += "\n\n## lead 这次派工的说明\n" + str(run["message"])
         else:
             if kind == "fix":
-                body = prompts.fix_prompt(run["message"] or "")
+                body = prompts.fix_prompt(run["message"] or "", aq.decisions_text(self.root))
             elif kind == "changes":
                 m = run["message"] or {}
-                body = prompts.changes_prompt(m.get("comments", []), m.get("overruled", []))
+                body = prompts.changes_prompt(m.get("comments", []), m.get("overruled", []),
+                                              aq.decisions_text(self.root))
             elif kind == "answer":
                 body = prompts.answer_prompt(run["message"] or [])
             elif kind == "report":
@@ -257,7 +257,7 @@ class Supervisor:
     def _start_explore(self, s, cfg, run) -> None:
         task = s["tasks"].get(run["task"] or "")
         rid, rdir = run["id"], self.run_dir(run["id"])
-        prompt = prompts.explore_prompt(run["questions"], task)
+        prompt = prompts.explore_prompt(run["questions"], task, aq.decisions_text(self.root))
         st = current_station(s, "main")
         events = []
         if st is None or not self._station_busy(s):
@@ -345,11 +345,11 @@ class Supervisor:
             return
         rep, problems = validate.report(raw) if raw is not None else (None, ["没有收到 JSON 报告"])
         blocking = [q for q in (rep or {}).get("questions", []) if isinstance(q, dict) and q.get("blocking")]
-        result = "failed" if rep is None else ("blocked" if blocking else "ok")
+        result = "failed" if rep is None else ("blocked" if blocking or rep.get("status") == "blocked" else "ok")
         files = [f["path"] for f in gitops.changed_files(wt, task["base"], "HEAD")] if task["base"] else []
         if gitops.worktree_dirty(wt):
             files += [line[3:] for line in git("status", "--porcelain", "--untracked-files=all", cwd=wt).splitlines()]
-        qn, dn = s["next_question"], task["next_debt"]
+        qn = s["next_question"]
         for q in (rep or {}).get("questions", []):
             if not isinstance(q, dict) or not q.get("text"):
                 continue
@@ -359,21 +359,6 @@ class Supervisor:
                 "qid": qid, "run": run["id"], "text": q["text"], "blocking": bool(q.get("blocking")),
                 "options": q.get("options") or [], "recommendation": q.get("recommendation"),
                 "proceeded_with": q.get("proceeded_with")}})
-            if not q.get("blocking"):
-                eid = f"{tid}.E{dn}"
-                dn += 1
-                chosen = q.get("proceeded_with") or q.get("recommendation") or "(没写)"
-                events.append({"type": "debt_added", "task": tid, "data": {
-                    "eid": eid, "run": run["id"], "question": qid, "what": f"问题「{q['text']}」按「{chosen}」继续",
-                    "options": q.get("options") or [], "why": q.get("recommendation") or "", "files": []}})
-        for c in (rep or {}).get("choices", []):
-            if not isinstance(c, dict) or not c.get("what"):
-                continue
-            eid = f"{tid}.E{dn}"
-            dn += 1
-            events.append({"type": "debt_added", "task": tid, "data": {
-                "eid": eid, "run": run["id"], "what": c["what"], "options": c.get("options") or [],
-                "why": c.get("why") or "", "files": c.get("files") or []}})
         events.append({"type": "run_ended", "task": tid, "data": {
             "run": run["id"], "result": result, "usage": summ["usage"], "ctx_est": summ["ctx_est"],
             "files": sorted(set(files)), "report": rep, "problems": problems, "commands": summ["commands"][-200:]}})
@@ -394,7 +379,7 @@ class Supervisor:
             commit = gitops.commit_all(wt, msg, cfg.get("commit_identity"))
             if commit:
                 cand = {"cand": cid, "commit": commit, "base": task["base"], "run": run["id"],
-                        "plan_version": task["version"], "decisions": list(task["plan"].get("decisions") or []),
+                        "plan_version": task["version"],
                         "check_hash": config_mod.check_hash(cfg)}
                 events.append({"type": "candidate_created", "task": tid, "data": cand})
         if cand is None and result == "ok":
@@ -473,8 +458,6 @@ class Supervisor:
                 events.append({"type": "accepted", "task": tid,
                                "data": {"cand": None, "commit": git("rev-parse", "HEAD", cwd=self.root)}})
             self.emit(events)
-            if res["passed"]:
-                self.commit_intent(cfg)
             return
         wt = self.wt
         cand = s["candidates"][task["accept_cand"]]
@@ -506,9 +489,8 @@ class Supervisor:
                 "ok": False, "results": results,
                 "detail": f"合并 {base_branch} 之后检查没通过:" + "、".join(r["name"] for r in failed)}}])
             return
-        refs = ", ".join(cand.get("decisions") or []) or "无"
         goal = task["plan"]["goal"].splitlines()[0][:72]
-        message = (f"{goal}\n\nTask: {tid}\nCandidate: {cand['cand']}\nDecisions: {refs}\n"
+        message = (f"{goal}\n\nTask: {tid}\nCandidate: {cand['cand']}\n"
                    f"Runs: {', '.join(task['runs'])}\nVia: lyfusion v5\n")
         squashed = gitops.squash_onto(wt, base_branch, message, ident)
         ok, msg = gitops.fast_forward(self.root, base_branch, squashed)
@@ -522,19 +504,6 @@ class Supervisor:
                    {"type": "accepted", "task": tid, "data": {"cand": cand["cand"], "commit": squashed}}])
         gitops.detach_station(wt, base_branch)
         gitops.delete_branch(self.root, f"fusion/{tid}")
-        self.commit_intent(cfg)
-
-    def commit_intent(self, cfg) -> None:
-        """intent.md 有变化时单独提交(只提交这几个文件,不碰 lead 的其他改动)。"""
-        intent_doc.write(self.root, self.state())
-        paths = [p for p in ("fusion/intent.md", "fusion/config.json", "fusion/.gitignore") if (self.root / p).exists()]
-        if not paths or not git("status", "--porcelain", "--", *paths, cwd=self.root):
-            return
-        ident = cfg.get("commit_identity")
-        args = ["-c", f"user.name={ident['name']}", "-c", f"user.email={ident['email']}"] if ident else []
-        git("add", "--", *paths, cwd=self.root)
-        git(*args, "commit", "-q", "--no-verify", "-m", "fusion: 更新意图记录", "--", *paths, cwd=self.root,
-            check=False)
 
     # ---------- 退回、取消、接管 ----------
     def _stop_active(self, s, task) -> list[dict]:

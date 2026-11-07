@@ -1,174 +1,83 @@
-"""命令行:`fusion-core <命令> [JSON]`。参数是 JSON(命令行参数或标准输入),输出也是 JSON。"""
+"""Command line interface for the blocking v5.0.0-aq workflow."""
 from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
-from . import VERSION, codex, config as config_mod, gitops, store, views
-from .commands import Ctx, cmd_usage
+from . import VERSION, aq, config as config_mod, store, views
+from .commands import Ctx, cmd_accept, cmd_cancel, cmd_delegate, cmd_explore, cmd_plan, cmd_request_changes
 from .state import replay
-from .tools import CLI_NAMES
-from .util import FusionError, git, run
+from .supervisor import Supervisor
+from .util import FusionError, git
 
 
-def _out(obj) -> None:
-    sys.stdout.buffer.write((json.dumps(obj, ensure_ascii=False, indent=1) + "\n").encode("utf-8"))
-    sys.stdout.buffer.flush()
-
-
-def _args_json(text: str | None) -> dict:
-    if text is None or text == "-":
-        raw = sys.stdin.buffer.read().decode("utf-8") if not sys.stdin.isatty() else ""
-    else:
-        raw = text
-    raw = raw.strip()
-    return json.loads(raw) if raw else {}
+USAGE = views.LEAD_GUIDE
 
 
 def _root(args) -> Path:
     return config_mod.project_root(args.project)
 
 
-def cmd_init(args) -> dict:
-    root = _root(args)
-    cfg = config_mod.init(root, args.test, args.lint)
-    return {"ok": True, "root": str(root), "base_branch": cfg["base_branch"],
-            "text": f"Fusion 已在 {root} 打开。配置在 fusion/config.json,开关和助手模型在 fusion/local.json。"}
+def _input(args) -> str:
+    return aq.read_input(args.source, sys.stdin)
 
 
-def cmd_onoff(args, on: bool) -> dict:
-    root = _root(args)
-    if on and not config_mod.is_fusion_project(root):
-        return cmd_init(args)
-    if not config_mod.is_fusion_project(root):
-        return {"ok": True, "text": "这个项目没有打开过 Fusion。"}
-    local = config_mod.load(root)["local"]
-    local["enabled"] = on
-    config_mod.save_local(root, local)
-    return {"ok": True, "text": "Fusion 已打开。" if on else "Fusion 已关闭(数据都还在,on 可以再打开)。"}
-
-
-def cmd_config(args) -> dict:
-    root = _root(args)
-    cfg = config_mod.load(root)
-    if args.action == "get":
-        return cfg
-    change = _args_json(args.json)
-    if "local" in change:
-        local = cfg["local"]
-        for k, v in change["local"].items():
-            if isinstance(v, dict) and isinstance(local.get(k), dict):
-                local[k].update(v)
-            else:
-                local[k] = v
-        config_mod.save_local(root, local)
-    if "config" in change:
-        path = root / "fusion" / "config.json"
-        data = json.loads(path.read_text(encoding="utf-8"))
-        data.update(change["config"])
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return config_mod.load(root)
-
-
-def _root_or_none(args) -> Path | None:
-    hint = args.project
-    if hint and not Path(hint).is_dir():  # 宿主没替换 ${CLAUDE_PROJECT_DIR} 时是字面值
-        hint = None
+def _wait(root: Path, *, run: str | None = None, task: str | None = None,
+          predicate=None, timeout: int = 1200) -> dict:
+    sup = Supervisor(root, poll=0.2)
+    conn = store.connect(root)
+    start = time.monotonic()
     try:
-        return config_mod.project_root(hint)
-    except FusionError:
-        return None
-
-
-def cmd_wait(args) -> dict:
-    """阻塞到有需要 lead 处理的事(或超时),打印通知后退出。给 lead 在 Bash 后台运行:结束时会话会被唤醒。
-
-    MCP 服务器没在监督时(例如只用命令行),这里顺便监督。"""
-    from .supervisor import Supervisor
-    root = _root(args)
-    ctx = Ctx(root)
-    sup = Supervisor(root, poll=1.0)
-    evs = store.read(ctx.conn)
-    last = args.after if args.after is not None else (evs[-1]["seq"] if evs else 0)
-    deadline = time.time() + args.timeout
-    try:
-        while True:
+        while time.monotonic() - start < timeout:
             if store.take_lease(sup.conn, sup.holder):
-                try:
-                    while sup.tick():
-                        pass
-                except Exception as e:
-                    sup._log_error(e)
-            new = [e for e in store.read(ctx.conn, last) if not args.task or e["task"] in (args.task, None)]
-            s = ctx.state()
-            if new:
-                last = new[-1]["seq"]
-                lines = views.notifications(s, new)
-                if lines:
-                    return {"ok": True, "notifications": lines, "status": views.prompt_line(s), "after": last}
-            moving = any(r["status"] in ("requested", "started") and (not args.task or r["task"] == args.task)
-                         for r in s["runs"].values()) or any(
-                t["state"] in ("checking", "integrating") or (t.get("takeover") and not t.get("takeover_done"))
-                for t in s["tasks"].values() if not args.task or t["id"] == args.task)
-            if not moving:
-                return {"ok": True, "notifications": [], "idle": True, "after": last,
-                        "status": views.prompt_line(s) + "(没有在跑的运行,不用再等)"}
-            if time.time() > deadline:
-                return {"ok": True, "notifications": [], "timeout": True, "after": last,
-                        "status": views.prompt_line(s) + f"(等了 {args.timeout} 秒,还在跑;可以再运行一次 wait)"}
-            time.sleep(2)
+                while sup.tick():
+                    pass
+            state = sup.state()
+            if predicate and predicate(state):
+                return state
+            if run and state["runs"].get(run, {}).get("status") == "ended":
+                return state
+            if not run and not predicate:
+                break
+            time.sleep(0.2)
+        raise FusionError("等待超时或没有取得结果;请运行 fusion-core status 查看,再重试对应命令", code=2)
     finally:
         try:
             store.release_lease(sup.conn, sup.holder)
         except Exception:
             pass
-        ctx.close()
+        conn.close()
+        sup.conn.close()
 
 
-def cmd_events(args) -> int | dict:
-    root = _root_or_none(args) if args.follow else _root(args)
-    if args.export:
-        conn = store.connect(root)
-        n = store.export_jsonl(conn, Path(args.export))
-        return {"ok": True, "events": n, "file": args.export}
-    if not args.follow:
-        conn = store.connect(root)
-        return store.read(conn, args.after or 0)[-(args.limit or 50):]
-    # --follow:给 monitor 用。没打开 Fusion 时安静地等,打开后开始输出通知
-    conn, last = None, None
-    while True:
-        try:
-            if conn is None:
-                if root and config_mod.is_fusion_project(root) and config_mod.load(root)["local"].get("enabled"):
-                    conn = store.connect(root)
-                    evs = store.read(conn)
-                    last = evs[-1]["seq"] if evs else 0
-                else:
-                    time.sleep(10)
-                    continue
-            new = store.read(conn, last)
-            if new:
-                last = new[-1]["seq"]
-                s = replay(store.read(conn))
-                for line in views.notifications(s, new):
-                    sys.stdout.buffer.write((line + "\n").encode("utf-8"))
-                sys.stdout.buffer.flush()
-            time.sleep(args.interval)
-        except KeyboardInterrupt:
-            return 0
-        except Exception as e:  # 库暂时锁住等:等一下再读
-            sys.stderr.write(f"{type(e).__name__}: {e}\n")
-            time.sleep(5)
+def _task_arg(parser):
+    parser.add_argument("--task")
 
 
-def cmd_preflight(args) -> dict:
-    root = _root(args)
+def _active_task(state: dict, task: str | None) -> str:
+    if task:
+        if task not in state["tasks"]:
+            raise FusionError(f"任务 {task} 不存在")
+        return task
+    active = [t for t in state["tasks"].values() if t["state"] not in ("accepted", "rejected", "cancelled")]
+    if not active:
+        raise FusionError("没有进行中的任务")
+    return active[-1]["id"]
+
+
+def _add_input(parser, help_text):
+    parser.add_argument("source", help=help_text)
+    _task_arg(parser)
+
+
+def _preflight(root: Path) -> dict:
+    from . import codex, gitops
+    from .util import run
     rows = []
-
     def add(name, ok, detail):
         rows.append({"check": name, "ok": ok, "detail": detail})
     add("git", True, git("--version", cwd=root))
@@ -178,10 +87,10 @@ def cmd_preflight(args) -> dict:
     cfg = config_mod.load(root) if fusion else {"local": dict(config_mod.DEFAULT_LOCAL), "base_branch": None}
     try:
         cmd = codex.find_codex(cfg)
-        p = run(cmd + ["--version"], cwd=str(root), timeout=60)
-        add("Codex", p["exit"] == 0, p["output"].strip()[:200])
-    except FusionError as e:
-        add("Codex", False, str(e))
+        result = run(cmd + ["--version"], cwd=str(root), timeout=60)
+        add("Codex", result["exit"] == 0, result["output"].strip()[:200])
+    except FusionError as exc:
+        add("Codex", False, str(exc))
     wt = gitops.station_dir(root)
     add("工位目录不在临时目录", not gitops.in_temp(wt), str(wt))
     add("工位目录", not wt.exists() or (wt / ".git").exists(),
@@ -192,16 +101,95 @@ def cmd_preflight(args) -> dict:
         add("测试命令", bool(cfg.get("test")), cfg.get("test") or "没配置:fusion/config.json 的 test")
         dirty = git("status", "--porcelain", cwd=root)
         add("lead 工作目录干净", not dirty, "干净" if not dirty else "有未提交的改动(验收快进时可能冲突)")
-    return {"ok": all(r["ok"] for r in rows), "checks": rows}
+    return {"ok": all(row["ok"] for row in rows), "checks": rows}
 
 
-def cmd_tool(args, tool) -> dict:
-    root = _root(args)
-    ctx = Ctx(root, actor=args.actor)
+def _do_explore(args, root):
+    text = _input(args)
+    ctx = Ctx(root)
     try:
-        return tool["fn"](ctx, _args_json(args.json))
+        state = ctx.state()
+        task = args.task
+        run = cmd_explore(ctx, [text], task)["run"]
     finally:
         ctx.close()
+    state = _wait(root, run=run)
+    answer = state["explore_answers"].get(run, {}).get("answer", "")
+    artifact = f"# 探索 {run}\n\n## 任务原话和问题\n\n{text.rstrip()}\n\n## 助手回答\n\n{answer.rstrip()}\n"
+    path = root / "fusion" / "explore.md"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(artifact, encoding="utf-8")
+    tid = task or "explore"
+    aq.save_history(root, tid, "explore.md", artifact)
+    print(f"结果: fusion/explore.md\n{answer[:500]}\n下一步: fusion-core delegate")
+
+
+def _do_delegate(args, root):
+    plan = aq.parse_plan(_input(args))
+    ctx = Ctx(root)
+    try:
+        state = ctx.state()
+        aq.decisions_text(root)
+        internal = aq.engine_plan(plan, ctx.cfg)
+        internal["notes"] += "\n\n跨任务设计决定:\n" + aq.decisions_text(root)
+        out = cmd_plan(ctx, internal, args.task)
+        tid = out["task"]
+        run = cmd_delegate(ctx, tid, []) ["run"]
+    finally:
+        ctx.close()
+    state = _wait(root, task=tid, predicate=lambda s: s["tasks"][tid]["state"] in ("in_review", "blocked", "cancelled"))
+    task = state["tasks"][tid]
+    if task["state"] != "in_review":
+        raise FusionError(f"{tid} 没有得到可审查结果(状态:{task['state']});查看 fusion/status", code=2)
+    _write_review(root, task, state, "review-1.md", 1)
+    print(f"结果: fusion/review.md\n{tid} 已完成检查,请查看审查包。\n下一步: fusion-core accept --task {tid}")
+
+
+def _write_review(root, task, state, history, round_no):
+    text = aq.review_pack(root, task, state)
+    current = root / "fusion" / "review.md"
+    current.parent.mkdir(exist_ok=True)
+    current.write_text(text, encoding="utf-8")
+    aq.save_history(root, task["id"], history, text)
+
+
+def _do_revise(args, root):
+    text = _input(args)
+    ctx = Ctx(root)
+    try:
+        state = ctx.state()
+        tid = _active_task(state, args.task)
+        try:
+            out = cmd_request_changes(ctx, tid, [{"text": text.strip(), "expect": "按修改意见完成"}])
+        except FusionError as exc:
+            if "先停下来问用户" in str(exc):
+                exc.code = 2
+            raise
+        run = out["run"]
+    finally:
+        ctx.close()
+    state = _wait(root, task=tid, predicate=lambda s: s["tasks"][tid]["state"] in ("in_review", "blocked", "cancelled"))
+    task = state["tasks"][tid]
+    if task["state"] != "in_review":
+        raise FusionError(f"{tid} 没有得到新的审查结果(状态:{task['state']});查看 fusion/status", code=2)
+    round_no = task["change_rounds"]
+    _write_review(root, task, state, f"review-{round_no + 1}.md", round_no + 1)
+    print(f"结果: fusion/review.md\n{tid} 第 {round_no} 轮修改已完成。\n下一步: fusion-core accept --task {tid}")
+
+
+def _do_accept(args, root):
+    ctx = Ctx(root)
+    try:
+        state = ctx.state()
+        tid = _active_task(state, args.task)
+        out = cmd_accept(ctx, tid, waive=args.waive)
+    finally:
+        ctx.close()
+    state = _wait(root, task=tid, predicate=lambda s: s["tasks"][tid]["state"] in ("accepted", "in_review", "blocked"))
+    task = state["tasks"][tid]
+    if task["state"] != "accepted":
+        raise FusionError(f"{tid} 集成未完成:{(task.get('integration') or {}).get('detail', task['state'])}", code=2)
+    print(f"{tid} 已验收,提交 {task['accepted_commit']}\n下一步: fusion-core status")
 
 
 def main(argv=None) -> int:
@@ -210,100 +198,79 @@ def main(argv=None) -> int:
             stream.reconfigure(encoding="utf-8")
         except Exception:
             pass
-    ap = argparse.ArgumentParser(prog="fusion-core", description=f"lyfusion 引擎 {VERSION}")
-    ap.add_argument("--project", help="项目目录(默认:CLAUDE_PROJECT_DIR 或当前目录)")
-    ap.add_argument("--actor", default="lead")
-    sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("init")
-    p.add_argument("--test")
-    p.add_argument("--lint")
-    for name in ("on", "off"):
-        p = sub.add_parser(name)
-        p.add_argument("--test")
-        p.add_argument("--lint")
-    sub.add_parser("serve")
-    p = sub.add_parser("hook")
-    p.add_argument("event", choices=["session-start", "prompt", "pre-edit"])
-    p = sub.add_parser("events")
-    p.add_argument("--follow", action="store_true")
-    p.add_argument("--audience", default="lead")
-    p.add_argument("--export")
-    p.add_argument("--after", type=int)
-    p.add_argument("--limit", type=int)
-    p.add_argument("--interval", type=float, default=2.0)
-    p = sub.add_parser("config")
-    p.add_argument("action", choices=["get", "set"])
-    p.add_argument("json", nargs="?")
-    p = sub.add_parser("usage")
-    p.add_argument("action", choices=["record"])
-    p.add_argument("json", nargs="?")
-    p = sub.add_parser("ledger")
-    p.add_argument("--task")
-    sub.add_parser("preflight")
-    sub.add_parser("guide", help="打印 lead 的使用说明和当前状态(和新对话开始时注入的一样)")
-    p = sub.add_parser("wait", help="等到有需要 lead 处理的事再退出(在 Bash 后台运行)")
-    p.add_argument("--task")
-    p.add_argument("--timeout", type=int, default=3000)
-    p.add_argument("--after", type=int, help="从哪个事件之后算(默认:现在)")
-    p = sub.add_parser("tick", help="调试:让监督者做完能做的事")
-    p.add_argument("--wait", action="store_true", help="一直等到没有在跑的运行")
-    for name in CLI_NAMES:
-        p = sub.add_parser(name)
-        p.add_argument("json", nargs="?")
-    args = ap.parse_args(argv)
+    parser = argparse.ArgumentParser(prog="fusion-core", description=f"lyfusion 引擎 {VERSION}")
+    parser.add_argument("--project", help="项目目录(默认:CLAUDE_PROJECT_DIR 或当前目录)")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    _add_input(sub.add_parser("explore"), "任务原话与问题 Markdown 文件,或 - 读标准输入")
+    _add_input(sub.add_parser("delegate"), "4 字段计划 JSON 文件,或 - 读标准输入")
+    _add_input(sub.add_parser("revise"), "修改意见文件,或 - 读标准输入")
+    p = sub.add_parser("accept"); _task_arg(p); p.add_argument("--waive")
+    _task_arg(sub.add_parser("cancel"))
+    sub.add_parser("status"); sub.add_parser("on"); sub.add_parser("off"); sub.add_parser("preflight")
+    p = sub.add_parser("config"); p.add_argument("action", choices=["get", "set"]); p.add_argument("json", nargs="?")
+    p = sub.add_parser("ledger"); p.add_argument("--task")
+    p = sub.add_parser("hook"); p.add_argument("event", choices=["session-start"])
+    args = parser.parse_args(argv)
     try:
-        if args.cmd == "serve":
-            from . import mcp
-            try:
-                root = config_mod.project_root(args.project)
-            except FusionError:
-                root = None
-            mcp.main(root)
-            return 0
         if args.cmd == "hook":
-            from . import hooks
-            return hooks.main(args.event)
-        if args.cmd == "events":
-            res = cmd_events(args)
-            if isinstance(res, int):
-                return res
-            _out(res)
-            return 0
-        if args.cmd == "init":
-            res = cmd_init(args)
+            from .hooks import main as hook_main
+            return hook_main(args.event)
+        root = _root(args)
+        if args.cmd == "explore": _do_explore(args, root)
+        elif args.cmd == "delegate": _do_delegate(args, root)
+        elif args.cmd == "revise": _do_revise(args, root)
+        elif args.cmd == "accept": _do_accept(args, root)
+        elif args.cmd == "cancel":
+            ctx = Ctx(root)
+            try: print(cmd_cancel(ctx, _active_task(ctx.state(), args.task), "lead 取消" )["text"])
+            finally: ctx.close()
+        elif args.cmd == "status":
+            ctx = Ctx(root)
+            try: print(views.status(root, ctx.cfg, ctx.state()))
+            finally: ctx.close()
         elif args.cmd in ("on", "off"):
-            res = cmd_onoff(args, args.cmd == "on")
-        elif args.cmd == "config":
-            res = cmd_config(args)
-        elif args.cmd == "usage":
-            ctx = Ctx(_root(args))
-            res = cmd_usage(ctx, _args_json(args.json))
-        elif args.cmd == "ledger":
-            ctx = Ctx(_root(args))
-            res = {"text": views.ledger(ctx.state(), args.task)}
-        elif args.cmd == "preflight":
-            res = cmd_preflight(args)
-        elif args.cmd == "wait":
-            res = cmd_wait(args)
-        elif args.cmd == "guide":
-            ctx = Ctx(_root(args))
-            res = {"text": views.session_context(ctx.root, ctx.cfg, ctx.state(), "manual")}
-        elif args.cmd == "tick":
-            from .supervisor import Supervisor
-            sup = Supervisor(_root(args))
-            if args.wait:
-                sup.drain(limit=100000, wait=2.0)
+            if args.cmd == "on" and not config_mod.is_fusion_project(root):
+                config_mod.init(root)
+            if not config_mod.is_fusion_project(root):
+                print("这个项目没有打开过 Fusion。")
             else:
-                while sup.tick():
-                    pass
-            res = {"ok": True}
-        else:
-            res = cmd_tool(args, CLI_NAMES[args.cmd])
-        _out(res)
+                cfg = config_mod.load(root)
+                cfg["local"]["enabled"] = args.cmd == "on"
+                config_mod.save_local(root, cfg["local"])
+                if args.cmd == "on":
+                    aq.decisions_text(root)
+                    print(USAGE)
+                else:
+                    print("Fusion 已关闭(数据都还在,on 可以再打开)。")
+        elif args.cmd == "config":
+            cfg = config_mod.load(root)
+            if args.action == "get": print(json.dumps(cfg, ensure_ascii=False, indent=2))
+            else:
+                change = json.loads(args.json or "{}")
+                if "local" in change:
+                    local = cfg["local"]
+                    for key, value in change["local"].items():
+                        if isinstance(value, dict) and isinstance(local.get(key), dict): local[key].update(value)
+                        else: local[key] = value
+                    config_mod.save_local(root, local)
+                if "config" in change:
+                    path = root / "fusion" / "config.json"; data = json.loads(path.read_text(encoding="utf-8")); data.update(change["config"])
+                    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+                print(json.dumps(config_mod.load(root), ensure_ascii=False, indent=2))
+        elif args.cmd == "preflight":
+            print(json.dumps(_preflight(root), ensure_ascii=False))
+        elif args.cmd == "ledger":
+            ctx = Ctx(root)
+            try: print(views.ledger(ctx.state(), args.task))
+            finally: ctx.close()
         return 0
-    except FusionError as e:
-        _out({"ok": False, "error": str(e)})
-        return 2
-    except json.JSONDecodeError as e:
-        _out({"ok": False, "error": f"参数不是合法的 JSON:{e}"})
-        return 2
+    except FusionError as exc:
+        print(str(exc), file=sys.stderr)
+        return getattr(exc, "code", 1)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        print(f"输入格式错误:{exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

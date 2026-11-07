@@ -97,15 +97,6 @@ def pipeline(root: Path, cfg: dict, state: dict, task: dict, cand: dict, wt: Pat
         if c["kind"] == "command" and c["id"] not in lead_checks:
             results.append(run_one(f"验收 {c['id']}", c["run"], wt, cfg, logs / f"{c['id']}.log", c.get("expect")))
 
-    refs = set(task["plan"].get("decisions") or [])
-    for it in task["items"].values():
-        refs.update(it.get("decisions") or [])
-    for ref in sorted(refs):
-        dec = state["decisions"].get(ref.split("@")[0])
-        if dec and dec.get("check") and dec["status"] == "active":
-            results.append(run_one(f"决定 {dec['id']}", dec["check"]["run"], wt, cfg, logs / f"{dec['id']}.log",
-                                   dec["check"].get("expect")))
-
     allowed = [t["glob"] for t in task["plan"].get("tests_may_change") or []]
     tests_changed = [f for f in changed if any_match(f["old"] or f["path"], cfg.get("tests_glob"))
                      and f["status"] in ("M", "D", "R")]

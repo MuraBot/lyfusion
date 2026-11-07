@@ -191,14 +191,16 @@ def report(raw) -> tuple[dict, list[str]]:
     """校验助手报告。返回 (补齐后的报告, 问题列表)。"""
     problems = []
     if not isinstance(raw, dict):
-        return {"summary": "", "items": [], "decisions": [], "choices": [], "questions": [], "assumptions": [],
-                "downstream": [], "problems": ["报告不是 JSON 对象"]}, ["报告不是 JSON 对象"]
-    out = {k: raw.get(k) for k in ("summary", "items", "decisions", "choices", "questions", "assumptions",
-                                   "downstream", "problems")}
+        return {"status": "blocked", "summary": "", "questions": [], "choices": [],
+                "problems": ["报告不是 JSON 对象"]}, ["报告不是 JSON 对象"]
+    out = {k: raw.get(k) for k in ("status", "summary", "questions", "choices", "problems")}
+    if out["status"] not in ("done", "blocked"):
+        problems.append("status 要是 done 或 blocked")
+        out["status"] = "done"
     if not isinstance(out["summary"], str) or not out["summary"].strip():
         problems.append("缺少 summary")
         out["summary"] = out["summary"] or ""
-    for k in ("items", "decisions", "choices", "questions", "assumptions", "downstream", "problems"):
+    for k in ("questions", "choices", "problems"):
         if out[k] is None:
             problems.append(f"缺少 {k}")
             out[k] = []

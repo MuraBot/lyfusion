@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import config as config_mod, intent as intent_doc, store, validate, views
+from . import config as config_mod, store, validate, views
 from .state import TERMINAL, open_debt, open_questions, replay
 from .util import FusionError, git
 
@@ -75,7 +75,6 @@ def cmd_intent(ctx: Ctx, change: dict) -> dict:
         store.append(ctx.conn, [{"type": "intent_changed", "data": {"decision": dec, "op": change.get("op", "add")}}],
                      ctx.actor)
     s = ctx.state()
-    intent_doc.write(ctx.root, s)
     affected = [t["id"] for t in s["tasks"].values() if t["state"] not in TERMINAL and _stale_refs(s, t)]
     text = f"已记下 {dec['id']}@{dec['version']}({dec['status']})。"
     if affected:
@@ -219,8 +218,6 @@ def cmd_answer(ctx: Ctx, question: str, answer: str, promote: dict | None = None
                                "data": {"run": resumed, "kind": "answer", "items": s["runs"][q["run"]]["items"],
                                         "message": msgs}})
         store.append(ctx.conn, events, ctx.actor)
-    if did:
-        intent_doc.write(ctx.root, ctx.state())
     text = f"已回答 {question}。"
     if did:
         text += f" 并记成决定 {did}。"
@@ -373,8 +370,6 @@ def cmd_accept(ctx: Ctx, task: str, candidate: str | None = None, ratify: list[s
         events.append({"type": "accept_requested", "task": task,
                        "data": {"cand": cand_id, "note": note, "waive": waive}})
         store.append(ctx.conn, events, ctx.actor)
-    if promote:
-        intent_doc.write(ctx.root, ctx.state())
     return {"task": task, "candidate": cand_id,
             "text": f"{task} 开始验收 {cand_id}:合并 main、跑集成检查、快进。结果会通知你。"}
 

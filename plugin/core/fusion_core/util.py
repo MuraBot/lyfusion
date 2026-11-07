@@ -18,6 +18,10 @@ IS_WIN = os.name == "nt"
 class FusionError(Exception):
     """给 lead 看的错误:原因写清楚,lead 当场能改。"""
 
+    def __init__(self, message: str, code: int = 1):
+        super().__init__(message)
+        self.code = code
+
 
 def now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -146,11 +150,18 @@ def pid_alive(pid: int | None) -> bool:
     if not pid:
         return False
     if IS_WIN:
+        from ctypes import wintypes
         kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        kernel32.OpenProcess.restype = wintypes.HANDLE
         h = kernel32.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
         if not h:
             return False
-        code = ctypes.c_ulong()
+        code = wintypes.DWORD()
+        kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+        kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+        kernel32.CloseHandle.restype = wintypes.BOOL
         ok = kernel32.GetExitCodeProcess(h, ctypes.byref(code))
         kernel32.CloseHandle(h)
         return bool(ok) and code.value == 259  # STILL_ACTIVE
@@ -172,6 +183,9 @@ def kill_tree(pid: int | None) -> None:
             os.killpg(os.getpgid(pid), signal.SIGKILL)
         except OSError:
             pass
+    deadline = time.monotonic() + 10
+    while pid_alive(pid) and time.monotonic() < deadline:
+        time.sleep(0.05)
 
 
 def python_exe() -> str:

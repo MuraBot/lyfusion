@@ -36,8 +36,7 @@ def sh(*args, cwd):
 
 
 def report(summary="做完了", **kw):
-    r = {"summary": summary, "items": [], "decisions": [], "choices": [], "questions": [], "assumptions": [],
-         "downstream": [], "problems": []}
+    r = {"status": "done", "summary": summary, "choices": [], "questions": [], "problems": []}
     r.update(kw)
     return r
 

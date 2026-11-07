@@ -17,7 +17,7 @@ BROKEN = 'def bye(name):\n    return "oops"\n'
 
 
 def plan_farewell(**extra):
-    p = {"goal": "加一个告别函数 bye", "decisions": ["D1"],
+    p = {"goal": "加一个告别函数 bye",
          "bounds": {"must": ["不改 hello"], "free": ["内部写法"], "escalate": ["要改 hello 的签名"]},
          "items": [{"id": "W1", "type": "mechanical", "title": "写 app/farewell.py 和测试",
                     "files": ["app/farewell.py", "tests/test_farewell.py"], "checks": ["C1"]}],
@@ -28,17 +28,13 @@ def plan_farewell(**extra):
 
 
 def setup_task(proj, **extra):
-    proj.do(C.cmd_intent, {"category": "interface", "content": "问候函数都是 f(name) -> str", "reason": "统一"})
     out = proj.do(C.cmd_plan, plan_farewell(**extra))
     assert out["task"] == "T1"
     return out
 
 
 GOOD = {"write": {"app/farewell.py": FAREWELL, "tests/test_farewell.py": TEST_FAREWELL},
-        "commands": [{"command": "python -m unittest", "exit": 0}],
-        "report": report("写好了 bye", items=[{"id": "W1", "status": "done", "note": ""}],
-                         choices=[{"what": "告别语用英文 Bye", "options": ["Bye", "再见"], "why": "和 hello 一致",
-                                   "files": ["app/farewell.py"]}])}
+        "commands": [{"command": "python -m unittest", "exit": 0}], "report": report("写好了 bye")}
 
 
 def test_happy_path(proj):
@@ -51,19 +47,15 @@ def test_happy_path(proj):
     assert t["latest"] == "T1.c1"
     cand = proj.state()["candidates"]["T1.c1"]
     assert cand["checks"]["passed"], cand["checks"]
-    assert len(t["debt"]) == 1
     # 第一次运行是新会话,带规则;工位记住了会话编号
     calls = proj.calls()
     assert calls[0]["resume"] is False and "你是 lyfusion 的助手" in calls[0]["prompt"]
     st = proj.state()["stations"]["main#1"]
     assert st["thread"] and st["briefed"]
-    # 审查第 2 层带决定债明细
+    # 审查视图仍展示检查结果,不会再强制处理决定债
     text = proj.do(C.cmd_review, "T1")["text"]
-    assert "T1.E1" in text and "检查" in text
-    # 决定债没处理不能验收
-    with pytest.raises(FusionError, match="T1.E1"):
-        proj.do(C.cmd_accept, "T1")
-    proj.do(C.cmd_accept, "T1", "T1.c1", ratify=["T1.E1"])
+    assert "检查" in text and "T1.E1" not in text
+    proj.do(C.cmd_accept, "T1", "T1.c1")
     proj.drain()
     t = proj.task()
     assert t["state"] == "accepted", t.get("integration")
@@ -73,8 +65,6 @@ def test_happy_path(proj):
     assert proj.git("branch", "--list", "fusion/T1") == ""
     # 重复验收返回原结果
     assert "已经验收过了" in proj.do(C.cmd_accept, "T1")["text"]
-    # intent.md 进了 git
-    assert "fusion/intent.md" in proj.git("log", "--name-only", "--format=", "-3")
 
 
 def test_blocked_then_answer_resumes_same_thread(proj):
@@ -163,7 +153,7 @@ def test_integration_conflict_returns_to_review(proj):
     proj.drain()
     proj.write("app/farewell.py", "def bye(name):\n    return 'lead 的版本'\n")
     proj.commit("lead 也写了 farewell")
-    proj.do(C.cmd_accept, "T1", ratify=["T1.E1"])
+    proj.do(C.cmd_accept, "T1")
     proj.drain()
     t = proj.task()
     assert t["state"] == "in_review"
@@ -178,7 +168,7 @@ def test_main_moved_without_conflict_merges(proj):
     proj.drain()
     proj.write("README.md", "lead 改了别的文件\n")
     proj.commit("lead 的提交")
-    proj.do(C.cmd_accept, "T1", ratify=["T1.E1"])
+    proj.do(C.cmd_accept, "T1")
     proj.drain()
     assert proj.task()["state"] == "accepted"
     assert proj.read("README.md") == "lead 改了别的文件\n" and proj.read("app/farewell.py") == FAREWELL
@@ -193,7 +183,7 @@ def test_fast_forward_refused_by_dirty_lead_tree(proj):
     proj.do(C.cmd_delegate, "T1", [])
     proj.drain()
     proj.write("app/farewell.py", "lead 没提交的改动\n")
-    proj.do(C.cmd_accept, "T1", ratify=["T1.E1"])
+    proj.do(C.cmd_accept, "T1")
     proj.drain()
     t = proj.task()
     assert t["state"] == "in_review"
@@ -201,32 +191,15 @@ def test_fast_forward_refused_by_dirty_lead_tree(proj):
     assert proj.read("app/farewell.py") == "lead 没提交的改动\n"
 
 
-def test_takeover_brings_changes(proj):
-    setup_task(proj)
-    proj.script([GOOD])
-    proj.do(C.cmd_delegate, "T1", [])
-    proj.drain()
-    proj.do(C.cmd_takeover, "T1", True, "我自己来收尾")
-    proj.drain()
-    t = proj.task()
-    assert t["state"] == "planned" and t["direct"]
-    assert proj.read("app/farewell.py") == FAREWELL
-    assert t["items"]["W1"]["owner"] == "lead"
-    proj.commit("lead 收尾")
-    proj.do(C.cmd_accept, "T1")
-    proj.drain()
-    assert proj.task()["state"] == "accepted"
-
-
 def test_reject_cleans_up(proj):
     setup_task(proj)
     proj.script([GOOD])
     proj.do(C.cmd_delegate, "T1", [])
     proj.drain()
-    proj.do(C.cmd_reject, "T1", "方向不对")
+    proj.do(C.cmd_cancel, "T1", "方向不对")
     proj.drain()
     assert proj.git("branch", "--list", "fusion/T1") == ""
-    assert (proj.root / "fusion" / "runs" / "T1-rejected.diff").read_text(encoding="utf-8")
+    assert (proj.root / "fusion" / "runs" / "T1-cancelled.diff").read_text(encoding="utf-8")
     assert not (proj.station / "app" / "farewell.py").exists()
 
 
@@ -272,7 +245,7 @@ def test_change_rounds_limit(proj):
     assert "第 1 处" in proj.calls()[1]["prompt"]
 
 
-def test_nonblocking_disagree_becomes_change(proj):
+def test_nonblocking_question_does_not_block_acceptance(proj):
     setup_task(proj)
     q = {"text": "空名字怎么办?", "blocking": False, "options": ["报错", "返回 Bye"], "recommendation": "返回 Bye",
          "proceeded_with": "返回 Bye"}
@@ -282,14 +255,10 @@ def test_nonblocking_disagree_becomes_change(proj):
     proj.do(C.cmd_delegate, "T1", [])
     proj.drain()
     t = proj.task()
-    debt_q = [d for d in t["debt"].values() if d.get("question") == "Q1"]
-    assert debt_q
-    with pytest.raises(FusionError, match="agree"):
-        proj.do(C.cmd_answer, "Q1", "报错")
-    out = proj.do(C.cmd_answer, "Q1", "报错", agree=False)
-    assert "修改意见" in out["text"]
+    assert not t["debt"] and proj.state()["questions"]["Q1"]["status"] == "open"
+    proj.do(C.cmd_accept, "T1")
     proj.drain()
-    assert "驳回你自定的选择" in proj.calls()[1]["prompt"]
+    assert proj.task()["state"] == "accepted"
 
 
 def test_recheck_when_check_config_changes(proj):
@@ -305,15 +274,6 @@ def test_recheck_when_check_config_changes(proj):
     proj.drain()
     chk = proj.state()["candidates"]["T1.c1"]["checks"]
     assert chk["recheck"] and any(r["name"] == "lint" for r in chk["results"])
-
-
-def test_direct_task(proj):
-    out = proj.do(C.cmd_plan, {"goal": "改个注释", "direct": True})
-    proj.write("app/greet.py", "# 注释\n" + proj.read("app/greet.py"))
-    proj.commit("注释")
-    proj.do(C.cmd_accept, out["task"])
-    proj.drain()
-    assert proj.task(out["task"])["state"] == "accepted"
 
 
 def test_wip_one_line(proj):

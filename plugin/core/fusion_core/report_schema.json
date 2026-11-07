@@ -1,66 +1,20 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["summary", "items", "decisions", "choices", "questions", "assumptions", "downstream", "problems"],
+  "required": ["status", "summary", "questions", "choices", "problems"],
   "properties": {
+    "status": { "type": "string", "enum": ["done", "blocked"] },
     "summary": { "type": "string" },
-    "items": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["id", "status", "note"],
-        "properties": {
-          "id": { "type": "string" },
-          "status": { "type": "string", "enum": ["done", "partial", "not_done"] },
-          "note": { "type": "string" }
-        }
-      }
-    },
-    "decisions": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["ref", "how", "deviation"],
-        "properties": {
-          "ref": { "type": "string" },
-          "how": { "type": "string" },
-          "deviation": { "type": ["string", "null"] }
-        }
-      }
-    },
-    "choices": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["what", "options", "why", "files"],
-        "properties": {
-          "what": { "type": "string" },
-          "options": { "type": "array", "items": { "type": "string" } },
-          "why": { "type": "string" },
-          "files": { "type": "array", "items": { "type": "string" } }
-        }
-      }
-    },
     "questions": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["text", "blocking", "options", "recommendation", "proceeded_with"],
-        "properties": {
-          "text": { "type": "string" },
-          "blocking": { "type": "boolean" },
-          "options": { "type": "array", "items": { "type": "string" } },
-          "recommendation": { "type": ["string", "null"] },
-          "proceeded_with": { "type": ["string", "null"] }
-        }
+        "required": ["text"],
+        "properties": { "text": { "type": "string" }, "blocking": { "type": "boolean" } }
       }
     },
-    "assumptions": { "type": "array", "items": { "type": "string" } },
-    "downstream": { "type": "array", "items": { "type": "string" } },
+    "choices": { "type": "array", "items": { "type": "object" } },
     "problems": { "type": "array", "items": { "type": "string" } }
   }
 }
