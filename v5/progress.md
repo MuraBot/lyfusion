@@ -61,6 +61,8 @@
 - 测试:70 个通过(新增 1 个),lint 通过。没有重跑真实 Codex
 - 上传 zip 时被拒(插件不能带顶层 `bin/`),在 aq.1 里一起改:删掉 `bin/`,使用说明和各命令的提示写安装目录里的完整命令,`/fusion` 用 `${CLAUDE_PLUGIN_ROOT}`。见设计 §13。标签 `v5.0.0-aq.1` 挪到这次的提交
 
+- 上传时又提示会删掉同名的 v4 技能 lyfusion:插件改名 `lyfusion-plugin`;`/fusion` 从 `commands/` 搬成只给用户运行的技能 `skills/fusion/SKILL.md`,保证裸名 `/fusion` 能用;介绍写明支持的助手。见设计 §14
+
 ### 政策检查(aq.1,2026-11-07,去掉 bin/ 之后)
 - 页面由 Haiku 5.5 子代理读,没有登录;引文是抓取摘要,不是逐字核对。读了:插件清单参考 code.claude.com/docs/en/plugins-reference、各平台插件支持 claude.com/docs/plugins/platform-support、组织同步 claude.com/docs/plugins/org-sync、hooks code.claude.com/docs/en/hooks(前半)、法律与合规 code.claude.com/docs/en/legal-and-compliance、使用政策 anthropic.com/legal/aup(2026-11-12 生效,和 11-06 检查的是同一版)、消费者条款 anthropic.com/legal/consumer-terms(2025-10-08 生效)
 - 逐条对照:
@@ -78,4 +80,4 @@
 - 2026-11-06:开始 M0。S1、S6 完成
 - 2026-11-07:v5.0.0-aq 完成(T1、T2、真实冒烟 T3),69 个测试;合并回 main,本地标签 `v5.0.0-aq`,zip `dist/lyfusion-5.0.0-aq.0.zip`
 - 2026-11-06:M1 引擎完成(41 个测试);真实 Codex 跑通 2 个任务;M2 外壳写好并打包;探针测完 S2、S3,S4 没触发;J1 出好(起点 19.75 分,参考答案 100 分);预实验 J1 的 PB、PC 开跑
-- 2026-11-07:v5.0.0-aq.1 补回 v4 的助手说明;本地标签 `v5.0.0-aq.1`,zip `dist/lyfusion-5.0.0-aq.1.zip`
+- 2026-11-07:v5.0.0-aq.1 补回 v4 的助手说明;本地标签 `v5.0.0-aq.1`,zip `dist/lyfusion-plugin-5.0.0-aq.1.zip`

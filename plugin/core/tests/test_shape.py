@@ -33,8 +33,14 @@ def test_no_bin_dir_and_guide_has_full_command():
     for sub in ("explore -", "delegate -", "revise -", "accept", "status", "cancel"):
         assert f"{CMD} {sub}" in guide, sub
     assert "fusion-core " not in guide.replace(CMD, "")
-    command = (PLUGIN / "commands/fusion.md").read_text(encoding="utf-8")
-    assert '${CLAUDE_PLUGIN_ROOT}/core/fusion-core.py' in command
+    # /fusion 是只给用户手动运行的技能:裸名 /fusion 能用,描述不进 Claude 的上下文
+    assert not (PLUGIN / "commands").exists()
+    skill = (PLUGIN / "skills/fusion/SKILL.md").read_text(encoding="utf-8")
+    front = skill.split("---")[1].splitlines()
+    assert "name: fusion" in front and "disable-model-invocation: true" in front
+    assert '${CLAUDE_PLUGIN_ROOT}/core/fusion-core.py' in skill and "$ARGUMENTS" in skill
+    meta = json.loads((PLUGIN / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))
+    assert meta["name"] == "lyfusion-plugin"
 
 
 def test_usage_matches_design_and_is_short():
@@ -60,7 +66,7 @@ def test_cli_public_command_set_and_version():
 
 
 def test_fusion_command_exposes_only_settings():
-    command = (PLUGIN / "commands/fusion.md").read_text(encoding="utf-8")
+    command = (PLUGIN / "skills/fusion/SKILL.md").read_text(encoding="utf-8")
     for removed in ("guide", "fusion_*", "ToolSearch"):
         assert removed not in command
     for retained in ("status", "on", "off", "model", "effort", "fast", "test"):
