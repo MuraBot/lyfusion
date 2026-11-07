@@ -89,7 +89,11 @@ def review_pack(root: Path, task: dict, state: dict, round_no: int) -> str:
     for question in report.get("questions", []):
         lines.append(f"- 问题:{question.get('text', '')}")
     for choice in report.get("choices", []):
-        lines.append(f"- 自定选择:{choice.get('what', choice)}")
+        if isinstance(choice, dict):
+            why = f"(理由:{choice['why']})" if choice.get("why") else ""
+            lines.append(f"- 自定选择:{choice.get('what', '')}{why}")
+        else:
+            lines.append(f"- 自定选择:{choice}")
     for problem in report.get("problems", []):
         lines.append(f"- 已知问题:{problem}")
     next_step = next_step_text(task, check)

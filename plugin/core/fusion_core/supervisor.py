@@ -310,7 +310,9 @@ class Supervisor:
         need_brief = not st.get("briefed")
         kind = run["kind"]
         if kind == "implement":
-            prompt = prompts.task_prompt(task, aq.decisions_text(self.root), handoff)
+            prompt = prompts.task_prompt(
+                task, aq.decisions_text(self.root), handoff, [cfg.get("test"), cfg.get("lint")]
+            )
             if run.get("message"):
                 prompt += "\n\n## lead 这次派工的说明\n" + str(run["message"])
         else:
@@ -330,7 +332,10 @@ class Supervisor:
             prompt = body
             if need_brief:  # 新工位接手进行中的任务:先给完整任务单
                 prompt = (
-                    prompts.task_prompt(task, aq.decisions_text(self.root), handoff)
+                    prompts.task_prompt(
+                        task, aq.decisions_text(self.root), handoff,
+                        [cfg.get("test"), cfg.get("lint")],
+                    )
                     + "\n\n"
                     + body
                 )

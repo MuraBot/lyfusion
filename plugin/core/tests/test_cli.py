@@ -165,7 +165,7 @@ def test_review_has_four_sections_and_scope_marking(proj):
         [
             {
                 "write": {"app/new.py": "VALUE = 2\n", "outside.txt": "bad\n"},
-                "report": report(status="done", choices=[{"what": "value 2"}]),
+                "report": report(status="done", choices=[{"what": "value 2", "why": "和旧值对齐"}]),
             }
         ]
     )
@@ -182,6 +182,7 @@ def test_review_has_four_sections_and_scope_marking(proj):
     headings = [line for line in text.splitlines() if line.startswith("## ")]
     assert headings == ["## 检查", "## 助手的问题和自定的选择", "## 改动"]
     assert "outside.txt" in text and "范围外" in text
+    assert "自定选择:value 2(理由:和旧值对齐)" in text
 
 
 def test_review_omits_violation_section_and_large_diff(proj):
@@ -357,3 +358,26 @@ def test_accept_dirty_lead_tree_error_gives_cleanup_action(proj):
         "lead 工作目录有没提交的改动,快进会冲突:先提交或撤销,再运行 fusion-core accept"
         in accepted.stderr.decode("utf-8")
     )
+
+
+def test_task_prompt_carries_v4_work_rules_and_project_commands():
+    from fusion_core.prompts import changes_prompt, fix_prompt, task_prompt
+
+    task = {"plan": {"goal": "加 truncate", "brief": "## 决定\n- 放在 textkit/truncate.py",
+                     "checks": [{"run": "python -m unittest", "expect": 0}], "scope": []}}
+    prompt = task_prompt(task, "# Decisions", None, ["python -m pytest -q", None])
+    for phrase in (
+        "核对通过的测试数量",  # 自己跑测试并核对数量
+        "原有行为",  # 改造现有代码时保持原有行为
+        "可以自己定",
+        "blocking=true",
+        "choices:没人要求、你自己定下的",
+        "`python -m pytest -q`",  # 项目的测试命令进了提示
+        "放在 textkit/truncate.py",
+        "# Decisions",
+    ):
+        assert phrase in prompt, phrase
+    # 续用同一个会话时只重申短规则,不重复整套做法
+    for follow_up in (fix_prompt("失败输出", "# D"), changes_prompt("改一下", "# D")):
+        assert "核对通过的测试数量" not in follow_up
+        assert "最终回复只输出 JSON 报告" in follow_up

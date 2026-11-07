@@ -56,7 +56,7 @@ def test_explore_creates_station_then_implement_reuses_thread(proj):
     proj.drain()
     calls = proj.calls()
     assert calls[1]["resume"] and calls[1]["thread"] == thread
-    assert "固定规则" in calls[1]["prompt"]
+    assert "核对通过的测试数量" in calls[1]["prompt"]  # 派工时发完整的 WORK_RULES
     assert 'sandbox_mode="workspace-write"' in calls[1]["args"]
     assert "r1" in views.status(proj.root, {}, proj.state(), "r1")
 
