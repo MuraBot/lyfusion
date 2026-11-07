@@ -148,16 +148,6 @@ def cmd_cancel(ctx: Ctx, task_id: str | None = None, reason: str | None = None) 
     return {"task": task["id"]}
 
 
-def cmd_status(ctx: Ctx, task_id: str | None = None) -> str:
-    return views.status(ctx.root, ctx.cfg, ctx.state(), task_id)
-
-
-def cmd_usage(ctx: Ctx, record: dict) -> None:
-    task = active_task(ctx.state())
-    _emit(ctx, [{"type": "usage", "task": task["id"] if task else None,
-                 "data": {"who": "lead", **record}}])
-
-
 def cmd_lead_session(ctx: Ctx, session_id: str | None, source: str | None) -> None:
     state = ctx.state()
     previous = state["lead_sessions"][-1] if state["lead_sessions"] else None

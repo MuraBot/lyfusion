@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from .config import current_model_settings
-from .state import active_task
 
 STATE_CN = {"exploring": "探索中", "explored": "探索完成", "planned": "待派工", "running": "助手在做",
             "blocked": "待回答", "checking": "检查中", "in_review": "待审", "integrating": "验收中",
@@ -50,14 +49,9 @@ def status(root, cfg, state, target: str | None = None) -> str:
             cand = state["candidates"][task["latest"]]
             check = cand.get("checks") or {}
             lines.append(f"  候选 {task['latest']}: {'检查通过' if check.get('passed') else '检查未通过'}")
-    if len(lines) == 1:
+    if not state["tasks"]:
         lines.append("没有任务")
     return "\n".join(lines)
-
-
-def prompt_line(state) -> str:
-    task = active_task(state)
-    return f"Fusion: {task_line(task)}" if task else "Fusion: 没有进行中的任务"
 
 
 def ledger(state, task_id: str | None = None) -> str:
@@ -68,7 +62,8 @@ def ledger(state, task_id: str | None = None) -> str:
             continue
         plan = task.get("plan") or {}
         usage = state.get("usage", {}).get(task["id"], {})
-        lead = _usage_triplet(usage.get("lead", {}))
+        # 引擎不读 Claude 的记录;lead 的用量由 lead 自己用用量工具看,没有数据就写明
+        lead = _usage_triplet(usage["lead"]) if usage.get("lead") else "未记录(lead 用用量工具看)"
         assistant = _usage_triplet(usage.get("sidekick", {}))
         settings = []
         seen = set()
