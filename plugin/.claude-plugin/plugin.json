@@ -1,6 +1,6 @@
 {
   "name": "lyfusion",
-  "version": "5.0.0-a.0",
-  "description": "lyfusion v5:用于 Claude Code 的双代理协作插件。Claude 做 lead,Codex 做助手(开发中)",
+  "version": "5.0.0-aq.0",
+  "description": "lyfusion v5 aq:用于 Claude Code 的双代理协作插件。Claude 做 lead,Codex 做助手",
   "author": { "name": "MuraBot" }
 }

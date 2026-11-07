@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
 
-from .util import FusionError, IS_WIN, clean_env, spawn_detached
+from .config import current_model_settings
+from .util import IS_WIN, FusionError, clean_env, spawn_detached
 
 SCHEMA = Path(__file__).with_name("report_schema.json")
 
@@ -22,7 +22,7 @@ def find_codex(cfg: dict) -> list[str]:
     if IS_WIN:
         p = subprocess.run(["powershell", "-NoProfile", "-Command",
                             "(Get-AppxPackage OpenAI.Codex -ErrorAction SilentlyContinue).InstallLocation"],
-                           capture_output=True, text=True)
+                           check=False, capture_output=True, text=True)
         loc = p.stdout.strip()
         if loc:
             exe = Path(loc) / "app" / "resources" / "codex.exe"
@@ -35,12 +35,13 @@ def build_args(cfg: dict, station: dict, run_dir: Path, sandbox: str, resume_thr
                schema: bool, ephemeral: bool = False) -> list[str]:
     sk = cfg["local"]["sidekick"]
     model = station.get("model") or sk["model"]
-    effort = station.get("effort") or sk.get("effort")
+    settings = current_model_settings(sk) if model == sk.get("model") else sk.get("models", {}).get(model, {})
+    effort = settings.get("effort")
     common = ["--json", "-o", str(run_dir / "last.txt")]
     conf = []
     if effort:
         conf += ["-c", f"model_reasoning_effort={effort}"]
-    if station.get("fast", sk.get("fast")):
+    if settings.get("fast", False):
         conf += ["-c", 'service_tier="fast"']
     if sandbox == "workspace-write" and cfg.get("network"):
         conf += ["-c", "sandbox_workspace_write.network_access=true"]

@@ -162,7 +162,7 @@ def squash_onto(wt: Path, base_branch: str, message: str, identity: dict | None 
         env.update(GIT_AUTHOR_NAME=identity["name"], GIT_AUTHOR_EMAIL=identity["email"],
                    GIT_COMMITTER_NAME=identity["name"], GIT_COMMITTER_EMAIL=identity["email"])
     p = subprocess.run(["git", "commit-tree", tree, "-p", parent, "-F", "-"], cwd=wt, input=message.encode("utf-8"),
-                       capture_output=True, env=env)
+                       check=False, capture_output=True, env=env)
     if p.returncode != 0:
         raise FusionError("git commit-tree 失败:" + p.stderr.decode("utf-8", "replace"))
     return p.stdout.decode().strip()
@@ -189,30 +189,3 @@ def delete_branch(root: Path, branch: str) -> None:
 def detach_station(wt: Path, base_branch: str) -> None:
     clean(wt)
     git("switch", "-q", "--detach", base_branch, cwd=wt)
-
-
-def bring_changes(root: Path, wt_ref_cwd: Path, base: str, tip: str) -> tuple[list[str], list[str]]:
-    """接管:把任务分支相对起点的改动搬到 lead 的目录(不提交)。lead 改过的文件不覆盖,列出来。"""
-    copied, conflicts = [], []
-    for f in changed_files(wt_ref_cwd, base, tip):
-        path = f["path"]
-        target = root / path
-        lead_changed = git("diff", "--quiet", base, "--", path, cwd=root, check=False)[0] != 0
-        in_base = git("cat-file", "-e", f"{base}:{path}", cwd=root, check=False)[0] == 0
-        if lead_changed or (not in_base and target.exists()):
-            conflicts.append(path)
-            continue
-        if f["status"] == "D":
-            if target.exists():
-                target.unlink()
-        else:
-            p = subprocess.run(["git", "show", f"{tip}:{path}"], cwd=wt_ref_cwd, capture_output=True)
-            if p.returncode == 0:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(p.stdout)
-        if f["status"] == "R" and f["old"]:
-            old = root / f["old"]
-            if old.exists():
-                old.unlink()
-        copied.append(path)
-    return copied, conflicts

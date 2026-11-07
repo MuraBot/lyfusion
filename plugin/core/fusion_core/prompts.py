@@ -1,133 +1,107 @@
-"""给助手的提示。规则短、任务单完整;同一个任务里续用时只发增量。"""
+"""Compact assistant prompts for the four-field task interface."""
+
 from __future__ import annotations
 
-from . import intent as intent_doc
-
-RULES = """你是 lyfusion 的助手,和一个 lead 合作:lead 负责设计和判断,你负责按任务单实现。
-规则:
-1. 只在当前目录(你的工位目录)里工作。不要 git 提交、不要切分支、不要推送,提交由引擎做。
-2. 按任务单的三组边界办事:「必须遵守」不能违反;「可以自己定」由你决定;「必须上报」碰到就停下来提阻塞问题。
-3. 有 follows 样例的工作项:先用 git show 读样例的提交,照它的结构、命名、风格扩展;偏离样例的地方写进 choices。
-4. 没人要求、但你自己做了的选择(用户或其他模块可能在意的),全部写进 choices。没有就写空列表。
-   每条:what 写你选的做法(一句话说清选了什么),options 写你考虑过但没选的其他做法,why 写理由,files 写涉及的文件。
-5. 不确定、但猜错代价小的问题:按你的推荐继续,写进 questions(blocking=false,proceeded_with 写你选的)。
-   猜错代价大,或碰到「必须上报」的情况:停下,不做依赖它的部分,questions 里写 blocking=true,然后结束本次运行。
-6. 不要关闭证书检查、不要跳过钩子、不要为了通过检查删改原有测试。只能改任务单 tests_may_change 允许的测试。
-7. 做完后跑项目的测试和 lint。最终回复只输出符合格式的 JSON 报告,不要别的文字。"""
-
-REPORT_REMINDER = "最终回复只输出 JSON 报告(summary、items、decisions、choices、questions、assumptions、downstream、problems)。"
+REPORT_REMINDER = "最终回复只输出 JSON 报告:status、summary、questions、choices、problems。status 为 done 或 blocked。"
+FIXED_RULES = """固定规则:
+- 一口气做完本次任务;只在当前工位目录工作,不要提交或切换分支。
+- 不要改弱原有测试。环境错误原样重跑,不要关闭证书检查或绕过检查。
+- 不调用 Claude,不读 `~/.claude/`、AppData 里 Claude 的文件夹和 Codex 的 auth.json。
+- 最终回复只输出 JSON 报告(status/summary/questions/choices/problems)。"""
 
 
-def _items_block(task: dict, ids: list[str]) -> str:
-    out = []
-    checks = {c["id"]: c for c in task["plan"].get("checks", [])}
-    for iid in ids:
-        it = task["items"][iid]
-        out.append(f"- {iid}({it['type']}):{it['title']}")
-        if it.get("files"):
-            out.append(f"  文件范围:{', '.join(it['files'])}")
-        if it.get("follows"):
-            src = task["items"].get(it["follows"], {})
-            commit = src.get("done_commit") or "(见 lead 的最新提交)"
-            out.append(f"  照样例做:{it['follows']}「{src.get('title', '')}」,提交 {commit}")
-        if it.get("decisions"):
-            out.append(f"  引用的决定:{', '.join(it['decisions'])}")
-        for cid in it.get("checks") or []:
-            c = checks.get(cid)
-            if not c:
-                continue
-            if c["kind"] == "command":
-                out.append(f"  验收检查 {cid}:`{c['run']}`(期望 {c.get('expect')})")
-            else:
-                out.append(f"  人工检查 {cid}:看 {c['look']};通过标准:{c['pass']}")
-        if it.get("notes"):
-            out.append(f"  说明:{it['notes']}")
-    return "\n".join(out)
+def _checks(plan: dict) -> str:
+    return (
+        "\n".join(
+            f"- `{item['run']}` (期望 {item.get('expect', 0)})"
+            for item in plan.get("checks", [])
+        )
+        or "- (无)"
+    )
 
 
-def task_prompt(state: dict, cfg: dict, task: dict, items: list[str], handoff: str | None, first: bool) -> str:
-    p = task["plan"]
-    refs = list(dict.fromkeys(list(p.get("decisions") or []) +
-                              [r for i in items for r in task["items"][i].get("decisions") or []]))
-    b = p.get("bounds") or {}
-    parts = []
-    if first:
-        parts.append(RULES)
+def task_prompt(task: dict, decisions: str, handoff: str | None = None) -> str:
+    plan = task["plan"]
+    parts = [FIXED_RULES]
     if handoff:
-        parts.append("## 上一个工位的交接摘要(由引擎整理)\n" + handoff)
-    parts.append(f"## 任务 {task['id']}\n目标:{p['goal']}")
-    parts.append("## 三组边界\n"
-                 + "必须遵守:\n" + "\n".join(f"- {x}" for x in b.get("must") or ["(无)"]) + "\n"
-                 + "可以自己定:\n" + "\n".join(f"- {x}" for x in b.get("free") or ["(无)"]) + "\n"
-                 + "必须上报(碰到就提阻塞问题):\n" + "\n".join(f"- {x}" for x in b.get("escalate") or ["(无)"]))
-    parts.append("## 本次要做的工作项\n" + _items_block(task, items))
-    if refs:
-        parts.append("## 相关决定(全文)\n" + intent_doc.for_prompt(state, refs))
-    if p.get("tests_may_change"):
-        parts.append("## 允许修改的测试\n" + "\n".join(f"- {t['glob']}(依据 {t['decision']})" for t in p["tests_may_change"]))
-    cmds = [x for x in (cfg.get("test"), cfg.get("lint")) if x]
-    if cmds:
-        parts.append("## 项目的测试和 lint\n" + "\n".join(f"- `{c}`" for c in cmds))
-    if p.get("notes"):
-        parts.append("## lead 的补充说明\n" + p["notes"])
-    if not first:
-        parts.append(REPORT_REMINDER)
+        parts.append("## 上一个工位交接摘要\n" + handoff)
+    parts += [
+        f"## 目标\n{plan['goal']}",
+        f"## Brief\n{plan['brief']}",
+        "## 检查命令和期望\n" + _checks(plan),
+        "## 文件范围\n"
+        + ("\n".join(f"- {g}" for g in plan.get("scope", [])) or "- (未指定)"),
+        "## fusion/decisions.md 全文\n" + decisions,
+    ]
     return "\n\n".join(parts)
 
 
-def fix_prompt(failures: str) -> str:
-    return ("## 检查没有通过\n下面是引擎跑出来的失败输出。请修好,然后再跑一遍测试。"
-            "不要改弱原有测试。\n\n" + failures + "\n\n" + REPORT_REMINDER)
+def fix_prompt(failures: str, decisions: str) -> str:
+    return (
+        "## 检查失败\n"
+        + failures
+        + "\n\n## fusion/decisions.md 全文\n"
+        + decisions
+        + "\n\n"
+        + FIXED_RULES
+        + "\n"
+        + REPORT_REMINDER
+    )
 
 
-def changes_prompt(comments: list[dict], overruled: list[dict]) -> str:
-    lines = ["## lead 的修改意见"]
-    for c in comments:
-        ref = f"[{c['ref']}] " if c.get("ref") else ""
-        lines.append(f"- {ref}{c['text']}")
-        if c.get("expect"):
-            lines.append(f"  期望的结果:{c['expect']}")
-    for o in overruled:
-        lines.append(f"- 驳回你自定的选择 {o['eid']}:{o.get('what', '')}。{o.get('note') or ''}")
-    lines += ["", REPORT_REMINDER]
-    return "\n".join(lines)
+def changes_prompt(text: str, decisions: str) -> str:
+    return (
+        "## lead 的修改意见(原文)\n"
+        + text
+        + "\n\n## fusion/decisions.md 全文\n"
+        + decisions
+        + "\n\n"
+        + FIXED_RULES
+        + "\n"
+        + REPORT_REMINDER
+    )
 
 
-def answer_prompt(answers: list[dict]) -> str:
-    lines = ["## 你的阻塞问题有回答了"]
-    for a in answers:
-        lines.append(f"- 问:{a['text']}\n  答:{a['answer']}")
-    lines += ["", "请按回答继续做完。", REPORT_REMINDER]
-    return "\n".join(lines)
+def report_prompt(previous_error: str, decisions: str) -> str:
+    return (
+        "## 补交最终报告\n上次运行未返回有效报告。不要再改代码。\n"
+        + previous_error
+        + "\n\n## fusion/decisions.md 全文\n"
+        + decisions
+        + "\n\n"
+        + FIXED_RULES
+        + "\n"
+        + REPORT_REMINDER
+    )
 
 
-def explore_prompt(questions: list[str], task: dict | None) -> str:
-    lines = ["你是 lyfusion 的助手。这是只读探索:只读代码、不要修改任何文件。",
-             "请逐条回答下面的问题。回答要具体:写出文件路径和行号、现有约定、容易踩的坑。"]
-    if task:
-        lines.append(f"背景:任务 {task['id']},目标:{task['plan']['goal']}")
-    lines.append("")
-    for i, q in enumerate(questions, 1):
-        lines.append(f"{i}. {q}")
-    return "\n".join(lines)
+def explore_prompt(original: str, decisions: str) -> str:
+    return (
+        "这是只读代码探索,不得修改任何文件。全文不超过 150 行,不写实现方案。\n"
+        "1. 先复述 lead 提供的任务和目标,再列出不确定的地方。\n"
+        "2. 找相关代码片段,按重要程度排序;每条写 `文件:起止行`、为什么相关,并引用不超过 15 行原文。\n"
+        "3. 按编号逐条回答 lead 的问题(Q1~Q3,有几条答几条;没有问题就跳过这一节)。\n"
+        "4. 列出现有约定和容易踩的坑。\n"
+        "## lead 提供的任务原文\n"
+        + original
+        + "\n\n## fusion/decisions.md 全文\n"
+        + decisions
+    )
 
 
-def handoff_summary(state: dict, old: dict, refs: list[str]) -> str:
-    """换工位时由引擎拼交接摘要,不让臃肿的旧会话自己写。"""
+def handoff_summary(state: dict, old: dict) -> str:
     lines = [f"上一个工位 {old['name']} 做过的任务:{', '.join(old['tasks']) or '(无)'}"]
     if old.get("files"):
-        lines.append("改过的文件:" + ", ".join(old["files"][:60]) + ("……" if len(old["files"]) > 60 else ""))
-    for tid in old["tasks"][-3:]:
-        t = state["tasks"].get(tid)
-        if not t:
-            continue
-        lines.append(f"- {tid}({t['state']}):{t['plan']['goal']}")
-        for e in [x for x in t["debt"].values() if x["status"] == "open"]:
-            lines.append(f"  未处理的自定选择 {e['eid']}:{e.get('what')}")
-        for rid in t["runs"][-1:]:
-            rep = (state["runs"][rid].get("report") or {})
-            for prob in rep.get("problems") or []:
-                lines.append(f"  已知问题:{prob}")
-    if refs:
-        lines.append("\n当前有效的相关决定:\n" + intent_doc.for_prompt(state, refs))
+        lines.append("改过的文件:" + ", ".join(old["files"][:60]))
+    for task_id in old["tasks"][-3:]:
+        task = state["tasks"].get(task_id)
+        if task:
+            lines.append(
+                f"- {task_id}({task['state']}):{(task.get('plan') or {}).get('goal', '')}"
+            )
+            for run_id in task["runs"][-1:]:
+                report = state["runs"][run_id].get("report") or {}
+                lines.extend(
+                    f"  已知问题:{problem}" for problem in report.get("problems") or []
+                )
     return "\n".join(lines)

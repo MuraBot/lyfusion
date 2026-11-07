@@ -15,9 +15,9 @@ import pytest
 CORE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(CORE))
 
-from fusion_core import config as config_mod  # noqa: E402
-from fusion_core.commands import Ctx  # noqa: E402
-from fusion_core.supervisor import Supervisor  # noqa: E402
+from fusion_core import config as config_mod
+from fusion_core.commands import Ctx
+from fusion_core.supervisor import Supervisor
 
 WORK = Path(__file__).resolve().parent / "_work"
 FAKE = Path(__file__).resolve().parent / "fake_codex.py"
@@ -29,15 +29,14 @@ TEST_GREET = ('import unittest\nfrom app.greet import hello\n\n\nclass T(unittes
 
 
 def sh(*args, cwd):
-    p = subprocess.run(list(args), cwd=cwd, capture_output=True, text=True, encoding="utf-8")
+    p = subprocess.run(list(args), cwd=cwd, check=False, capture_output=True, text=True, encoding="utf-8")
     if p.returncode != 0:
         raise RuntimeError(f"{args} 失败:{p.stderr}")
     return p.stdout.strip()
 
 
 def report(summary="做完了", **kw):
-    r = {"summary": summary, "items": [], "decisions": [], "choices": [], "questions": [], "assumptions": [],
-         "downstream": [], "problems": []}
+    r = {"status": "done", "summary": summary, "choices": [], "questions": [], "problems": []}
     r.update(kw)
     return r
 
