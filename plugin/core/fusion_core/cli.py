@@ -31,6 +31,10 @@ def _wait(root: Path, task_id: str, *, explore: bool = False) -> dict:
     """Wait without a fixed timeout; only durable terminal failure signals stop it."""
     sup = Supervisor(root, poll=0.2)
     try:
+        initial = sup.state()["tasks"].get(task_id)
+        if initial is None:
+            raise FusionError(f"任务 {task_id} 不存在")
+        signal_count = len(initial.get("signals", []))
         while True:
             if store.take_lease(sup.conn, sup.holder):
                 sup.tick()
@@ -47,11 +51,12 @@ def _wait(root: Path, task_id: str, *, explore: bool = False) -> dict:
                 "cancelled",
             ):
                 return state
-            if task.get("signals"):
-                latest = task["signals"][-1]
-                if latest["kind"] == "stalled":
+            new_signals = task.get("signals", [])[signal_count:]
+            signal_count = len(task.get("signals", []))
+            for signal in new_signals:
+                if signal["kind"] == "stalled":
                     raise FusionError(
-                        f"{latest['detail']}\n请再运行同一条命令继续等,或运行 fusion-core cancel --task {task_id}",
+                        f"{signal['detail']}\n请再运行同一条命令继续等,或运行 fusion-core cancel --task {task_id}",
                         code=2,
                     )
             time.sleep(0.2)
@@ -343,7 +348,7 @@ def main(argv=None) -> int:
     sub.add_parser("off")
     sub.add_parser("preflight")
     p = sub.add_parser("config")
-    p.add_argument("action", choices=["get", "set"])
+    p.add_argument("action", choices=["get", "set", "model", "effort", "fast"])
     p.add_argument("json", nargs="?")
     p = sub.add_parser("ledger")
     p.add_argument("--task")
@@ -404,7 +409,7 @@ def main(argv=None) -> int:
             cfg = config_mod.load(root)
             if args.action == "get":
                 print(json.dumps(cfg, ensure_ascii=False, indent=2))
-            else:
+            elif args.action == "set":
                 change = json.loads(args.json or "{}")
                 if "local" in change:
                     local = cfg["local"]
@@ -422,6 +427,26 @@ def main(argv=None) -> int:
                         json.dumps(data, ensure_ascii=False, indent=2) + "\n",
                         encoding="utf-8",
                     )
+                print(json.dumps(config_mod.load(root), ensure_ascii=False, indent=2))
+            else:
+                value = args.json
+                if not value:
+                    raise FusionError(f"config {args.action} 需要一个值")
+                sidekick = cfg["local"]["sidekick"]
+                if args.action == "model":
+                    sidekick["model"] = value
+                else:
+                    model = sidekick["model"]
+                    settings = sidekick.setdefault("models", {}).setdefault(model, {})
+                    if args.action == "effort":
+                        if value not in ("low", "medium", "high", "xhigh"):
+                            raise FusionError("effort 只能是 low、medium、high 或 xhigh")
+                        settings["effort"] = value
+                    else:
+                        if value not in ("on", "off"):
+                            raise FusionError("fast 只能是 on 或 off")
+                        settings["fast"] = value == "on"
+                config_mod.save_local(root, cfg["local"])
                 print(json.dumps(config_mod.load(root), ensure_ascii=False, indent=2))
         elif args.cmd == "preflight":
             print(json.dumps(_preflight(root), ensure_ascii=False))

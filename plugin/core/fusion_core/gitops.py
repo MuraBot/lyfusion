@@ -192,7 +192,7 @@ def detach_station(wt: Path, base_branch: str) -> None:
 
 
 def bring_changes(root: Path, wt_ref_cwd: Path, base: str, tip: str) -> tuple[list[str], list[str]]:
-    """接管:把任务分支相对起点的改动搬到 lead 的目录(不提交)。lead 改过的文件不覆盖,列出来。"""
+    """把任务分支相对起点的改动搬到 lead 的目录(不提交)。lead 改过的文件不覆盖,列出来。"""
     copied, conflicts = [], []
     for f in changed_files(wt_ref_cwd, base, tip):
         path = f["path"]

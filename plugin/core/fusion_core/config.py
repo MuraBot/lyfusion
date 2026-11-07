@@ -28,7 +28,7 @@ DEFAULT_CONFIG = {
 
 DEFAULT_LOCAL = {
     "enabled": False,
-    "sidekick": {"model": "gpt-6-luna", "effort": "high", "fast": False},
+    "sidekick": {"model": "gpt-6-luna", "models": {"gpt-6-luna": {"effort": "high", "fast": False}}},
     "env": {},                    # 给助手和检查命令的额外环境变量
     "codex": None,                # Codex 命令,列表;默认自动查找
 }
@@ -67,9 +67,33 @@ def _read(path: Path, default: dict) -> dict:
 def load(root: Path) -> dict:
     cfg = _read(fusion_dir(root) / "config.json", DEFAULT_CONFIG)
     cfg["local"] = _read(fusion_dir(root) / "local.json", DEFAULT_LOCAL)
+    _normalize_sidekick(cfg["local"].setdefault("sidekick", {}))
     if not cfg.get("base_branch"):
         cfg["base_branch"] = git("rev-parse", "--abbrev-ref", "HEAD", cwd=root)
     return cfg
+
+
+def _normalize_sidekick(sidekick: dict) -> None:
+    """Migrate the legacy flat effort/fast values into the current model entry."""
+    model = sidekick.setdefault("model", DEFAULT_LOCAL["sidekick"]["model"])
+    models = sidekick.get("models")
+    if not isinstance(models, dict):
+        models = {}
+    if "effort" in sidekick or "fast" in sidekick:
+        legacy = models.setdefault(model, {})
+        if "effort" in sidekick:
+            legacy["effort"] = sidekick["effort"]
+        if "fast" in sidekick:
+            legacy["fast"] = sidekick["fast"]
+        sidekick.pop("effort", None)
+        sidekick.pop("fast", None)
+    sidekick["models"] = models
+
+
+def current_model_settings(sidekick: dict) -> dict:
+    model = sidekick.get("model", DEFAULT_LOCAL["sidekick"]["model"])
+    settings = sidekick.get("models", {}).get(model, {})
+    return {"effort": settings.get("effort"), "fast": bool(settings.get("fast", False))}
 
 
 def save_local(root: Path, local: dict) -> None:

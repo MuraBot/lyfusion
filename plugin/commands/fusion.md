@@ -13,9 +13,9 @@ argument-hint: on [--test <命令>] [--lint <命令>] | off | status | model <�
 | 空 或 status | `fusion-core status` |
 | on --test 命令 [--lint 命令] | 先 `fusion-core preflight`,汇报未通过项;再运行 `fusion-core on --test "命令" [--lint "命令"]` |
 | off | `fusion-core off` |
-| model 名字 | `fusion-core config set '{"local":{"sidekick":{"model":"名字"}}}'` |
-| effort 档位 | `fusion-core config set '{"local":{"sidekick":{"effort":"档位"}}}'` |
-| fast on / fast off | `fusion-core config set '{"local":{"sidekick":{"fast":true}}}'`(off 写 false) |
+| model 名字 | `fusion-core config model 名字` |
+| effort 档位 | `fusion-core config effort 档位` |
+| fast on / fast off | `fusion-core config fast on|off` |
 | test 命令 | `fusion-core config set '{"config":{"test":"命令"}}'` |
 
 打开后,SessionStart 会注入 4 个动作的使用说明。所有状态都保存在项目的 `fusion/` 目录中。

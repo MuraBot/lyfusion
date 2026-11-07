@@ -81,12 +81,11 @@ def review_pack(root: Path, task: dict, state: dict, round_no: int) -> str:
             reason = f"停下:助手运行没有正常结束,日志在 fusion/runs/{run_id}/"
     else:
         reason = "做完"
-    lines += [
-        "",
-        "## 助手的问题和自定的选择",
-        f"状态:{reason}",
-        f"摘要:{report.get('summary') or ''}",
-    ]
+    lines += ["", "## 助手的问题和自定的选择"]
+    if blocked:
+        lines.append(f"状态:{reason}")
+    else:
+        lines.extend(["状态:做完", f"摘要:{report.get('summary') or ''}"])
     for question in report.get("questions", []):
         lines.append(f"- 问题:{question.get('text', '')}")
     for choice in report.get("choices", []):

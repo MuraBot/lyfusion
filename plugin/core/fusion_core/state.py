@@ -91,7 +91,8 @@ def _run_started(s, e, d, tid):
     run = s["runs"][d["run"]]
     run.update(status="started", station=d.get("station"), pid=d.get("pid"), dir=d.get("dir"),
                started=e["ts"], ephemeral=bool(d.get("ephemeral")), base=d.get("base"),
-               resumed=bool(d.get("resumed")))
+               resumed=bool(d.get("resumed")), model=d.get("model"), effort=d.get("effort"),
+               fast=d.get("fast"))
     st = s["stations"].get(d.get("station") or "")
     if st:
         st["status"] = "busy"
@@ -153,7 +154,8 @@ def _explore_answered(s, e, d, tid):
 
 
 def _question_asked(s, e, d, tid):
-    q = {**d, "status": "open", "answer": None, "asked": e["ts"]}
+    q = {"id": d["qid"], "run": d.get("run"), "text": d.get("text", ""),
+         "blocking": bool(d.get("blocking")), "status": "open", "answer": None, "asked": e["ts"]}
     s["tasks"][tid]["questions"].append(q)
     s["next_question"] = max(s["next_question"], int(d["qid"][1:]) + 1)
 

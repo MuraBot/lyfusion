@@ -1,6 +1,7 @@
 """Lead-facing status, ledger, and SessionStart usage text."""
 from __future__ import annotations
 
+from .config import current_model_settings
 from .state import active_task
 
 STATE_CN = {"exploring": "探索中", "explored": "探索完成", "planned": "待派工", "running": "助手在做",
@@ -38,7 +39,11 @@ def status(root, cfg, state, target: str | None = None) -> str:
     if target:
         task = state["tasks"].get(target)
         return task_line(task) if task else f"任务 {target} 不存在"
-    lines = [f"Fusion: {'开启' if cfg.get('local', {}).get('enabled') else '关闭'}"]
+    local = cfg.get("local", {})
+    sk = local.get("sidekick", {})
+    settings = current_model_settings(sk)
+    lines = [f"Fusion: {'开启' if local.get('enabled') else '关闭'}",
+             f"助手: {sk.get('model', '')} · effort {settings['effort'] or '默认'} · fast {'on' if settings['fast'] else 'off'}"]
     for task in state["tasks"].values():
         lines.append(task_line(task))
         if task.get("latest"):
@@ -56,10 +61,32 @@ def prompt_line(state) -> str:
 
 
 def ledger(state, task_id: str | None = None) -> str:
-    lines = ["| 任务 | 状态 | 目标 | 修复 | 修改轮 |", "|---|---|---|---:|---:|"]
+    lines = ["| 任务 | 状态 | 目标 | 修复 | 修改轮 | Lead 输入/缓存/输出 (M) | 助手输入/缓存/输出 (M) | 助手模型 / effort / fast |",
+             "|---|---|---|---:|---:|---:|---:|---|"]
     for task in state["tasks"].values():
         if task_id and task["id"] != task_id:
             continue
         plan = task.get("plan") or {}
-        lines.append(f"| {task['id']} | {task['state']} | {plan.get('goal', '')} | {task['fix_attempts']} | {task['change_rounds']} |")
+        usage = state.get("usage", {}).get(task["id"], {})
+        lead = _usage_triplet(usage.get("lead", {}))
+        assistant = _usage_triplet(usage.get("sidekick", {}))
+        settings = []
+        seen = set()
+        for run_id in task.get("runs", []):
+            run = state.get("runs", {}).get(run_id, {})
+            model = run.get("model")
+            if not model:
+                continue
+            item = (model, run.get("effort") or "默认", "on" if run.get("fast") else "off")
+            if item not in seen:
+                settings.append(" / ".join(item))
+                seen.add(item)
+        lines.append(f"| {task['id']} | {task['state']} | {plan.get('goal', '')} | {task['fix_attempts']} | {task['change_rounds']} | {lead} | {assistant} | {'<br>'.join(settings)} |")
     return "\n".join(lines)
+
+
+def _usage_triplet(usage: dict) -> str:
+    input_m = usage.get("input", 0) / 1_000_000
+    cache_m = (usage.get("cache_read", 0) + usage.get("cache_write", 0)) / 1_000_000
+    output_m = usage.get("output", 0) / 1_000_000
+    return f"{input_m:.3f} / {cache_m:.3f} / {output_m:.3f}"

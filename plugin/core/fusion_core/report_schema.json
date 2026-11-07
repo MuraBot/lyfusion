@@ -10,11 +10,19 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["text"],
+        "required": ["text", "blocking"],
         "properties": { "text": { "type": "string" }, "blocking": { "type": "boolean" } }
       }
     },
-    "choices": { "type": "array", "items": { "type": "object" } },
+    "choices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["what", "why"],
+        "properties": { "what": { "type": "string" }, "why": { "type": "string" } }
+      }
+    },
     "problems": { "type": "array", "items": { "type": "string" } }
   }
 }

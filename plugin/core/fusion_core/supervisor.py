@@ -47,6 +47,11 @@ def _same_area(files: list[str], globs: list[str]) -> bool:
     )
 
 
+def _execution_settings(cfg, model: str) -> dict:
+    settings = cfg["local"]["sidekick"].get("models", {}).get(model, {})
+    return {"model": model, "effort": settings.get("effort"), "fast": bool(settings.get("fast", False))}
+
+
 class Supervisor:
     def __init__(self, root: Path, poll: float = 2.0):
         self.root = Path(root)
@@ -220,8 +225,6 @@ class Supervisor:
             "line": "main",
             "worktree": str(self.wt),
             "model": sk["model"],
-            "effort": sk.get("effort"),
-            "fast": bool(sk.get("fast")),
             "predecessor": pred,
             "thread": None,
             "status": "idle",
@@ -240,8 +243,6 @@ class Supervisor:
                         "line",
                         "worktree",
                         "model",
-                        "effort",
-                        "fast",
                         "predecessor",
                     )
                 }
@@ -339,6 +340,7 @@ class Supervisor:
                 "type": "run_started",
                 "task": task["id"],
                 "data": {
+                    **_execution_settings(cfg, st["model"]),
                     "run": rid,
                     "station": st["name"],
                     "pid": pid,
@@ -373,6 +375,7 @@ class Supervisor:
                     "type": "run_started",
                     "task": run["task"],
                     "data": {
+                        **_execution_settings(cfg, st["model"]),
                         "run": rid,
                         "station": st["name"],
                         "pid": pid,
@@ -387,8 +390,6 @@ class Supervisor:
                 "name": None,
                 "worktree": str(self.root),
                 "model": sk["model"],
-                "effort": sk.get("effort"),
-                "fast": sk.get("fast"),
             }
             pid = codex.launch(
                 cfg, temp, rdir, prompt, "read-only", None, schema=False, ephemeral=True
@@ -398,6 +399,7 @@ class Supervisor:
                     "type": "run_started",
                     "task": run["task"],
                     "data": {
+                        **_execution_settings(cfg, temp["model"]),
                         "run": rid,
                         "station": None,
                         "pid": pid,
@@ -595,9 +597,6 @@ class Supervisor:
                         "run": run["id"],
                         "text": q["text"],
                         "blocking": bool(q.get("blocking")),
-                        "options": q.get("options") or [],
-                        "recommendation": q.get("recommendation"),
-                        "proceeded_with": q.get("proceeded_with"),
                     },
                 }
             )
@@ -820,7 +819,7 @@ class Supervisor:
                         "data": {
                             "ok": False,
                             "conflicts": msg,
-                            "detail": f"合并 {base_branch} 时有冲突:{msg}。可以提「解决冲突」的修改意见,或者接管",
+                            "detail": f"合并 {base_branch} 时有冲突:{msg}。用 fusion-core revise 让助手在最新的主分支上解决",
                         },
                     }
                 ]
