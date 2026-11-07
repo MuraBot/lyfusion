@@ -5,7 +5,6 @@ import json
 import re
 import subprocess
 import sys
-from pathlib import Path
 
 from conftest import CORE
 from fusion_core import VERSION
@@ -31,10 +30,10 @@ def test_usage_matches_design_and_is_short():
 
 
 def test_cli_public_command_set_and_version():
-    p = subprocess.run([sys.executable, str(CORE / "fusion-core.py"), "--help"], capture_output=True)
+    p = subprocess.run([sys.executable, str(CORE / "fusion-core.py"), "--help"], check=False, capture_output=True)
     assert p.returncode == 0
     output = p.stdout.decode("utf-8")
-    names = set("explore delegate revise accept status cancel on off config preflight ledger".split())
+    names = {"explore", "delegate", "revise", "accept", "status", "cancel", "on", "off", "config", "preflight", "ledger"}
     match = re.search(r"^\s+\{([^}]+)\}", output, re.MULTILINE)
     assert match
     found = set(match.group(1).split(","))

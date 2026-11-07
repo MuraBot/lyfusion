@@ -19,11 +19,8 @@ lead 在 Bash 后台运行四个主流程命令,每条命令会等待结果并�
 - 启动 Codex 前清除 `CLAUDE*`、`ANTHROPIC*` 环境变量;Codex 只在独立工位中工作。
 - 运行日志按常见密钥格式脱敏,`fusion/runs/` 不进 git。
 
-## 测试和打包
+## 测试
 
-```bash
-cd core && python -m pytest -q tests
-python ../v5/build_plugin.py
-```
+运行 `cd core && python -m pytest -q tests`。测试使用假 Codex,不会调用真实 Codex。
 
-测试使用假 Codex,不会调用真实 Codex。打包生成 `../v5/dist/lyfusion-5.0.0-aq.0.zip`。
+打包运行 `python ../v5/build_plugin.py`,生成 `../v5/dist/lyfusion-5.0.0-aq.0.zip`。未打开过 Fusion 的项目里钩子不输出。

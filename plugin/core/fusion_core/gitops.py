@@ -162,7 +162,7 @@ def squash_onto(wt: Path, base_branch: str, message: str, identity: dict | None 
         env.update(GIT_AUTHOR_NAME=identity["name"], GIT_AUTHOR_EMAIL=identity["email"],
                    GIT_COMMITTER_NAME=identity["name"], GIT_COMMITTER_EMAIL=identity["email"])
     p = subprocess.run(["git", "commit-tree", tree, "-p", parent, "-F", "-"], cwd=wt, input=message.encode("utf-8"),
-                       capture_output=True, env=env)
+                       check=False, capture_output=True, env=env)
     if p.returncode != 0:
         raise FusionError("git commit-tree 失败:" + p.stderr.decode("utf-8", "replace"))
     return p.stdout.decode().strip()
@@ -206,7 +206,7 @@ def bring_changes(root: Path, wt_ref_cwd: Path, base: str, tip: str) -> tuple[li
             if target.exists():
                 target.unlink()
         else:
-            p = subprocess.run(["git", "show", f"{tip}:{path}"], cwd=wt_ref_cwd, capture_output=True)
+            p = subprocess.run(["git", "show", f"{tip}:{path}"], cwd=wt_ref_cwd, check=False, capture_output=True)
             if p.returncode == 0:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(p.stdout)

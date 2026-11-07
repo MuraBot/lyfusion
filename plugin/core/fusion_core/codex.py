@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
 
-from .util import FusionError, IS_WIN, clean_env, spawn_detached
+from .util import IS_WIN, FusionError, clean_env, spawn_detached
 
 SCHEMA = Path(__file__).with_name("report_schema.json")
 
@@ -22,7 +21,7 @@ def find_codex(cfg: dict) -> list[str]:
     if IS_WIN:
         p = subprocess.run(["powershell", "-NoProfile", "-Command",
                             "(Get-AppxPackage OpenAI.Codex -ErrorAction SilentlyContinue).InstallLocation"],
-                           capture_output=True, text=True)
+                           check=False, capture_output=True, text=True)
         loc = p.stdout.strip()
         if loc:
             exe = Path(loc) / "app" / "resources" / "codex.exe"

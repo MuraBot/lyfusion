@@ -4,7 +4,6 @@ from __future__ import annotations
 import sys
 
 import pytest
-
 from conftest import report
 from fusion_core import commands as C
 from fusion_core.util import FusionError
@@ -17,20 +16,21 @@ BROKEN = 'def bye(name):\n    return "oops"\n'
 
 
 def plan_farewell(**extra):
-    p = {"goal": "加一个告别函数 bye",
-         "bounds": {"must": ["不改 hello"], "free": ["内部写法"], "escalate": ["要改 hello 的签名"]},
-         "items": [{"id": "W1", "type": "mechanical", "title": "写 app/farewell.py 和测试",
-                    "files": ["app/farewell.py", "tests/test_farewell.py"], "checks": ["C1"]}],
-         "checks": [{"id": "C1", "kind": "command",
-                     "run": f"{PY} -c \"from app.farewell import bye; assert bye('A') == 'Bye, A'\""}]}
+    p = {"goal": "加一个告别函数 bye", "brief": "写 app/farewell.py 和测试,不改 hello。",
+         "scope": ["app/farewell.py", "tests/test_farewell.py"],
+         "checks": [{"run": f"{PY} -c \"from app.farewell import bye; assert bye('A') == 'Bye, A'\"", "expect": 0}]}
     p.update(extra)
     return p
 
 
 def setup_task(proj, **extra):
-    out = proj.do(C.cmd_plan, plan_farewell(**extra))
-    assert out["task"] == "T1"
-    return out
+    ctx = proj.ctx()
+    try:
+        tid = C._new_task(ctx, plan_farewell(**extra), "explored")
+        assert tid == "T1"
+        return {"task": tid}
+    finally:
+        ctx.close()
 
 
 GOOD = {"write": {"app/farewell.py": FAREWELL, "tests/test_farewell.py": TEST_FAREWELL},
@@ -40,7 +40,7 @@ GOOD = {"write": {"app/farewell.py": FAREWELL, "tests/test_farewell.py": TEST_FA
 def test_happy_path(proj):
     setup_task(proj)
     proj.script([GOOD])
-    proj.do(C.cmd_delegate, "T1", [])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
     t = proj.task()
     assert t["state"] == "in_review", t
@@ -49,13 +49,14 @@ def test_happy_path(proj):
     assert cand["checks"]["passed"], cand["checks"]
     # 第一次运行是新会话,带规则;工位记住了会话编号
     calls = proj.calls()
-    assert calls[0]["resume"] is False and "你是 lyfusion 的助手" in calls[0]["prompt"]
+    assert calls[0]["resume"] is False and "## 目标" in calls[0]["prompt"]
     st = proj.state()["stations"]["main#1"]
     assert st["thread"] and st["briefed"]
-    # 审查视图仍展示检查结果,不会再强制处理决定债
-    text = proj.do(C.cmd_review, "T1")["text"]
+    # 审查包展示检查结果,不再包含决定债。
+    from fusion_core.aq import review_pack
+    text = review_pack(proj.root, t, proj.state(), 1)
     assert "检查" in text and "T1.E1" not in text
-    proj.do(C.cmd_accept, "T1", "T1.c1")
+    proj.do(C.cmd_accept, "T1")
     proj.drain()
     t = proj.task()
     assert t["state"] == "accepted", t.get("integration")
@@ -64,22 +65,21 @@ def test_happy_path(proj):
     assert proj.read("app/farewell.py") == FAREWELL  # lead 的目录在 main 上,快进后文件在
     assert proj.git("branch", "--list", "fusion/T1") == ""
     # 重复验收返回原结果
-    assert "已经验收过了" in proj.do(C.cmd_accept, "T1")["text"]
+    assert proj.do(C.cmd_accept, "T1")["commit"] == t["accepted_commit"]
 
 
 def test_blocked_then_answer_resumes_same_thread(proj):
     setup_task(proj)
-    q = {"text": "bye 要不要支持中文?", "blocking": True, "options": ["要", "不要"], "recommendation": "不要",
-         "proceeded_with": None}
-    proj.script([{"write": {"app/farewell.py": "# 半成品\n"}, "report": report("先问一下", questions=[q])}, GOOD])
-    proj.do(C.cmd_delegate, "T1", [])
+    q = {"text": "bye 要不要支持中文?"}
+    proj.script([{"write": {"app/farewell.py": "# 半成品\n"}, "report": report("先问一下", status="blocked", questions=[q])}, GOOD])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
     t = proj.task()
     assert t["state"] == "blocked"
     assert proj.read("app/farewell.py", proj.station) == "# 半成品\n"  # 半成品留在工位
     with pytest.raises(FusionError):
         proj.do(C.cmd_accept, "T1")
-    out = proj.do(C.cmd_answer, "Q1", "不要")
+    out = proj.do(C.cmd_revise, "T1", "不要")
     assert out["run"]
     proj.drain()
     calls = proj.calls()
@@ -93,7 +93,7 @@ def test_fix_loop_then_check_failed(proj):
     bad = [{"write": {"app/farewell.py": BROKEN + f"# {i}\n", "tests/test_farewell.py": TEST_FAREWELL},
             "report": report()} for i in range(3)]
     proj.script(bad)
-    proj.do(C.cmd_delegate, "T1", [])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
     t = proj.task()
     assert t["state"] == "in_review"
@@ -101,14 +101,14 @@ def test_fix_loop_then_check_failed(proj):
     kinds = [proj.state()["runs"][r]["kind"] for r in t["runs"]]
     assert kinds == ["implement", "fix", "fix"]
     assert any(s["kind"] == "check_failed" for s in t["signals"])
-    assert "检查没有通过" in proj.calls()[1]["prompt"]
+    assert "## 检查失败" in proj.calls()[1]["prompt"]
 
 
 def test_fix_succeeds(proj):
     setup_task(proj)
     bad = {"write": {"app/farewell.py": BROKEN, "tests/test_farewell.py": TEST_FAREWELL}, "report": report()}
     proj.script([bad, GOOD])
-    proj.do(C.cmd_delegate, "T1", [])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
     t = proj.task()
     assert t["state"] == "in_review" and t["latest"] == "T1.c2"
@@ -123,7 +123,7 @@ def test_weakened_test_is_violation(proj):
     weak["write"]["app/greet.py"] = 'def hello(name):\n    return "x"\n'
     weak["report"] = report()
     proj.script([weak])
-    proj.do(C.cmd_delegate, "T1", [])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
     t = proj.task()
     chk = proj.state()["candidates"][t["latest"]]["checks"]
@@ -139,7 +139,7 @@ def test_forbidden_command(proj):
     step["commands"] = [{"command": "git -c http.sslVerify=false fetch"}, {"command": "git commit -m x"}]
     step["report"] = report()
     proj.script([step])
-    proj.do(C.cmd_delegate, "T1", [])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
     chk = proj.state()["candidates"]["T1.c1"]["checks"]
     whys = {v["why"] for v in chk["violations"]}
@@ -149,7 +149,7 @@ def test_forbidden_command(proj):
 def test_integration_conflict_returns_to_review(proj):
     setup_task(proj)
     proj.script([GOOD])
-    proj.do(C.cmd_delegate, "T1", [])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
     proj.write("app/farewell.py", "def bye(name):\n    return 'lead 的版本'\n")
     proj.commit("lead 也写了 farewell")
@@ -164,7 +164,7 @@ def test_integration_conflict_returns_to_review(proj):
 def test_main_moved_without_conflict_merges(proj):
     setup_task(proj)
     proj.script([GOOD])
-    proj.do(C.cmd_delegate, "T1", [])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
     proj.write("README.md", "lead 改了别的文件\n")
     proj.commit("lead 的提交")
@@ -180,7 +180,7 @@ def test_main_moved_without_conflict_merges(proj):
 def test_fast_forward_refused_by_dirty_lead_tree(proj):
     setup_task(proj)
     proj.script([GOOD])
-    proj.do(C.cmd_delegate, "T1", [])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
     proj.write("app/farewell.py", "lead 没提交的改动\n")
     proj.do(C.cmd_accept, "T1")
@@ -194,7 +194,7 @@ def test_fast_forward_refused_by_dirty_lead_tree(proj):
 def test_reject_cleans_up(proj):
     setup_task(proj)
     proj.script([GOOD])
-    proj.do(C.cmd_delegate, "T1", [])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
     proj.do(C.cmd_cancel, "T1", "方向不对")
     proj.drain()
@@ -206,7 +206,7 @@ def test_reject_cleans_up(proj):
 def test_cancel_kills_running(proj):
     setup_task(proj)
     proj.script([{"sleep": 60, "report": report()}])
-    proj.do(C.cmd_delegate, "T1", [])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     for _ in range(50):
         proj.sup.tick()
         if proj.state()["runs"]["r1"]["status"] == "started":
@@ -223,7 +223,7 @@ def test_cancel_kills_running(proj):
 def test_missing_report_asks_once(proj):
     setup_task(proj)
     proj.script([{"write": GOOD["write"], "text": "我做完了!"}, {"report": report("补交报告")}])
-    proj.do(C.cmd_delegate, "T1", [])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
     t = proj.task()
     kinds = [proj.state()["runs"][r]["kind"] for r in t["runs"]]
@@ -235,14 +235,14 @@ def test_missing_report_asks_once(proj):
 def test_change_rounds_limit(proj):
     setup_task(proj)
     proj.script([GOOD] * 5)
-    proj.do(C.cmd_delegate, "T1", [])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
     for i in range(3):
-        proj.do(C.cmd_request_changes, "T1", [{"text": f"第 {i + 1} 处", "expect": "改好"}])
+        proj.do(C.cmd_revise, "T1", f"round {i + 1}")
         proj.drain()
     with pytest.raises(FusionError, match="先停下来问用户"):
-        proj.do(C.cmd_request_changes, "T1", [{"text": "第 4 处", "expect": "改好"}])
-    assert "第 1 处" in proj.calls()[1]["prompt"]
+        proj.do(C.cmd_revise, "T1", "round 4")
+    assert "round 1" in proj.calls()[1]["prompt"]
 
 
 def test_nonblocking_question_does_not_block_acceptance(proj):
@@ -252,10 +252,10 @@ def test_nonblocking_question_does_not_block_acceptance(proj):
     step = dict(GOOD)
     step["report"] = report(questions=[q])
     proj.script([step, GOOD])
-    proj.do(C.cmd_delegate, "T1", [])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
     t = proj.task()
-    assert not t["debt"] and proj.state()["questions"]["Q1"]["status"] == "open"
+    assert t["questions"] and t["questions"][0]["status"] == "open"
     proj.do(C.cmd_accept, "T1")
     proj.drain()
     assert proj.task()["state"] == "accepted"
@@ -264,7 +264,7 @@ def test_nonblocking_question_does_not_block_acceptance(proj):
 def test_recheck_when_check_config_changes(proj):
     setup_task(proj)
     proj.script([GOOD])
-    proj.do(C.cmd_delegate, "T1", [])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
     import json
     path = proj.root / "fusion" / "config.json"
@@ -279,18 +279,29 @@ def test_recheck_when_check_config_changes(proj):
 def test_wip_one_line(proj):
     setup_task(proj)
     proj.script([GOOD])
-    proj.do(C.cmd_delegate, "T1", [])
-    proj.do(C.cmd_plan, plan_farewell(goal="第二个任务"))
-    with pytest.raises(FusionError, match="1 条工作线"):
-        proj.do(C.cmd_delegate, "T2", [])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
+    with pytest.raises(FusionError, match="1 个进行中的任务"):
+        proj.do(C.cmd_delegate, plan_farewell(goal="second task"))
 
 
 def test_fix_without_changes_signals(proj):
     setup_task(proj)
     bad = {"write": {"app/farewell.py": BROKEN, "tests/test_farewell.py": TEST_FAREWELL}, "report": report()}
     proj.script([bad, {"report": report("没改")}])
-    proj.do(C.cmd_delegate, "T1", [])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
     t = proj.task()
     assert t["state"] == "in_review"
     assert any(s["kind"] == "check_failed" and "没有改动" in s["detail"] for s in t["signals"])
+
+
+def test_revise_reads_decisions_file_again(proj):
+    setup_task(proj)
+    proj.script([GOOD, GOOD])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
+    proj.drain()
+    decisions = proj.root / "fusion" / "decisions.md"
+    decisions.write_text("# 设计决定\n派工之后才写入的新决定\n", encoding="utf-8")
+    proj.do(C.cmd_revise, "T1", "保留原行为")
+    proj.drain()
+    assert "派工之后才写入的新决定" in proj.calls()[1]["prompt"]

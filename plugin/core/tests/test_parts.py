@@ -1,39 +1,34 @@
 """校验器、工位、MCP、钩子、事件库、对账。"""
 from __future__ import annotations
 
-import io
 import json
 import subprocess
 import sys
 
 import pytest
-
 from conftest import CORE, report
-from fusion_core import commands as C, config as config_mod, hooks, store, views
+from fusion_core import commands as C
+from fusion_core import config as config_mod
+from fusion_core import hooks, store, views
 from fusion_core.supervisor import Supervisor
 from fusion_core.util import FusionError, glob_match, globs_overlap, norm
 from test_flow import GOOD, plan_farewell, setup_task
-
 
 # ---------------- 校验器 ----------------
 
 def test_plan_validation_errors(proj):
     with pytest.raises(FusionError) as e:
-        proj.do(C.cmd_plan, {"goal": "x", "items": [
-            {"id": "W1", "type": "judgment", "owner": "sidekick", "title": "a", "files": ["a.py"]},
-            {"id": "W2", "type": "mechanical", "title": "b", "files": ["b.py"]},
-            {"id": "X", "type": "magic", "title": "c"}]})
+        proj.do(C.cmd_delegate, {"goal": "x", "items": []})
     msg = str(e.value)
-    assert "bounds" in msg and "judgment 工作项由 lead 负责" in msg
-    assert "至少对应 1 条验收检查" in msg and "W1、W2" in msg
+    assert "只允许字段" in msg and "items" in msg
 
 
 def test_wrong_state_rejected(proj):
     setup_task(proj)
-    with pytest.raises(FusionError, match="待开工"):
-        proj.do(C.cmd_request_changes, "T1", [{"text": "a", "expect": "b"}])
+    with pytest.raises(FusionError, match="不能修改"):
+        proj.do(C.cmd_revise, "T1", "a")
     with pytest.raises(FusionError, match="不存在"):
-        proj.do(C.cmd_review, "T9")
+        proj.do(C.cmd_revise, "T9", "a")
 
 
 def test_globs():
@@ -48,9 +43,8 @@ def test_globs():
 # ---------------- 工位 ----------------
 
 def test_explore_creates_station_then_implement_reuses_thread(proj):
-    setup_task(proj)
     proj.script([{"text": "app/greet.py 第 1 行定义了 hello"}, GOOD])
-    proj.do(C.cmd_explore, ["hello 在哪里?"], "T1")
+    proj.do(C.cmd_explore, "hello 在哪里?")
     proj.drain()
     s = proj.state()
     assert "第 1 行" in s["explore_answers"]["r1"]["answer"]
@@ -58,11 +52,11 @@ def test_explore_creates_station_then_implement_reuses_thread(proj):
     assert thread
     calls = proj.calls()
     assert "read-only" in calls[0]["args"] and "--output-schema" not in calls[0]["args"]
-    proj.do(C.cmd_delegate, "T1", [])
+    proj.do(C.cmd_delegate, plan_farewell())
     proj.drain()
     calls = proj.calls()
     assert calls[1]["resume"] and calls[1]["thread"] == thread
-    assert "你是 lyfusion 的助手" in calls[1]["prompt"]  # 探索时没发过规则,第一次实现要发
+    assert "固定规则" in calls[1]["prompt"]
     assert 'sandbox_mode="workspace-write"' in calls[1]["args"]
     assert "r1" in views.status(proj.root, {}, proj.state(), "r1")
 
@@ -70,42 +64,42 @@ def test_explore_creates_station_then_implement_reuses_thread(proj):
 def test_station_rotates_on_model_change_with_handoff(proj):
     setup_task(proj)
     proj.script([GOOD, GOOD])
-    proj.do(C.cmd_delegate, "T1", [])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
     proj.do(C.cmd_accept, "T1")
     proj.drain()
     local = config_mod.load(proj.root)["local"]
     local["sidekick"]["model"] = "gpt-6-astra"
     config_mod.save_local(proj.root, local)
-    proj.do(C.cmd_plan, plan_farewell(goal="第二个"))
-    proj.do(C.cmd_delegate, "T2", [])
+    proj.do(C._new_task, plan_farewell(goal="第二个"), "explored")
+    proj.do(C.cmd_delegate, plan_farewell(goal="???"), "T2")
     proj.drain()
     s = proj.state()
     assert s["stations"]["main#1"]["status"] == "retired"
     assert s["stations"]["main#2"]["predecessor"] == "main#1"
     call = proj.calls()[1]
-    assert not call["resume"] and "上一个工位的交接摘要" in call["prompt"] and "gpt-6-astra" in call["args"]
+    assert not call["resume"] and "上一个工位交接摘要" in call["prompt"] and "gpt-6-astra" in call["args"]
 
 
 def test_resume_failure_retires_station(proj):
     setup_task(proj)
-    q = {"text": "要不要中文?", "blocking": True, "options": [], "recommendation": "不要", "proceeded_with": None}
-    proj.script([{"report": report(questions=[q])}, {"resume_fails": True}, GOOD])
-    proj.do(C.cmd_delegate, "T1", [])
+    q = {"text": "要不要中文?"}
+    proj.script([{"report": report(status="blocked", questions=[q])}, {"resume_fails": True}, GOOD])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
-    proj.do(C.cmd_answer, "Q1", "不要")
+    proj.do(C.cmd_revise, "T1", "不要")
     proj.drain()
     s = proj.state()
     assert s["stations"]["main#1"]["status"] == "retired"
     assert any(x["kind"] == "stalled" and "续用失败" in x["detail"] for x in s["tasks"]["T1"]["signals"])
     # 之后再派(修改意见)会开新工位,并带上完整任务单
     assert s["tasks"]["T1"]["state"] == "in_review"
-    proj.do(C.cmd_request_changes, "T1", [{"text": "继续做完", "expect": "bye 能用"}])
+    proj.do(C.cmd_revise, "T1", "继续做完")
     proj.drain()
     s = proj.state()
     assert "main#2" in s["stations"]
     call = proj.calls()[2]
-    assert not call["resume"] and "## 任务 T1" in call["prompt"] and "继续做完" in call["prompt"]
+    assert not call["resume"] and "## 目标" in call["prompt"] and "继续做完" in call["prompt"]
 
 
 # ---------------- 对账 ----------------
@@ -113,7 +107,7 @@ def test_resume_failure_retires_station(proj):
 def test_supervisor_restart_picks_up_finished_run(proj):
     setup_task(proj)
     proj.script([dict(GOOD, sleep=1.5)])
-    proj.do(C.cmd_delegate, "T1", [])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.sup.tick()  # 启动运行
     assert proj.state()["runs"]["r1"]["status"] == "started"
     proj.sup.conn.close()
@@ -136,12 +130,12 @@ def test_lease_only_one_supervisor(proj):
 
 
 def test_concurrent_writers(proj):
-    code = ("import sys; sys.path.insert(0, r'%s'); from pathlib import Path; from fusion_core import store;"
-            "c = store.connect(Path(r'%s'))\n"
+    code = (f"import sys; sys.path.insert(0, r'{CORE}'); from pathlib import Path; from fusion_core import store;"
+            f"c = store.connect(Path(r'{proj.root}'))\n"
             "for i in range(40):\n"
             "    with store.transaction(c):\n"
             "        store.append(c, [{'type': 'usage', 'data': {'who': 'lead', 'input': 1}}], 'x')\n"
-            ) % (CORE, proj.root)
+            )
     ps = [subprocess.Popen([sys.executable, "-c", code]) for _ in range(3)]
     for p in ps:
         assert p.wait(120) == 0
@@ -154,7 +148,7 @@ def test_concurrent_writers(proj):
 def test_hooks_inject_within_limits(proj):
     setup_task(proj)
     proj.script([GOOD])
-    proj.do(C.cmd_delegate, "T1", [])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     text = hooks.run("session-start", {"cwd": str(proj.root), "session_id": "s1", "source": "compact"})
     assert text.count("\n") + 1 <= 20
     assert len(views.LEAD_GUIDE.splitlines()) <= 20
@@ -175,6 +169,7 @@ def test_hooks_silent_outside_fusion_and_when_off(proj, tmp_path):
 
 def test_hook_process_outputs_json(proj):
     p = subprocess.run([sys.executable, str(CORE / "fusion-core.py"), "hook", "session-start"],
+                       check=False,
                        input=json.dumps({"cwd": str(proj.root)}).encode(), capture_output=True)
     out = json.loads(p.stdout.decode("utf-8"))
     assert out["hookSpecificOutput"]["hookEventName"] == "SessionStart"
@@ -182,20 +177,17 @@ def test_hook_process_outputs_json(proj):
 
 # ---------------- 通知和台账 ----------------
 
-def test_notifications(proj):
+def test_questions_visible_in_ledger(proj):
     setup_task(proj)
-    q = {"text": "要不要中文?", "blocking": True, "options": [], "recommendation": "不要", "proceeded_with": None}
-    proj.script([{"report": report(questions=[q])}, GOOD])
-    proj.do(C.cmd_delegate, "T1", [])
+    q = {"text": "要不要中文?"}
+    proj.script([{"report": report(status="blocked", questions=[q])}, GOOD])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
-    lines = views.notifications(proj.state(), proj.events())
-    assert any("阻塞问题 Q1" in x for x in lines)
-    seq = proj.events()[-1]["seq"]
-    proj.do(C.cmd_answer, "Q1", "不要")
+    assert proj.task()["state"] == "blocked"
+    assert "T1" in views.ledger(proj.state())
+    proj.do(C.cmd_revise, "T1", "不要")
     proj.drain()
-    new = [e for e in proj.events() if e["seq"] > seq]
-    lines = views.notifications(proj.state(), new)
-    assert any("T1.c1 待审" in x for x in lines)
+    assert proj.task()["state"] == "in_review"
     assert "T1" in views.ledger(proj.state())
 
 
@@ -205,5 +197,17 @@ def test_redact():
             "ghp_123456789012345678901234567890abcd ok")
     out = redact(text)
     assert "abc.def" not in out and "sk-ant" not in out and "ghp_1234" not in out and out.endswith("ok")
+
+
+def test_forbidden_scan_ignores_command_output(proj):
+    from fusion_core.checks import scan_forbidden
+    assert scan_forbidden(config_mod.load(proj.root),
+                          [{"command": "python -c print('ok')", "output": "--no-verify"}], []) == []
+
+
+def test_old_database_event_types_are_ignored():
+    from fusion_core.state import empty, replay
+    state = replay([{"seq": 1, "type": "decision_ratified", "data": {}, "ts": "now"}], empty())
+    assert state["tasks"] == {}
 
 

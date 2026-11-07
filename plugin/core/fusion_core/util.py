@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import ctypes
-import fnmatch
 import json
 import os
 import re
@@ -78,9 +77,8 @@ def globs_overlap(a, b) -> bool:
             if glob_match(x2, y2) or glob_match(y2, x2):
                 return True
             px, py = x2.split("*")[0], y2.split("*")[0]
-            if px.startswith(py) or py.startswith(px):
-                if "*" in x2 or "*" in y2:
-                    return True
+            if (px.startswith(py) or py.startswith(px)) and ("*" in x2 or "*" in y2):
+                return True
     return False
 
 
@@ -97,7 +95,7 @@ def run(cmd, cwd, timeout=600, env=None, shell=False, out_file: Path | None = No
     if out_file is None:
         try:
             p = subprocess.run(cmd, cwd=cwd, shell=shell, env=env, stdin=subprocess.DEVNULL,
-                               capture_output=True, timeout=timeout)
+                               check=False, capture_output=True, timeout=timeout)
             out = p.stdout.decode("utf-8", "replace") + p.stderr.decode("utf-8", "replace")
             code = p.returncode
         except subprocess.TimeoutExpired as e:
@@ -108,7 +106,7 @@ def run(cmd, cwd, timeout=600, env=None, shell=False, out_file: Path | None = No
     with open(out_file, "wb") as fo:
         try:
             p = subprocess.run(cmd, cwd=cwd, shell=shell, env=env, stdin=subprocess.DEVNULL,
-                               stdout=fo, stderr=subprocess.STDOUT, timeout=timeout)
+                               check=False, stdout=fo, stderr=subprocess.STDOUT, timeout=timeout)
             code = p.returncode
         except subprocess.TimeoutExpired:
             code = -9
@@ -119,7 +117,7 @@ def run(cmd, cwd, timeout=600, env=None, shell=False, out_file: Path | None = No
 
 
 def git(*args, cwd, check=True) -> str:
-    p = subprocess.run(["git", *args], cwd=cwd, stdin=subprocess.DEVNULL, capture_output=True)
+    p = subprocess.run(["git", *args], cwd=cwd, stdin=subprocess.DEVNULL, check=False, capture_output=True)
     out = p.stdout.decode("utf-8", "replace")
     if check and p.returncode != 0:
         raise FusionError(f"git {' '.join(args)} 失败:{p.stderr.decode('utf-8', 'replace').strip()}")
@@ -128,11 +126,8 @@ def git(*args, cwd, check=True) -> str:
 
 def spawn_detached(cmd, cwd, env, stdin_path: Path, stdout_path: Path, stderr_path: Path) -> int:
     """启动独立的子进程:只继承三个文件,不继承调用者的标准输入输出(那可能是 MCP 通道)。"""
-    fi = open(stdin_path, "rb")
-    fo = open(stdout_path, "wb")
-    fe = open(stderr_path, "wb")
-    kwargs = dict(cwd=cwd, env=env, stdin=fi, stdout=fo, stderr=fe, close_fds=True)
-    try:
+    with open(stdin_path, "rb") as fi, open(stdout_path, "wb") as fo, open(stderr_path, "wb") as fe:
+        kwargs = {"cwd": cwd, "env": env, "stdin": fi, "stdout": fo, "stderr": fe, "close_fds": True}
         if IS_WIN:
             flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
             try:
@@ -141,8 +136,6 @@ def spawn_detached(cmd, cwd, env, stdin_path: Path, stdout_path: Path, stderr_pa
                 p = subprocess.Popen(cmd, creationflags=flags, **kwargs)
         else:
             p = subprocess.Popen(cmd, start_new_session=True, **kwargs)
-    finally:
-        fi.close(); fo.close(); fe.close()
     return p.pid
 
 
@@ -176,7 +169,7 @@ def kill_tree(pid: int | None) -> None:
     if not pid or not pid_alive(pid):
         return
     if IS_WIN:
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True)
     else:
         import signal
         try:

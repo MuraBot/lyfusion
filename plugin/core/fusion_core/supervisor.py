@@ -5,14 +5,24 @@
 """
 from __future__ import annotations
 
+import sqlite3
 import threading
 import time
 import traceback
 from pathlib import Path
 
-from . import aq, checks, codex, config as config_mod, gitops, prompts, store, validate
+from . import aq, checks, codex, gitops, prompts, store, validate
+from . import config as config_mod
 from .state import TERMINAL, current_station, replay
-from .util import FusionError, git, globs_overlap, kill_tree, now, pid_alive, redact_file
+from .util import (
+    FusionError,
+    git,
+    globs_overlap,
+    kill_tree,
+    now,
+    pid_alive,
+    redact_file,
+)
 
 
 def _same_area(files: list[str], globs: list[str]) -> bool:
@@ -81,19 +91,19 @@ class Supervisor:
     def serve_forever(self) -> None:
         try:
             self.prune_runs()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - log and retry any pruning failure.
             self._log_error(e)
         while not self._stop.is_set():
             try:
                 if store.take_lease(self.conn, self.holder):
                     while self.tick() and not self._stop.is_set():
                         pass
-            except Exception as e:  # 监督者不能死;记下错误,下一轮再试
+            except Exception as e:  # noqa: BLE001 - supervisor must log and retry any action failure.
                 self._log_error(e)
             self._stop.wait(self.poll)
         try:
             store.release_lease(self.conn, self.holder)
-        except Exception:
+        except sqlite3.Error:
             pass
 
     def stop(self) -> None:
@@ -109,7 +119,7 @@ class Supervisor:
             self._last_error = msg
             try:
                 self.emit([{"type": "engine_error", "data": {"error": msg[:800], "log": str(path)}}])
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 - keep the supervisor alive if error reporting also fails.
                 pass
 
     def tick(self) -> int:
@@ -117,10 +127,7 @@ class Supervisor:
         s = self.state()
         cfg = self.cfg()
         for t in s["tasks"].values():
-            if t.get("takeover") and not t.get("takeover_done"):
-                self.do_takeover(s, cfg, t)
-                return 1
-            if t["state"] in ("rejected", "cancelled") and not t.get("cleaned"):
+            if t["state"] == "cancelled" and not t.get("cleaned"):
                 self.cleanup(s, cfg, t)
                 return 1
         for run in s["runs"].values():
@@ -129,7 +136,7 @@ class Supervisor:
         for run in s["runs"].values():
             if run["status"] == "requested":
                 t = s["tasks"].get(run["task"] or "")
-                if t and (t["state"] in TERMINAL or t.get("takeover")):
+                if t and (t["state"] in TERMINAL):
                     self.emit([{"type": "run_ended", "task": t["id"],
                                 "data": {"run": run["id"], "result": "cancelled"}}])
                 elif self._station_busy(s) and run["kind"] != "explore":
@@ -188,7 +195,7 @@ class Supervisor:
                                     for r in task["runs"])
         if st and first_run_of_task:
             limit = cfg.get("context_limit", 400000) * cfg.get("context_ratio", 0.6)
-            globs = [g for it in task["items"].values() if it.get("owner") == "sidekick" for g in it.get("files") or []]
+            globs = task.get("plan", {}).get("scope", [])
             reason = None
             if st.get("model") != sk["model"]:
                 reason = f"换了助手模型({st.get('model')} → {sk['model']})"
@@ -228,7 +235,7 @@ class Supervisor:
         need_brief = not st.get("briefed")
         kind = run["kind"]
         if kind == "implement":
-            prompt = prompts.task_prompt(s, cfg, task, run["items"], handoff, need_brief)
+            prompt = prompts.task_prompt(task, aq.decisions_text(self.root), handoff, need_brief)
             if run.get("message"):
                 prompt += "\n\n## lead 这次派工的说明\n" + str(run["message"])
         else:
@@ -236,18 +243,14 @@ class Supervisor:
                 body = prompts.fix_prompt(run["message"] or "", aq.decisions_text(self.root))
             elif kind == "changes":
                 m = run["message"] or {}
-                body = prompts.changes_prompt(m.get("comments", []), m.get("overruled", []),
-                                              aq.decisions_text(self.root))
-            elif kind == "answer":
-                body = prompts.answer_prompt(run["message"] or [])
+                body = prompts.changes_prompt(m, aq.decisions_text(self.root))
             elif kind == "report":
-                body = ("## 你上一次的最终回复不是合格的 JSON 报告\n" + str(run.get("message") or "")
-                        + "\n不要再改代码。" + prompts.REPORT_REMINDER)
+                body = prompts.report_prompt(str(run.get("message") or ""), aq.decisions_text(self.root))
             else:
                 raise FusionError(f"未知的运行类型 {kind}")
             prompt = body
             if need_brief:  # 新工位接手进行中的任务:先给完整任务单
-                prompt = prompts.task_prompt(s, cfg, task, run["items"], handoff, True) + "\n\n" + body
+                prompt = prompts.task_prompt(task, aq.decisions_text(self.root), handoff, True) + "\n\n" + body
         pid = codex.launch(cfg, st, rdir, prompt, "workspace-write", st.get("thread"))
         events.append({"type": "run_started", "task": task["id"],
                        "data": {"run": rid, "station": st["name"], "pid": pid, "dir": str(rdir), "base": base,
@@ -255,9 +258,9 @@ class Supervisor:
         self.emit(events)
 
     def _start_explore(self, s, cfg, run) -> None:
-        task = s["tasks"].get(run["task"] or "")
+        s["tasks"].get(run["task"] or "")
         rid, rdir = run["id"], self.run_dir(run["id"])
-        prompt = prompts.explore_prompt(run["questions"], task, aq.decisions_text(self.root))
+        prompt = prompts.explore_prompt(run["questions"][0], aq.decisions_text(self.root))
         st = current_station(s, "main")
         events = []
         if st is None or not self._station_busy(s):
@@ -295,7 +298,7 @@ class Supervisor:
                 if run["task"]:
                     self.emit([{"type": "signal", "task": run["task"], "data": {
                         "kind": "stalled", "detail": f"{run['id']} 已经 {int(idle // 60)} 分钟没有新事件。"
-                                                     f"可以继续等,或者 cancel / takeover"}}])
+                                                     f"可以重新运行同一命令继续等,或运行 fusion-core cancel"}}])
                     return True
             return False
         self.finish_run(s, cfg, run, evs)
@@ -326,7 +329,7 @@ class Supervisor:
                 "ctx_est": summ["ctx_est"]}})
             self.emit(events)
             return
-        if task is None or task["state"] in TERMINAL or task.get("takeover"):
+        if task is None or task["state"] in TERMINAL:
             events.append({"type": "run_ended", "task": tid,
                            "data": {"run": run["id"], "result": "cancelled", "usage": summ["usage"]}})
             self.emit(events)
@@ -340,7 +343,7 @@ class Supervisor:
                 "run": run["id"], "result": "no_report", "usage": summ["usage"], "ctx_est": summ["ctx_est"],
                 "commands": summ["commands"][-200:]}})
             events.append({"type": "run_requested", "task": tid, "data": {
-                "run": rid, "kind": "report", "items": run["items"], "message": "最终回复解析不出 JSON 报告"}})
+                "run": rid, "kind": "report", "message": "最终回复解析不出 JSON 报告"}})
             self.emit(events)
             return
         rep, problems = validate.report(raw) if raw is not None else (None, ["没有收到 JSON 报告"])
@@ -409,7 +412,7 @@ class Supervisor:
             # 工位已经不在这个候选上(例如有人手动动过工位目录):不在别的代码上出证据
             self.emit([{"type": "check_ran", "task": task["id"], "data": {
                 "cand": cand["cand"], "commit": cand["commit"], "passed": False, "only_env": False, "results": [],
-                "violations": [], "changed": [], "tests_changed": [], "out_of_scope": [], "perceivable": [],
+                "violations": [], "changed": [], "out_of_scope": [],
                 "suspicious": [], "urls": [], "failures": "工位目录不在这个候选提交上,检查没有运行",
                 "plan_version": task["version"], "check_hash": config_mod.check_hash(cfg), "recheck": recheck,
                 "not_run": True}}])
@@ -419,24 +422,15 @@ class Supervisor:
         data = checks.pipeline(self.root, cfg, s, task, cand, wt, self.run_dir(cand["run"]), commands)
         data["plan_version"], data["check_hash"], data["recheck"] = task["version"], config_mod.check_hash(cfg), recheck
         events = [{"type": "check_ran", "task": task["id"], "data": data}]
-        if not recheck:
-            if data["violations"]:
-                events.append({"type": "signal", "task": task["id"], "data": {
-                    "kind": "violation", "cand": cand["cand"],
-                    "detail": ";".join(f"{v['why']}({v['where']})" for v in data["violations"])}})
-            if data["perceivable"]:
-                rep = report or (s["runs"][cand["run"]].get("report") or {})
-                silent = not rep.get("choices")
-                events.append({"type": "signal", "task": task["id"], "data": {
-                    "kind": "perceivable_touched", "cand": cand["cand"],
-                    "detail": "改了用户能感知的文件:" + ", ".join(data["perceivable"][:12])
-                              + (";报告里没有任何自定的选择,请重点看" if silent else "")}})
+        if not recheck and data["violations"]:
+            events.append({"type": "signal", "task": task["id"], "data": {
+                "kind": "violation", "cand": cand["cand"],
+                "detail": ";".join(f"{v['why']}({v['where']})" for v in data["violations"])}})
         if not data["passed"] and not data["only_env"] and not recheck:
             if auto_fix and task["fix_attempts"] < cfg.get("max_fix_attempts", 2):
                 rid = f"r{self.state()['next_run']}"
-                items = [i for i, it in task["items"].items() if it["status"] == "delegated"]
                 events.append({"type": "run_requested", "task": task["id"], "data": {
-                    "run": rid, "kind": "fix", "items": items, "message": data["failures"]}})
+                    "run": rid, "kind": "fix", "message": data["failures"]}})
             else:
                 why = (f"助手修了 {task['fix_attempts']} 次,检查仍然失败" if auto_fix
                        else "这次运行没有正常结束,候选的检查没通过")
@@ -448,17 +442,6 @@ class Supervisor:
     def integrate(self, s, cfg, task) -> None:
         tid = task["id"]
         rdir = self.root / "fusion" / "runs" / f"{tid}-accept"
-        if task["direct"]:
-            res = checks.direct_checks(self.root, cfg, s, task, rdir)
-            events = [{"type": "integration_ran", "task": tid, "data": {
-                "ok": res["passed"], "results": res["results"],
-                "detail": "检查全部通过" if res["passed"] else "检查没有全部通过:" + "、".join(
-                    r["name"] for r in res["results"] if not r["passed"])}}]
-            if res["passed"]:
-                events.append({"type": "accepted", "task": tid,
-                               "data": {"cand": None, "commit": git("rev-parse", "HEAD", cwd=self.root)}})
-            self.emit(events)
-            return
         wt = self.wt
         cand = s["candidates"][task["accept_cand"]]
         ident = cfg.get("commit_identity")
@@ -478,10 +461,9 @@ class Supervisor:
             results.append(checks.run_one("集成:测试", cfg["test"], wt, cfg, rdir / "test.log"))
         if cfg.get("lint"):
             results.append(checks.run_one("集成:lint", cfg["lint"], wt, cfg, rdir / "lint.log"))
-        for c in task["plan"].get("checks", []):
-            if c["kind"] == "command":
-                results.append(checks.run_one(f"集成:{c['id']}", c["run"], wt, cfg, rdir / f"{c['id']}.log",
-                                              c.get("expect")))
+        for i, c in enumerate(task["plan"].get("checks", []), 1):
+            results.append(checks.run_one(f"集成:检查 {i}", c["run"], wt, cfg, rdir / f"check-{i}.log",
+                                          c.get("expect")))
         failed = [r for r in results if not r["passed"]]
         if failed and not (task.get("waive") and all(r["env_error"] for r in failed)):
             git("reset", "--hard", "-q", cand["commit"], cwd=wt)  # 撤回这次合并,工位回到候选
@@ -505,7 +487,7 @@ class Supervisor:
         gitops.detach_station(wt, base_branch)
         gitops.delete_branch(self.root, f"fusion/{tid}")
 
-    # ---------- 退回、取消、接管 ----------
+    # ---------- 取消 ----------
     def _stop_active(self, s, task) -> list[dict]:
         events = []
         for rid in task["runs"]:
@@ -522,7 +504,8 @@ class Supervisor:
         branch = task.get("branch") or f"fusion/{task['id']}"
         exists = git("rev-parse", "--verify", "-q", f"refs/heads/{branch}", cwd=self.root, check=False)[0] == 0
         if exists and task["base"]:
-            out = self.root / "fusion" / "runs" / f"{task['id']}-{task['state']}.diff"
+            suffix = "cancelled" if task["state"] == "cancelled" else task["state"]
+            out = self.root / "fusion" / "runs" / f"{task['id']}-{suffix}.diff"
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_text(git("diff", task["base"], branch, cwd=self.root), encoding="utf-8")
         if (wt / ".git").exists():
@@ -532,25 +515,3 @@ class Supervisor:
         events.append({"type": "cleaned", "task": task["id"], "data": {}})
         self.emit(events)
 
-    def do_takeover(self, s, cfg, task) -> None:
-        events = self._stop_active(s, task)
-        d = task["takeover"]
-        wt = self.wt
-        copied, conflicts = [], []
-        has_station = (wt / ".git").exists()
-        if has_station and d.get("branch") and gitops.current_branch(wt) == d["branch"]:
-            tip = gitops.commit_all(wt, f"fusion: {task['id']} 接管前的半成品", cfg.get("commit_identity")) \
-                or git("rev-parse", "HEAD", cwd=wt)
-            if d.get("bring") and task["base"]:
-                copied, conflicts = gitops.bring_changes(self.root, wt, task["base"], tip)
-            out = self.root / "fusion" / "runs" / f"{task['id']}-takeover.diff"
-            out.parent.mkdir(parents=True, exist_ok=True)
-            if task["base"]:
-                out.write_text(git("diff", task["base"], tip, cwd=wt), encoding="utf-8")
-        if has_station:
-            gitops.detach_station(wt, cfg["base_branch"])
-        if d.get("branch"):
-            gitops.delete_branch(self.root, d["branch"])
-        events.append({"type": "takeover_done", "task": task["id"], "data": {"copied": copied,
-                                                                             "conflicts": conflicts}})
-        self.emit(events)

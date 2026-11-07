@@ -90,8 +90,7 @@ def upgrade(event: dict) -> dict:
 def export_jsonl(conn: sqlite3.Connection, path: Path) -> int:
     events = read(conn)
     with open(path, "w", encoding="utf-8") as f:
-        for e in events:
-            f.write(dumps(e) + "\n")
+        f.writelines(dumps(e) + "\n" for e in events)
     return len(events)
 
 
