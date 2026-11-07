@@ -61,6 +61,19 @@
 - 测试:70 个通过(新增 1 个),lint 通过。没有重跑真实 Codex
 - 上传 zip 时被拒(插件不能带顶层 `bin/`),在 aq.1 里一起改:删掉 `bin/`,使用说明和各命令的提示写安装目录里的完整命令,`/fusion` 用 `${CLAUDE_PLUGIN_ROOT}`。见设计 §13。标签 `v5.0.0-aq.1` 挪到这次的提交
 
+### 政策检查(aq.1,2026-11-07,去掉 bin/ 之后)
+- 页面由 Haiku 5.5 子代理读,没有登录;引文是抓取摘要,不是逐字核对。读了:插件清单参考 code.claude.com/docs/en/plugins-reference、各平台插件支持 claude.com/docs/plugins/platform-support、组织同步 claude.com/docs/plugins/org-sync、hooks code.claude.com/docs/en/hooks(前半)、法律与合规 code.claude.com/docs/en/legal-and-compliance、使用政策 anthropic.com/legal/aup(2026-11-12 生效,和 11-06 检查的是同一版)、消费者条款 anthropic.com/legal/consumer-terms(2025-10-08 生效)
+- 逐条对照:
+  - 插件格式:claude.ai 不装带顶层 `bin/` 的插件,文档建议脚本放别的目录、用 `${CLAUDE_PLUGIN_ROOT}` 引用 → 已改,zip 里没有 `bin/`;钩子和命令都用 `${CLAUDE_PLUGIN_ROOT}/core/...`。23 个文件,远小于 5000 个文件、200 MB 的上限 → 符合
+  - 平台:钩子在 Claude Code 和 Cowork 加载,在 Chat 里被忽略。lyfusion 只在桌面应用的 Code 标签用;在 Chat 里钩子不生效,插件什么都不做,也没有害处 → 符合
+  - 订阅登录(法律与合规):Lily 用自己的订阅登录未修改的 Claude Code,个人使用;插件不提供 Claude 登录,不收集、存储或转发 Claude 凭据,不调用 Claude API,不用订阅替别的服务调用模型 → 符合
+  - 消费者条款第 3 节"不用脚本等非人工方式访问服务":插件的脚本只驱动 Codex 和 git,从不向 Claude 发请求;Claude 只在 Lily 自己开的交互式会话里工作,由 Claude 自己调用 Bash 工具。后台命令结束后叫醒 lead 是 Claude Code 自带的功能,和等测试跑完一样;没有定时器、没有无人值守的 Claude → 符合
+  - 使用政策:agentic 用法要守政策、用户对 agent 的操作负责 → Codex 只在沙箱工位里干活(只读或只写工位目录),禁止操作扫描、不关证书检查、不跳过钩子,提交和合并由引擎在验收时做;不用输出训练模型;不做批量账号或垃圾内容 → 符合
+  - 消费者条款"不开发竞争产品":lyfusion 是给 Lily 自己用的 Claude Code 插件,不是和 Anthropic 竞争的 AI 服务 → 符合
+  - 钩子:只注入使用说明,失败也放行(退出码 0),不阻止操作、不批准权限;钩子进程继承的环境变量不读、不记录,只记 Claude 的会话编号 → 符合
+- 代码核对:引擎里没有读 `~/.claude/`、AppData 里 Claude 的文件夹、Codex `auth.json` 的代码;引擎自己不联网;启动 Codex 和检查命令前去掉 `CLAUDE*`、`ANTHROPIC*`;Codex 没用绕过沙箱或审批的参数
+- 结论:没有发现不符合的地方。注意:如果以后把插件分享给别人,每个人都要用自己的订阅和自己的 Codex 登录,插件不能代管任何人的凭据
+
 ## 日志
 - 2026-11-06:开始 M0。S1、S6 完成
 - 2026-11-07:v5.0.0-aq 完成(T1、T2、真实冒烟 T3),69 个测试;合并回 main,本地标签 `v5.0.0-aq`,zip `dist/lyfusion-5.0.0-aq.0.zip`
