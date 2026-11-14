@@ -6,6 +6,7 @@
 // 校验和格式版本只在引擎一处管,mod 不写 fusion/ 下的文件,也不读 ~/.claude。
 // 引擎命令失败时不藏起来:栏照画(灰),第一次失败弹 toast,面板里写原因;
 // 这时只读 fusion/local.json 显示开关和助手模型(只读退路),改设置请用 /fusion。
+// 中途开关(面板或 /fusion)下一条消息起生效:prompt.submit 在 context 里附 lead 使用说明或"已关"一句,不改系统提示。
 // 只在打开过 Fusion 的项目里画;没打开过的项目照桌面端原样。
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
@@ -16,6 +17,16 @@ const PLUGIN = 'lyfusion-plugin'
 const panel = atom({ plugin: PLUGIN, key: 'panel' } as const, null)
 const isOpen = atom({ plugin: PLUGIN, key: 'isOpen' } as const, false)
 const notice = atom({ plugin: PLUGIN, key: 'notice' } as const, null)
+const leadKnows = atom({ plugin: PLUGIN, key: 'leadKnows' } as const, null)
+
+// 中途开关(Lily 定,rc.1):在面板或 /fusion 里开关后,下一条消息起生效。
+// 用 prompt.submit 在下一条消息的 context 里附说明(打开 = lead 使用说明,关闭 = 一句话);
+// 状态没变就什么都不附。不改系统提示,不主动发起对话
+const FUSION_COMMAND = /^\/(lyfusion-plugin:)?fusion\b/
+const OFF_NOTE =
+  'Fusion 已关(用户在会话中途关掉的):这个项目不再用 explore、delegate、revise、accept 4 个动作,代码活照常由你自己做。'
+let guide: string | null = null // 引擎给的 lead 使用说明,打开 Fusion 后提前取好
+let fusionCommand = false // 这一轮里用户跑了 /fusion:命令的输出 lead 已经看到,不再另附说明
 
 const EFFORT_LABEL: Record<string, string> = { low: '低', medium: '中', high: '高', xhigh: '超高' }
 // lead 跑这两条命令时各记一次用量快照:任务的 lead 花费 = 最后一次 accept − explore(同一个会话才算)
@@ -61,11 +72,42 @@ async function refresh($: EngineInterface): Promise<void> {
       return
     }
     const data = JSON.parse(lastLine(result.stdout))
-    await update($, panel, () => (data && data.project === true ? (data as Panel) : null))
+    const next = data && data.project === true ? (data as Panel) : null
+    await update($, panel, () => next)
     await update($, notice, current => (current?.kind === 'error' ? null : current))
+    if (next) {
+      const known = await read($, leadKnows)
+      if (known === null || known === undefined) {
+        // 第一次拿到状态:SessionStart 钩子只在 Fusion 开着时注入说明,所以 lead 知道的就是现在的开关
+        await update($, leadKnows, () => next.enabled)
+      } else if (next.enabled && !known && guide === null) {
+        void fetchGuide($)
+      }
+    }
   } catch (err) {
     await fail($, { kind: 'error', text: `调用 fusion-core 失败:${String(err)}` })
   }
+}
+
+// lead 使用说明从引擎拿(和 SessionStart 钩子同一条命令,说明文字只在引擎一处)
+async function fetchGuide($: EngineInterface): Promise<void> {
+  try {
+    const root = await $.session.root()
+    const result = await core($, ['hook', 'session-start'], JSON.stringify({ cwd: root, source: 'fusion-panel' }))
+    const text = result.exitCode === 0 && result.stdout.trim() ? JSON.parse(result.stdout)?.hookSpecificOutput?.additionalContext : null
+    if (typeof text === 'string' && text) {
+      guide = text
+    }
+  } catch {
+    // 拿不到就用 openNote 里的退路文字
+  }
+}
+
+function openNote($: EngineInterface): string {
+  return (
+    guide ??
+    `Fusion 已打开(用户在会话中途打开的)。运行 python "${$.plugin.root}/core/fusion-core.py" on 看 lead 的使用说明(已开着时只打印说明)。`
+  )
 }
 
 type Local = { enabled: boolean; model: string }
@@ -122,8 +164,38 @@ export const register: Register = on => {
   // 一轮结束时刷新:lead 或 /fusion 在这一轮里可能改过设置
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
-    void refresh($)
+    void (async () => {
+      await refresh($)
+      if (fusionCommand) {
+        // /fusion on|off 的输出 lead 已经看到:lead 知道的就是现在的开关
+        fusionCommand = false
+        const state = await read($, panel)
+        if (state) {
+          await update($, leadKnows, () => state.enabled)
+        }
+      }
+    })()
     return done
+  })
+
+  // 中途开关:下一条消息起生效。只用缓存的状态,不在这里调用引擎(发消息不能卡)
+  on('prompt.submit', async ($, e, next) => {
+    if (FUSION_COMMAND.test(e.text.trim())) {
+      fusionCommand = true
+      return next(e)
+    }
+    if (e.command) {
+      return next(e)
+    }
+    const state = await read($, panel)
+    const known = await read($, leadKnows)
+    if (!state || known === null || known === undefined || known === state.enabled) {
+      return next(e)
+    }
+    const note = state.enabled ? openNote($) : OFF_NOTE
+    await update($, leadKnows, () => state.enabled)
+    await update($, notice, current => (current?.kind === 'info' ? null : current))
+    return next({ ...e, context: [...(e.context ?? []), note] })
   })
 
   // 任务 7:lead 跑 explore、accept 时记用量快照。不等它、不拦命令
@@ -258,7 +330,7 @@ export const register: Register = on => {
                 void change(
                   $,
                   ['enabled', enabled ? 'off' : 'on'],
-                  enabled ? null : { kind: 'info', text: '已打开。新开的会话里 lead 才会收到使用说明' },
+                  { kind: 'info', text: enabled ? '已关闭,下一条消息起生效' : '已打开,下一条消息起生效' },
                 )
               }
             />

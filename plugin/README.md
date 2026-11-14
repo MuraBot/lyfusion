@@ -8,7 +8,7 @@
 |---|---|---|
 | 引擎 fusion-core | `core/` | Python 标准库和 sqlite;运行 Codex、检查候选并集成 |
 | SessionStart 钩子 | `hooks/hooks.json` | Fusion 开启时注入简短使用说明 |
-| Fusion 栏(mod) | `hooks/register.tsx`、`types/index.d.ts` | 输入框下方、模型选择器旁边的"● Fusion"(开 = Claude 橙,关 = 灰);点开在输入框上方展开面板,改开关、助手模型、思考强度、快速档、上下文上限,都调用 `fusion-core config`。lead 跑 explore、accept 时把用量快照交给 `fusion-core lead-usage`,台账按任务显示。只在打开过 Fusion 的项目里出现;新会话发出第一条消息后才显示 |
+| Fusion 栏(mod) | `hooks/register.tsx`、`types/index.d.ts` | 输入框下方、模型选择器旁边的"● Fusion"(开 = Claude 橙,关 = 灰);点开在输入框上方展开面板,改开关、助手模型、思考强度、快速档、上下文上限,都调用 `fusion-core config`。lead 跑 explore、accept 时把用量快照交给 `fusion-core lead-usage`,台账按任务显示。会话中途开关,下一条消息起生效(在消息旁附上 lead 使用说明或"已关"一句,不改系统提示)。只在打开过 Fusion 的项目里出现;新会话发出第一条消息后才显示 |
 | 技能 `/fusion` | `skills/fusion/SKILL.md` | `/fusion on`、`off`、`status`、`model`、`effort`、`fast`、`compact`、`test`;只由用户手动运行(`disable-model-invocation`),也可以写成 `/lyfusion-plugin:fusion` |
 
 插件不带 `bin/`(claude.ai 托管的插件不允许):lead 用 `python "<安装目录>/core/fusion-core.py" <子命令>` 运行引擎,完整路径由 SessionStart 注入的使用说明给出;`/fusion` 用 `${CLAUDE_PLUGIN_ROOT}`。

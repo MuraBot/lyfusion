@@ -21,6 +21,7 @@ export type Notice = { kind: 'error' | 'info'; text: string }
 
 declare module 'claude-code' {
   interface PluginState {
-    'lyfusion-plugin': { panel: Panel | null; isOpen: boolean; notice: Notice | null }
+    // leadKnows:这个会话的 lead 现在以为 Fusion 是开(true)还是关(false);null = 还不知道
+    'lyfusion-plugin': { panel: Panel | null; isOpen: boolean; notice: Notice | null; leadKnows: boolean | null }
   }
 }
