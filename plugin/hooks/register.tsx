@@ -27,11 +27,11 @@ const OFF_NOTE =
 let guide: string | null = null // 引擎给的 lead 使用说明,打开 Fusion 后提前取好
 let fusionCommand = false // 这一轮里用户跑了 /fusion:命令的输出 lead 已经看到,不再另附说明
 
-const EFFORT_LABEL: Record<string, string> = { low: '低', medium: '中', high: '高', xhigh: '超高' }
+const EFFORT_LABEL: Record<string, string> = { low: '低', medium: '中', high: '高', xhigh: '超高', max: '最高', ultra: '极限' }
 // lead 跑这两条命令时各记一次用量快照:任务的 lead 花费 = 最后一次 accept − explore(同一个会话才算)
 const SNAPSHOT_AT = /fusion-core\.py["']?\s+(explore|accept)\b/
 
-// 下拉框里显示好读的模型名,存的值不变:gpt-6-luna → GPT-6 Luna
+// 下拉框里显示好读的模型名,存的值不变。优先用引擎给的显示名(model_names);没登记的模型:gpt-6-luna → GPT-6 Luna
 function modelName(id: string): string {
   const cap = (word: string) => (word ? word[0].toUpperCase() + word.slice(1) : word)
   const parts = id.split('-')
@@ -335,7 +335,7 @@ export const register: Register = on => {
         <Select
           key="model"
           label="助手"
-          options={state.models.map(value => ({ value, label: modelName(value) }))}
+          options={state.models.map(value => ({ value, label: state.model_names?.[value] ?? modelName(value) }))}
           value={state.model}
           onSelect={value => void change($, ['model', value])}
         />
@@ -355,7 +355,7 @@ export const register: Register = on => {
             onSelect={value => void change($, ['fast', value])}
           />
         ) : (
-          <Text dimColor>Fast Mode:{modelName(state.model)} 不支持</Text>
+          <Text dimColor>Fast Mode:{state.model_names?.[state.model] ?? modelName(state.model)} 不支持</Text>
         )}
         <Select
           key="compact"
@@ -367,7 +367,7 @@ export const register: Register = on => {
       </Box>
     ) : (
       <Text dimColor>
-        助手 {modelName(state.model)} · 思考强度 {EFFORT_LABEL[state.effort] ?? state.effort} · Fast Mode{' '}
+        助手 {state.model_names?.[state.model] ?? modelName(state.model)} · 思考强度 {EFFORT_LABEL[state.effort] ?? state.effort} · Fast Mode{' '}
         {fastOk ? (state.fast ? '开' : '关') : '不支持'} · 上下文上限 {tokens(state.compact)}
       </Text>
     )

@@ -10,6 +10,7 @@ export type Panel = {
   efforts: string[]
   fast: boolean
   fast_models?: string[] // 支持 Fast Mode 的模型(rc.1 起引擎给;旧引擎没有)
+  model_names?: Record<string, string> // 模型的显示名,例如 gpt-6-luna → GPT-6-Luna
   compact: number
   compacts: number[]
   context_ratio: number
