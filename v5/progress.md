@@ -146,8 +146,8 @@
 - Codex(按原值求差):输入约 6.5M(探索 1.3M,续用任务 8 的线程;派工 2.6M;修改 2.6M),输出约 0.16M
 - 用时约 40 分钟(23:30~00:06,不含等 Lily)
 
-### 任务 7 收尾:Lily 看面板后的意见 + 干净模式的沙箱(引擎 accepted `ef3a4e5`,Fusion 里编号 T8;mod 由 lead 写)
-- Lily 的意见(经 lyfusion 会话):"面板显示fusion开，但是下面按钮的颜色是灰色"、去掉冗余说明、"快速档也改为Fast Mode,如果助手模型不支持则变成灰色不可选"、"上下文栏目最低200k干不了什么东西，最低改为262k"、换工位不用灰字提示。mod 由 lead 改(`6431feb`、`77ac654` 和本次):底栏圆点跟着重画、去掉说明和换工位小字、Fast Mode 不支持时显示灰字"Fast Mode 不支持"(桌面端的 Select 没有禁用)、模型名用引擎给的显示名(GPT-6-Luna,和 Codex 自己的写法一样)、提示改成小号字
+### 任务 7 收尾:Lily 看面板后的意见 + 干净模式的沙箱(引擎 accepted `31aa098`,Fusion 里编号 T8;mod 由 lead 写)
+- Lily 的意见(经 lyfusion 会话):"面板显示fusion开，但是下面按钮的颜色是灰色"、去掉冗余说明、"快速档也改为Fast Mode,如果助手模型不支持则变成灰色不可选"、"上下文栏目最低200k干不了什么东西，最低改为262k"、换工位不用灰字提示。mod 由 lead 改(`b4b54e9`、`d50459e` 和本次):底栏圆点跟着重画、去掉说明和换工位小字、Fast Mode 不支持时显示灰字"Fast Mode 不支持"(桌面端的 Select 没有禁用)、模型名用引擎给的显示名(GPT-6-Luna,和 Codex 自己的写法一样)、提示改成小号字
 - **装上 rc.1 后发现的 bug(反馈第 16 条,高)**:T7 探索 r19 里助手的命令全被拒(`rejected: blocked by policy`)。看护会话查明:用户的 `config.toml` 里有 `[windows] sandbox = "elevated"`,干净模式的 `--ignore-user-config` 把它丢了。lead 取消 T7,临时在 `local.json` 的 `codex` 里加 `-c windows.sandbox="unelevated"` 重新探索(T8 的 r20,命令正常);Lily 定了修法后,改成按她说的临时关 `clean` 派工,验收后改回
 - **修法(Lily 同意:"好的~ 非常好建议，谢谢你，就按建议来吧")**:干净模式下从 `$CODEX_HOME/config.toml` 只读 `windows.sandbox` 和 `sandbox_workspace_write.network_access` 两项,用 `-c` 原样传;项目 `network` 照旧。preflight 加"沙箱里能跑命令"(`codex sandbox … -- git rev-parse --show-toplevel`,不调用模型)。decisions #5 加了这个例外
 - 同一次派工:引擎内置模型能力表(显示名、思考强度到 max/ultra、Fast、上下文最大 872000),`config panel` 加 `fast_models`、`model_names`,按模型校验 effort、fast、compact;不支持的模型 fast 当关、不传 `service_tier`;上下文候选最低 262144

@@ -65,17 +65,20 @@
 - **读 Codex 的模型目录**(Lily 2026-11-14 定):引擎直接读 `~/.codex/models_cache.json`,拿到显示名、思考强度、Fast Mode、上下文最大值;读不到或格式变了，退回内置表并给出 warning。"读已有的，不另存一份";目前内置表里没有桌面端默认的 gpt-6.1-sol
 - **rc.2 怎么开始**(Lily 2026-11-14 定):先收集 Lily 这段时间的想法;让 rc.1 的 lead 写一份交接文档，交给"lyfusion 会话"新开的 rc.2 会话
 - **rc.2 的协作方式**(Lily 2026-11-14 定，原因是 rc.1 交流太频繁，额度用得太快):"lyfusion 会话"和 rc.2 lead 只交换大进度。同一个问题的排查只在 lead 那边做;lead 自主权更大，迭代中顺手修 lyfusion 的 bug、自己做决定
+- **lead 对助手的看护**(Lily 2026-11-14 定):"lyfusion 会话"的看护脚本以后不再开("这次已经把luna的一些问题修复了")。lead 怎么看护助手，rc.2 再一起讨论
 - **按命令种类统计用时**(Lily 2026-11-13 同意):台账的"运行"表现在只有总用时。加上全量测试、部分测试、lint、其他命令、模型思考各花了多少分钟。r2 的教训是全量测试跑了 4 次、占 19 分钟里的 8 分钟,当时是 Lily 凭感觉发现的。Codex 事件没有时间戳,引擎要在读到每条事件时自己记时间。rc.1 期间由"lyfusion 会话"的看护脚本按种类报
 
 ## 收尾
 - 版本 `5.0.0-rc.1`(plugin.json、`__init__.py`、README);设计写短文档 `design/v5.0.0-rc.md`;`v5/progress.md` 记结果和额度(开始、结束的 `get_usage`)
 - 本地标签 `v5.0.0-rc.1`,**不推送**;打包 `python v5/build_plugin.py`
+  - 2026-11-14 Lily 定：当前进度就是 rc.1 的最终检查点，推送到 GitHub。推送前改写了还没推送的提交，把 `v5/progress.md` 里的 Windows 用户名换成 `<用户名>`(备份分支 `backup-before-redact` 只在本地),所以 rc.1 标签现在在 `19b26e7`
 - **打包前必须过插件检查**(Lily 2026-11-14 同意:"这个插件检查还挺重要的"):用桌面端自带的 `%LOCALAPPDATA%\Claude-Data\claude_*\claude-code\<版本>\<hash>\claude.exe plugin validate plugin`(取最新版本目录)。只用 `plugin validate`,这条命令不调用模型。没过不打包。原因:rc.1 的 mod 里 `atom` 的 plugin 名用了常量，桌面端因此拒绝加载整个 mod,也不显示任何报错
 - 回退点:`v5.0.0-aq.2` 标签和 `v5/dist/lyfusion-plugin-5.0.0-aq.2.zip` 是已知能用的版本,不要删。`v5/progress.md` 写一行回退方法(重新上传 aq.2 的 zip;任务 4 做完后,旧版本遇到新格式会提示而不是读坏)
 - 提交身份 MuraBot `339045871+MuraBot@users.noreply.github.com`,末尾 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`
 
 ## 看护(Lily 要求)
 - 派工后每隔一段时间看助手有没有卡死、循环、卡在某个命令上、读代码太碎。由"lyfusion 会话"在旁边看工位的 `fusion/runs/<运行>/events.jsonl`;任务 2 做完后由引擎自己看
+- 2026-11-14 起"lyfusion 会话"不再开看护脚本(见"留到 rc.2")
 
 ## Lily 的规则(摘要)
 - 全程中文;Lily 用语音输入,不确定就问;她不是专业程序员,**希望 Claude 作为更专业的程序员主动提意见、建议和更好的架构**
