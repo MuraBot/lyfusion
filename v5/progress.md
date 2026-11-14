@@ -106,6 +106,16 @@
 - 用时约 22 分钟(20:35~20:57)
 - 注意:aq.2 的 H2 对比数据(`fusion-bench`,Codex 约 $0.09)如果中间有续用同一线程的运行,也按累计值相加了,会偏高;对比时要按原值求差重算
 
+### 任务 4 状态文件的格式版本(accepted,`7c2a6c4`)
+- 结果:`fusion_core.SCHEMA` 改成 2,`config.json`、`local.json`、`fusion.db` 共用(aq.2 及更早没写,当作 1;只有旧版本会读错的改动才加 1,写进 decisions.md 第 9 条)。JSON 顶层 `schema_version`:缺 = 1、读时在内存迁移、下一次写入时落盘(项目配置的写入合成 `config.save_project`);库用 `PRAGMA user_version`,在建表前检查,0 → 2;新事件行 `v` = 2,读到行 `v` 更大也拒绝。太新 → `FormatTooNew`(退出码 2,提示升级插件,不删不改文件);SessionStart 改为注入升级提示;`preflight` 加"状态格式"一行。测试用冻结的 aq.2 建表语句和旧配置文件
+- rc.1 要加到 2 的原因:aq.2 读不懂 rc.1 的事件(带 `interrupt` 的 `run_requested` 会被当成普通运行再启动一次)
+- **lead 例外改动**:派工结束时引擎建候选失败(`git add -A` 碰到助手放在工位里的 pytest 临时目录 `plugin/core/tests/_pytest_tmp/`,里面有测试建的 git 仓库),`delegate` 退出码 1、任务卡在"助手在做"。lead 在工位 `.gitignore` 加了这一行(随候选提交),重跑 `delegate` 接着等,候选建出来。引擎的处理(候选失败转退出码 2、审查包先清旧的)并进任务 8(反馈第 10 条)
+- lead 调用约 14 次:explore、读探索包、写 brief、改 decisions、delegate、看失败输出、查状态和工位、查临时目录来源、改 `.gitignore`、重跑 delegate、读审查包、看 diff、accept、看结果
+- 修改 0 轮
+- Codex(按原值求差):输入 3.7M(缓存 3.5M)、输出 0.02M(另有推理 0.01M);实现又换了新线程
+- 用时约 17 分钟(20:58~21:14,含卡住后排查约 3 分钟)
+- 额度:任务 4 后 5 小时 63%、每周 9%
+
 ## 日志
 - 2026-11-06:开始 M0。S1、S6 完成
 - 2026-11-07:v5.0.0-aq 完成(T1、T2、真实冒烟 T3),69 个测试;合并回 main,本地标签 `v5.0.0-aq`,zip `dist/lyfusion-5.0.0-aq.0.zip`
