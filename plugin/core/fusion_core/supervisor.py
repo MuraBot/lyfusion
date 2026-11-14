@@ -57,6 +57,13 @@ def _same_area(files: list[str], globs: list[str]) -> bool:
     )
 
 
+def _estimate_ctx(input_tokens: int, requests: int, previous_input: int, previous_ctx: int) -> int:
+    input_delta = input_tokens - previous_input if input_tokens >= previous_input else input_tokens
+    avg = input_delta / max(1, requests)
+    # The last request is estimated as twice the average minus the starting context.
+    return int(max(avg, 2 * avg - previous_ctx))
+
+
 def _execution_settings(cfg, model: str) -> dict:
     settings = cfg["local"]["sidekick"].get("models", {}).get(model, {})
     return {"model": model, "effort": settings.get("effort"), "fast": bool(settings.get("fast", False))}
@@ -610,6 +617,15 @@ class Supervisor:
         events = []
         metrics = self._run_metrics(run, cfg, evs)
         st = s["stations"].get(run.get("station") or "")
+        if summ["usage"] and summ["usage"]["input"]:
+            thread_key = (st.get("thread") if st else None) or f"run:{run['id']}"
+            previous_raw = next((r.get("usage_raw") for r in reversed(list(s["runs"].values()))
+                                 if r.get("usage_thread") == thread_key and r.get("usage_raw")), None)
+            start_ctx = st.get("ctx_est", 0) if st and run.get("resumed") else 0
+            summ["ctx_est"] = _estimate_ctx(
+                summ["usage"]["input"], summ["usage"]["requests"],
+                int((previous_raw or {}).get("input") or 0), start_ctx,
+            )
         resume_failed = bool(
             st and run.get("resumed") and not codex.thread_id(evs) and not text
         )

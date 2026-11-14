@@ -134,7 +134,10 @@ def git(*args, cwd, check=True) -> str:
 
 
 def spawn_detached(cmd, cwd, env, stdin_path: Path, stdout_path: Path, stderr_path: Path) -> int:
-    """启动独立的子进程:只继承三个文件,不继承调用者的标准输入输出(那可能是 MCP 通道)。"""
+    """启动独立的子进程:只继承三个文件,不继承调用者的标准输入输出(那可能是 MCP 通道)。
+
+    Codex exec 必须把提示文件作为 stdin,否则会等待管道的额外输入。
+    """
     with open(stdin_path, "rb") as fi, open(stdout_path, "wb") as fo, open(stderr_path, "wb") as fe:
         kwargs = {"cwd": cwd, "env": env, "stdin": fi, "stdout": fo, "stderr": fe, "close_fds": True}
         if IS_WIN:

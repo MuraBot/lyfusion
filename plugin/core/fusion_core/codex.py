@@ -116,10 +116,10 @@ def summarize(events: list[dict]) -> dict:
         t = e.get("type")
         if t == "turn.completed" and e.get("usage"):
             u = e["usage"]
-            usage["input"] += u.get("input_tokens", 0)
-            usage["output"] += u.get("output_tokens", 0) + u.get("reasoning_output_tokens", 0)
-            usage["cache_read"] += u.get("cached_input_tokens", 0)
-            usage["cache_write"] += u.get("cache_write_input_tokens", 0)
+            usage["input"] = u.get("input_tokens", 0)
+            usage["output"] = u.get("output_tokens", 0) + u.get("reasoning_output_tokens", 0)
+            usage["cache_read"] = u.get("cached_input_tokens", 0)
+            usage["cache_write"] = u.get("cache_write_input_tokens", 0)
             last_turn_input = u.get("input_tokens", 0)
         elif t == "item.completed":
             item = e.get("item") or {}

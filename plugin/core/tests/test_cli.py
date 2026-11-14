@@ -78,6 +78,23 @@ def test_delegate_four_field_plan_and_resumes_explore(proj):
     assert "fusion/decisions.md 全文" in calls[1]["prompt"]
 
 
+def test_codex_stdin_is_prompt_file_for_explore_and_resume(proj):
+    proj.script([{"text": "探索完成"}, {"report": report(summary="完成")}])
+    p = cli(proj, "explore", "-", input_text="管道任务文字")
+    assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
+    plan = {"goal": "实现", "brief": "## 目标\n完成任务", "scope": ["app/**"]}
+    p = cli(proj, "delegate", "-", input_text=json.dumps(plan, ensure_ascii=False))
+    assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
+
+    calls = proj.calls()
+    assert len(calls) == 2 and calls[0]["resume"] is False and calls[1]["resume"] is True
+    for run_id, call in zip(("r1", "r2"), calls):
+        prompt_file = proj.root / "fusion" / "runs" / run_id / "prompt.txt"
+        assert call["stdin_is_file"] is True
+        assert call["prompt"] == prompt_file.read_bytes().decode("utf-8")
+        assert call["args"][-1] == "-"
+
+
 def test_plan_validation_and_regex_expect(proj):
     for bad, expected in [
         ({"brief": "正文"}, "goal 要是非空的一行文字"),

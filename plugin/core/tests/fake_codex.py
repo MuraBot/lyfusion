@@ -11,6 +11,7 @@
 """
 import json
 import os
+import stat
 import sys
 import time
 import uuid
@@ -38,6 +39,7 @@ def main():
     counter.write_text(str(n + 1))
     steps = json.loads(script.read_text(encoding="utf-8"))
     step = steps[n] if n < len(steps) else {"report": _report("没有更多剧本")}
+    stdin_is_file = stat.S_ISREG(os.fstat(0).st_mode)
     prompt = sys.stdin.buffer.read().decode("utf-8")
     resume = len(args) > 1 and args[0] == "exec" and args[1] == "resume"
     thread = None
@@ -46,7 +48,7 @@ def main():
     out = args[args.index("-o") + 1] if "-o" in args else None
     with open(log, "a", encoding="utf-8") as f:
         f.write(json.dumps({"n": n, "args": args, "cwd": os.getcwd(), "prompt": prompt, "resume": resume,
-                            "thread": thread}, ensure_ascii=False) + "\n")
+                            "thread": thread, "stdin_is_file": stdin_is_file}, ensure_ascii=False) + "\n")
 
     def emit(obj):
         sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")

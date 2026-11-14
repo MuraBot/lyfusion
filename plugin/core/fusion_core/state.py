@@ -130,10 +130,30 @@ def _add_usage(s, key, who, usage):
         bucket[k] += int(usage.get(k) or 0)
 
 
+def _usage_delta(s, run, raw):
+    station = s["stations"].get(run.get("station") or "")
+    thread = station.get("thread") if station else None
+    thread_key = thread or f"run:{run['id']}"
+    previous = next((r.get("usage_raw") for r in reversed(list(s["runs"].values()))
+                     if r.get("usage_thread") == thread_key and r.get("usage_raw")), None)
+    delta = {}
+    for key in ("input", "output", "cache_read", "cache_write", "requests"):
+        current = int(raw.get(key) or 0)
+        before = int((previous or {}).get(key) or 0)
+        delta[key] = current if key == "requests" or current < before else current - before
+    return thread_key, delta
+
+
 def _run_ended(s, e, d, tid):
     run = s["runs"][d["run"]]
+    raw_usage = d.get("usage")
+    usage = raw_usage
+    if raw_usage:
+        usage_thread, usage = _usage_delta(s, run, raw_usage)
+        run["usage_raw"] = raw_usage
+        run["usage_thread"] = usage_thread
     run.update(status="interrupted" if d["result"] == "interrupted" else "ended",
-               result=d["result"], ended=e["ts"], usage=d.get("usage"),
+               result=d["result"], ended=e["ts"], usage=usage,
                report=d.get("report"), problems=d.get("problems"),
                duration=d.get("duration"), runstats=d.get("runstats"),
                codex_version=d.get("codex_version", run.get("codex_version")))
@@ -145,8 +165,8 @@ def _run_ended(s, e, d, tid):
         for path in d.get("files", []):
             if path not in st["files"]:
                 st["files"].append(path)
-    if d.get("usage"):
-        _add_usage(s, tid, "sidekick", d["usage"])
+    if usage:
+        _add_usage(s, tid, "sidekick", usage)
     if d["result"] == "dropped":
         return
     if not tid:
