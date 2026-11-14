@@ -76,6 +76,18 @@
 - 代码核对:引擎里没有读 `~/.claude/`、AppData 里 Claude 的文件夹、Codex `auth.json` 的代码;引擎自己不联网;启动 Codex 和检查命令前去掉 `CLAUDE*`、`ANTHROPIC*`;Codex 没用绕过沙箱或审批的参数
 - 结论:没有发现不符合的地方。注意:如果以后把插件分享给别人,每个人都要用自己的订阅和自己的 Codex 登录,插件不能代管任何人的凭据
 
+## v5.0.0-rc.1(2026-11-13,进行中)
+> 依据 `rc-brief.md`(共 8 个任务)。第一次用 lyfusion 迭代 lyfusion 自己:lead 是 Claude Opus 5.5(xhigh,会话 local_d2915de2… 起的子会话),助手 gpt-6-luna high、快速档关;干活用 Lily 装好的 aq.2 插件(安装目录里的引擎),改的是这个仓库。lead 的使用体验记在 `rc-lead-feedback.md`。
+- 额度起点(18:45,`get_usage`):5 小时 21%、每周 3%
+
+### 任务 1 助手干净环境 + 上下文设置(accepted,`cdb1273`)
+- 结果:项目配置 `clean`(默认 true)→ `exec`、`exec resume` 都加 `--ignore-user-config --disable apps --disable plugins`;两种模式都显式传 `model_auto_compact_token_limit`。压缩上限按模型记(`sidekick.models.<模型>.compact`,默认 400000),换工位阈值 = 压缩上限 × `context_ratio`(只能 0~1 之间,保证在 Codex 自动压缩前换工位);去掉 `context_limit`。`/fusion compact 数字`;`status` 显示压缩上限、Codex 环境、换工位阈值和配置警告;`config get` 加 `effective`;`preflight` 加 Codex 冒烟检查(`exec`、`exec resume` 的参数和 `apps`、`plugins` 两个 feature,不调模型)
+- lead 调用约 16 次:explore、读探索包、自己核对 `codex exec resume --help`、写 decisions、写计划文件、delegate、读审查包 ×2、看 diff ×3、revise、accept、看结果和台账;其中约 4 次是派工中途简报更新(设置分三层、冒烟检查、阈值不能设反)带来的
+- 修改 1 轮(把中途更新的要求补上);旧测试跑新代码"失败"是 `current_model_settings` 精确返回值多了 `compact`,计划要的变化,`--waive` 放行
+- Codex(台账):输入 23.2M(缓存 22.7M)、输出 0.15M,gpt-6-luna/high/fast off。用时约 52 分钟(18:45~19:37;第 1 次实现约 23 分钟,修改约 20 分钟,其中全量测试每次约 2 分钟)
+- 问题:助手沙箱里杀不了进程,`test_cancel_kills_running` 在它那里过不了(引擎的检查是通过的),报告里写"全量测试未通过",容易误读(反馈第 3 条,任务 8 处理);`config.json` 的 `clean` 写成非布尔值时按 true 处理、没有警告(低)
+- **lead 小改(Lily 同意的例外)**:任务 1 后把项目测试命令改成 `cd plugin\core && python -m pytest -q tests -n 6`(pytest-xdist 3.8.0,全量 110 秒 → 约 26 秒,91 个通过),加 `plugin/core/requirements-dev.txt` 写明开发依赖(插件本身仍只用标准库)
+
 ## 日志
 - 2026-11-06:开始 M0。S1、S6 完成
 - 2026-11-07:v5.0.0-aq 完成(T1、T2、真实冒烟 T3),69 个测试;合并回 main,本地标签 `v5.0.0-aq`,zip `dist/lyfusion-5.0.0-aq.0.zip`
