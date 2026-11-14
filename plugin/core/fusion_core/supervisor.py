@@ -12,7 +12,7 @@ import time
 import traceback
 from pathlib import Path
 
-from . import aq, checks, codex, gitops, prompts, store, validate
+from . import aq, checks, codex, gitops, prompts, runstats, store, validate
 from . import config as config_mod
 from .state import TERMINAL, current_station, replay
 from .util import (
@@ -24,7 +24,16 @@ from .util import (
     now,
     pid_alive,
     redact_file,
+    timestamp,
 )
+
+TURN_EXIT_GRACE_SECONDS = 60
+
+
+def _attach_run_metrics(events: list[dict], metrics: dict) -> None:
+    for event in events:
+        if event.get("type") == "run_ended":
+            event.setdefault("data", {}).update(metrics)
 
 
 def _same_area(files: list[str], globs: list[str]) -> bool:
@@ -61,6 +70,9 @@ class Supervisor:
         self.holder = store.holder_id()
         self._stop = threading.Event()
         self._stall_flagged: set[str] = set()
+        self._watch_flagged: dict[str, set[str]] = {}
+        self._watch_checked: dict[str, float] = {}
+        self._turn_exit_seen: dict[str, float] = {}
         self._last_error: str | None = None
 
     # ---------- 基础 ----------
@@ -155,6 +167,10 @@ class Supervisor:
         """做一件能做的事,返回 1;没事可做返回 0。"""
         s = self.state()
         cfg = self.cfg()
+        for run in s["runs"].values():
+            if run["status"] == "interrupt_requested":
+                self.interrupt_run(s, cfg, run)
+                return 1
         for t in s["tasks"].values():
             if t["state"] == "cancelled" and not t.get("cleaned"):
                 self.cleanup(s, cfg, t)
@@ -342,6 +358,7 @@ class Supervisor:
                     + "\n\n"
                     + body
                 )
+        codex_version = codex.version(cfg, self.root)
         pid = codex.launch(cfg, st, rdir, prompt, "workspace-write", st.get("thread"))
         events.append(
             {
@@ -357,6 +374,7 @@ class Supervisor:
                     "branch": branch,
                     "briefed": need_brief,
                     "resumed": bool(st.get("thread")),
+                    "codex_version": codex_version,
                 },
             }
         )
@@ -375,6 +393,7 @@ class Supervisor:
                 st, ev = self._new_station(s, cfg, None)
                 events.append(ev)
             gitops.ensure_station(self.root, cfg)
+            codex_version = codex.version(cfg, self.root)
             pid = codex.launch(
                 cfg, st, rdir, prompt, "read-only", st.get("thread"), schema=False
             )
@@ -389,6 +408,7 @@ class Supervisor:
                         "pid": pid,
                         "dir": str(rdir),
                         "resumed": bool(st.get("thread")),
+                        "codex_version": codex_version,
                     },
                 }
             )
@@ -399,6 +419,7 @@ class Supervisor:
                 "worktree": str(self.root),
                 "model": sk["model"],
             }
+            codex_version = codex.version(cfg, self.root)
             pid = codex.launch(
                 cfg, temp, rdir, prompt, "read-only", None, schema=False, ephemeral=True
             )
@@ -413,12 +434,79 @@ class Supervisor:
                         "pid": pid,
                         "dir": str(rdir),
                         "ephemeral": True,
+                        "codex_version": codex_version,
                     },
                 }
             )
         self.emit(events)
 
     # ---------- 运行结束 ----------
+    def _run_metrics(self, run, cfg, evs):
+        return runstats.metrics(evs, run.get("started"), run.get("codex_version"), cfg)
+
+    def interrupt_run(self, s, cfg, request) -> None:
+        state = self.state()
+        request = state["runs"].get(request["id"], request)
+        task_id = request.get("task")
+        task = state["tasks"].get(task_id or "")
+        target = state["runs"].get(request.get("interrupt") or "")
+        if task is None:
+            self.emit([{"type": "run_ended", "data": {"run": request["id"], "result": "dropped"}}])
+            return
+        if task["state"] in TERMINAL:
+            self._drop_revise_request(request, task, "任务已取消" if task["state"] == "cancelled" else "任务已验收")
+            return
+        if task["state"] in ("in_review", "blocked"):
+            self._activate_revise_request(request, task, request.get("lead_text") or "")
+            return
+        if (task["state"] == "running" and target and target["status"] == "started"
+                and task.get("active_run") == target["id"]):
+            kill_tree(target.get("pid"))
+            evs = codex.read_events(Path(target["dir"]))
+            lead_text = request.get("lead_text") or ""
+            prompted = (
+                "你上一轮被 lead 中途停下了,工位里的改动都还在;先看 `git status` 了解做到哪,"
+                "再按下面的意见接着做\n\n" + lead_text
+            )
+            events = []
+            thread = codex.thread_id(evs)
+            station = target.get("station")
+            if station and thread and state["stations"].get(station, {}).get("thread") != thread:
+                events.append({"type": "thread_bound", "data": {"station": station, "thread": thread}})
+            events.append({"type": "run_ended", "task": task_id,
+                           "data": {"run": target["id"], "result": "interrupted",
+                                    "usage": codex.summarize(evs)["usage"],
+                                    **self._run_metrics(target, cfg, evs)}})
+            events.extend(self._revise_activation_events(request, task, prompted))
+            self.emit(events)
+            return
+        if task["state"] in ("running", "exploring"):
+            reason = "任务正在运行另一轮操作"
+        else:
+            reason = f"目标运行已结束,任务当前状态为 {task['state']}"
+        self._drop_revise_request(request, task, reason)
+
+    def _revise_activation_events(self, request, task, message: str) -> list[dict]:
+        task_id = task["id"]
+        return [
+            {"type": "changes_requested", "task": task_id,
+             "data": {"round": task["change_rounds"] + 1}},
+            {"type": "run_requested", "task": task_id,
+             "data": {"run": request["id"], "kind": "changes", "message": message,
+                      "lead_text": request.get("lead_text") or ""}},
+        ]
+
+    def _activate_revise_request(self, request, task, lead_text: str) -> None:
+        self.emit(self._revise_activation_events(request, task, lead_text))
+
+    def _drop_revise_request(self, request, task, reason: str) -> None:
+        self.emit([
+            {"type": "run_ended", "task": task["id"],
+             "data": {"run": request["id"], "result": "dropped"}},
+            {"type": "signal", "task": task["id"],
+             "data": {"kind": "revise_dropped", "run": request["id"], "detail": reason}},
+        ])
+
     def poll_run(self, s, cfg, run) -> bool:
         rdir = Path(run["dir"])
         evs = codex.read_events(rdir)
@@ -435,6 +523,17 @@ class Supervisor:
             )
             return True
         if pid_alive(run["pid"]):
+            terminal_event = any(e.get("type") in ("turn.completed", "turn.failed") for e in evs)
+            if terminal_event:
+                now_mono = time.monotonic()
+                first_seen = self._turn_exit_seen.setdefault(run["id"], now_mono)
+                if now_mono - first_seen >= TURN_EXIT_GRACE_SECONDS:
+                    kill_tree(run.get("pid"))
+                    self._turn_exit_seen.pop(run["id"], None)
+                    self.finish_run(s, cfg, run, evs)
+                    return True
+                return False
+            self._turn_exit_seen.pop(run["id"], None)
             ev_path = rdir / "events.jsonl"
             last = ev_path.stat().st_mtime if ev_path.exists() else time.time()
             idle = time.time() - last
@@ -458,7 +557,45 @@ class Supervisor:
                         ]
                     )
                     return True
+            now_mono = time.monotonic()
+            if now_mono - self._watch_checked.get(run["id"], 0) >= 30:
+                self._watch_checked[run["id"]] = now_mono
+                stats = runstats.summarize(evs, cfg)
+                started = timestamp(run.get("started"))
+                elapsed = max(0, time.time() - started) if started else 0
+                thresholds = (
+                    ("watch_minutes", cfg.get("watch_minutes", 40), elapsed / 60),
+                    ("watch_small_reads", cfg.get("watch_small_reads", 15), stats["small_reads"]),
+                    ("watch_repeats", cfg.get("watch_repeats", 5), stats["repeats"]),
+                )
+                flagged = self._watch_flagged.setdefault(run["id"], set())
+                task_state = s["tasks"].get(run.get("task") or "")
+                for signal in (task_state or {}).get("signals", []):
+                    if signal.get("kind") == "watch" and signal.get("run") == run["id"]:
+                        flagged.update(signal.get("causes", []))
+                crossed = [(key, limit, value) for key, limit, value in thresholds
+                           if limit and (value > limit if key == "watch_minutes" else value >= limit)
+                           and key not in flagged]
+                if crossed and run.get("task"):
+                    flagged.update(key for key, _, _ in crossed)
+                    labels = {"watch_minutes": "用时", "watch_small_reads": "碎读", "watch_repeats": "重复"}
+                    reasons = ", ".join(
+                        f"{labels[key]} {value:.1f} 分钟(阈值 {limit})" if key == "watch_minutes"
+                        else f"{labels[key]} {int(value)} 次(阈值 {limit})"
+                        for key, limit, value in crossed
+                    )
+                    recent = "\n".join(stats["recent"]) or "(暂无命令)"
+                    self.emit([{"type": "signal", "task": run["task"], "data": {
+                        "kind": "watch",
+                        "run": run["id"],
+                        "causes": [key for key, _, _ in crossed],
+                        "detail": (f"运行 {run['id']} 看护提醒: {reasons};已运行 {elapsed / 60:.1f} 分钟;"
+                                   f"命令 {stats['commands']}/碎读 {stats['small_reads']}/重复 {stats['repeats']}\n"
+                                   f"最近命令:\n{recent}"),
+                    }}])
+                    return True
             return False
+        self._turn_exit_seen.pop(run["id"], None)
         self.finish_run(s, cfg, run, evs)
         return True
 
@@ -471,6 +608,7 @@ class Supervisor:
         tid = run["task"]
         task = s["tasks"].get(tid or "")
         events = []
+        metrics = self._run_metrics(run, cfg, evs)
         st = s["stations"].get(run.get("station") or "")
         resume_failed = bool(
             st and run.get("resumed") and not codex.thread_id(evs) and not text
@@ -518,6 +656,7 @@ class Supervisor:
                     },
                 }
             )
+            _attach_run_metrics(events, metrics)
             self.emit(events)
             return
         if task is None or task["state"] in TERMINAL:
@@ -532,6 +671,7 @@ class Supervisor:
                     },
                 }
             )
+            _attach_run_metrics(events, metrics)
             self.emit(events)
             return
         raw = codex.parse_report(text)
@@ -563,6 +703,7 @@ class Supervisor:
                     },
                 }
             )
+            _attach_run_metrics(events, metrics)
             self.emit(events)
             return
         rep, problems = (
@@ -635,6 +776,7 @@ class Supervisor:
                     },
                 }
             )
+            _attach_run_metrics(events, metrics)
             self.emit(events)
             return
         if result == "failed" and not resume_failed:
@@ -683,6 +825,7 @@ class Supervisor:
                         },
                     }
                 )
+        _attach_run_metrics(events, metrics)
         self.emit(events)
         if cand:
             s2 = self.state()
@@ -919,14 +1062,17 @@ class Supervisor:
         events = []
         for rid in task["runs"]:
             r = s["runs"][rid]
-            if r["status"] in ("started", "requested"):
+            if r["status"] in ("started", "requested", "interrupt_requested"):
+                metrics = {}
                 if r["status"] == "started":
                     kill_tree(r.get("pid"))
+                    evs = codex.read_events(Path(r["dir"]))
+                    metrics = self._run_metrics(r, self.cfg(), evs)
                 events.append(
                     {
                         "type": "run_ended",
                         "task": task["id"],
-                        "data": {"run": rid, "result": "cancelled"},
+                        "data": {"run": rid, "result": "cancelled", **metrics},
                     }
                 )
         return events

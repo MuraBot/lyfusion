@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 from .config import current_model_settings
-from .util import IS_WIN, FusionError, clean_env, spawn_detached
+from .util import IS_WIN, FusionError, clean_env, run, spawn_detached
 
 SCHEMA = Path(__file__).with_name("report_schema.json")
 
@@ -29,6 +29,16 @@ def find_codex(cfg: dict) -> list[str]:
             if exe.exists():
                 return [str(exe)]
     raise FusionError("找不到 Codex 命令行。请安装 Codex,或在 fusion/local.json 里设置 \"codex\"。")
+
+
+def version(cfg: dict, cwd: str | Path) -> str | None:
+    """Return Codex's version using the same cleaned environment as launch/preflight."""
+    try:
+        result = run(find_codex(cfg) + ["--version"], cwd=str(cwd), timeout=10,
+                     env=clean_env(cfg["local"].get("env")))
+    except (FusionError, OSError, subprocess.SubprocessError):
+        return None
+    return result["output"].strip()[:200] if result["exit"] == 0 else None
 
 
 def build_args(cfg: dict, station: dict, run_dir: Path, sandbox: str, resume_thread: str | None,
@@ -79,14 +89,15 @@ def read_events(run_dir: Path) -> list[dict]:
     if not path.exists():
         return []
     out = []
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = line.strip()
-        if not line.startswith("{"):
-            continue
-        try:
-            out.append(json.loads(line))
-        except json.JSONDecodeError:
-            pass  # 半行:进程还在写
+    with path.open(encoding="utf-8", errors="replace") as stream:
+        for line in stream:
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass  # 半行:进程还在写
     return out
 
 

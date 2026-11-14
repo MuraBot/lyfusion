@@ -22,6 +22,10 @@ DEFAULT_CONFIG = {
     "clean": True,                # Codex 是否不读用户配置并禁用 apps、plugins
     "check_timeout": 900,         # 单条检查命令的超时(秒)
     "stall_minutes": 20,          # 多久没有新事件算"长时间无进展"
+    "watch_minutes": 40,           # 运行超过多久叫醒 lead;0 关闭
+    "watch_small_reads": 15,       # 碎读达到多少次叫醒 lead;0 关闭
+    "watch_repeats": 5,            # 重复命令达到多少次叫醒 lead;0 关闭
+    "small_read_lines": 80,        # 单条读命令输出不超过多少行算碎读
     "context_ratio": DEFAULT_CONTEXT_RATIO,  # 必须小于 1,在自动压缩前换工位,避免压缩丢掉只发送一次的工作规则
     "max_fix_attempts": 2,        # 检查失败后让助手修的次数
     "max_change_rounds": 3,       # 同一个任务修改意见的轮数上限,超过要先问用户

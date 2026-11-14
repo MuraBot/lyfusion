@@ -89,6 +89,20 @@ def ledger(state, task_id: str | None = None) -> str:
                 settings.append(" / ".join(item))
                 seen.add(item)
         lines.append(f"| {task['id']} | {task['state']} | {plan.get('goal', '')} | {task['fix_attempts']} | {task['change_rounds']} | {lead} | {assistant} | {'<br>'.join(settings)} |")
+    lines += ["", "| 任务 | 运行 | 种类 | 结束状态 | 用时(分钟) | 命令 | 碎读 | 重复 | Codex 版本 |",
+              "|---|---|---|---|---:|---:|---:|---:|---|"]
+    kinds = {"explore": "探索", "implement": "实现", "changes": "修改", "fix": "自动修", "report": "补报告"}
+    for run in state.get("runs", {}).values():
+        if task_id and run.get("task") != task_id:
+            continue
+        stats = run.get("runstats") or {}
+        duration = run.get("duration")
+        minutes = f"{duration / 60:.1f}" if isinstance(duration, (int, float)) else "-"
+        lines.append(
+            f"| {run.get('task') or '-'} | {run['id']} | {kinds.get(run.get('kind'), run.get('kind', '-'))} | "
+            f"{run.get('result') or run.get('status', '-')} | {minutes} | {stats.get('commands', '-')} | "
+            f"{stats.get('small_reads', '-')} | {stats.get('repeats', '-')} | {run.get('codex_version') or '-'} |"
+        )
     return "\n".join(lines)
 
 

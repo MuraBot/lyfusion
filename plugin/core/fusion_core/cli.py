@@ -44,6 +44,14 @@ def _wait(root: Path, task_id: str, *, explore: bool = False) -> dict:
             task = state["tasks"].get(task_id)
             if task is None:
                 raise FusionError(f"任务 {task_id} 不存在")
+            new_signals = task.get("signals", [])[signal_count:]
+            signal_count = len(task.get("signals", []))
+            for signal in new_signals:
+                if signal["kind"] == "revise_dropped":
+                    raise FusionError(
+                        f"修改意见没有生效:{signal['detail']},请运行 {CMD} status 看清状态后再 revise",
+                        code=2,
+                    )
             if explore and task["state"] in ("explored", "blocked"):
                 return state
             if not explore and task["state"] in (
@@ -53,12 +61,25 @@ def _wait(root: Path, task_id: str, *, explore: bool = False) -> dict:
                 "cancelled",
             ):
                 return state
-            new_signals = task.get("signals", [])[signal_count:]
-            signal_count = len(task.get("signals", []))
             for signal in new_signals:
                 if signal["kind"] == "stalled":
                     raise FusionError(
                         f"{signal['detail']}\n请再运行同一条命令继续等,或运行 {CMD} cancel --task {task_id}",
+                        code=2,
+                    )
+                if signal["kind"] == "watch":
+                    run = state.get("runs", {}).get(signal.get("run")) or {}
+                    if run.get("kind") == "changes":
+                        continue_text = f"用同样的修改意见再运行一次 {CMD} revise -"
+                    elif run.get("kind") == "explore":
+                        continue_text = f"继续等: {CMD} explore -"
+                    else:
+                        continue_text = f"继续等: {CMD} delegate -"
+                    raise FusionError(
+                        f"{signal['detail']}\n{continue_text}\n"
+                        f"改方向: {CMD} revise - <<'EOF'\n修改意见\nEOF\n"
+                        "(停下这一轮,同一会话里按意见接着做,算一轮修改)\n"
+                        f"放弃: {CMD} cancel --task {task_id}",
                         code=2,
                     )
             time.sleep(0.2)
@@ -196,11 +217,21 @@ def _do_delegate(args, root):
 def _do_revise(args, root):
     existing = _existing_run(root, ("explore", "implement", "changes", "fix", "report"))
     if existing:
-        tid, is_explore, _kind = existing
-        state = _wait(root, tid, explore=is_explore)
+        tid, is_explore, kind = existing
         if is_explore:
-            _write_explore(root, tid, state, None, continued=True)
-            return
+            raise FusionError("探索还在运行,请等探索结束后再 revise")
+        if kind not in ("implement", "changes", "fix"):
+            raise FusionError(f"{kind} 运行中不能 revise,请等它结束")
+        ctx = Ctx(root)
+        try:
+            text = _input(args)
+            out = cmd_revise(ctx, tid, text)
+        finally:
+            ctx.close()
+        tid = out["task"]
+        if out.get("decisions_note"):
+            print(out["decisions_note"])
+        state = _wait(root, tid)
     else:
         text = _input(args)
         ctx = Ctx(root)
@@ -224,8 +255,8 @@ def _do_revise(args, root):
         f"违规: {len(chk.get('violations', []))} 条",
         f"问题: {len(report.get('questions', []))} 条;改动文件: {len(chk.get('changed', []))} 个",
     ]
-    if existing:
-        lines.append("已有运行在进行,接着等它;这次的输入没有用")
+    if existing and out.get("continue_wait"):
+        lines.append("修改意见和正在做的这一轮相同,接着等它")
     lines.append(aq.next_step_text(task, chk))
     print("\n".join(lines))
 
@@ -286,8 +317,8 @@ def _preflight(root: Path) -> dict:
     codex_command = None
     try:
         codex_command = codex.find_codex(cfg)
-        result = run(codex_command + ["--version"], cwd=str(root), timeout=30, env=env)
-        add("Codex", result["exit"] == 0, result["output"].strip()[:200])
+        version = codex.version(cfg, root)
+        add("Codex", version is not None, version or "无法读取版本")
     except (FusionError, OSError) as exc:
         add("Codex", False, str(exc))
     if codex_command:

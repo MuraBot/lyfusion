@@ -66,7 +66,8 @@ def main():
         Path(path).unlink(missing_ok=True)
     for i, c in enumerate(step.get("commands") or []):
         emit({"type": "item.completed", "item": {"id": f"c{i}", "type": "command_execution",
-                                                 "command": c["command"], "exit_code": c.get("exit", 0)}})
+                                                 "command": c["command"], "exit_code": c.get("exit", 0),
+                                                 "aggregated_output": c.get("output", "")}})
     text = step.get("text")
     if text is None:
         text = json.dumps(step.get("report") or _report("做完了"), ensure_ascii=False)

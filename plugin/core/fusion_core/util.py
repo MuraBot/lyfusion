@@ -26,6 +26,15 @@ def now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S")
 
 
+def timestamp(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        return time.mktime(time.strptime(value, "%Y-%m-%dT%H:%M:%S"))
+    except ValueError:
+        return None
+
+
 def dumps(obj) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True)
 

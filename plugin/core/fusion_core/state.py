@@ -34,7 +34,8 @@ def _task_created(s, e, d, tid):
                         "runs": [], "active_run": None, "candidates": [], "latest": None,
                         "fix_attempts": 0, "change_rounds": 0, "questions": [], "signals": [],
                         "branch": None, "base": None, "accepted_commit": None, "accept_cand": None,
-                        "latest_report": None, "integration": None, "created": e["ts"], "closed": None}
+                        "latest_report": None, "integration": None, "pending_revise": None,
+                        "created": e["ts"], "closed": None}
     s["next_task"] = max(s["next_task"], int(tid[1:]) + 1)
 
 
@@ -49,7 +50,20 @@ def _lead_session(s, e, d, tid):
 
 def _run_requested(s, e, d, tid):
     rid = d["run"]
+    if d.get("interrupt"):
+        run = {"id": rid, "task": tid, "kind": d["kind"], "message": d.get("message"),
+               "lead_text": d.get("lead_text"), "status": "interrupt_requested",
+               "interrupt": d["interrupt"], "requested": e["ts"], "started": None,
+               "ended": None, "runstats": None, "codex_version": None}
+        s["runs"][rid] = run
+        s["next_run"] = max(s["next_run"], int(rid[1:]) + 1)
+        if tid:
+            task = _task(s, tid)
+            task["pending_revise"] = rid
+            task["runs"].append(rid)
+        return
     run = {"id": rid, "task": tid, "kind": d["kind"], "message": d.get("message"),
+           "lead_text": d.get("lead_text"),
            "questions": d.get("questions"), "status": "requested", "station": None, "pid": None,
            "dir": None, "result": None, "requested": e["ts"], "started": None, "ended": None,
            "usage": None, "ephemeral": False, "resumed": False}
@@ -57,7 +71,9 @@ def _run_requested(s, e, d, tid):
     s["next_run"] = max(s["next_run"], int(rid[1:]) + 1)
     if tid:
         task = _task(s, tid)
-        task["runs"].append(rid)
+        task["pending_revise"] = None
+        if rid not in task["runs"]:
+            task["runs"].append(rid)
         if d["kind"] == "explore":
             task["active_run"], task["state"] = rid, "exploring"
         else:
@@ -93,6 +109,7 @@ def _run_started(s, e, d, tid):
                started=e["ts"], ephemeral=bool(d.get("ephemeral")), base=d.get("base"),
                resumed=bool(d.get("resumed")), model=d.get("model"), effort=d.get("effort"),
                fast=d.get("fast"))
+    run["codex_version"] = d.get("codex_version")
     st = s["stations"].get(d.get("station") or "")
     if st:
         st["status"] = "busy"
@@ -115,8 +132,11 @@ def _add_usage(s, key, who, usage):
 
 def _run_ended(s, e, d, tid):
     run = s["runs"][d["run"]]
-    run.update(status="ended", result=d["result"], ended=e["ts"], usage=d.get("usage"),
-               report=d.get("report"), problems=d.get("problems"))
+    run.update(status="interrupted" if d["result"] == "interrupted" else "ended",
+               result=d["result"], ended=e["ts"], usage=d.get("usage"),
+               report=d.get("report"), problems=d.get("problems"),
+               duration=d.get("duration"), runstats=d.get("runstats"),
+               codex_version=d.get("codex_version", run.get("codex_version")))
     st = s["stations"].get(run.get("station") or "")
     if st and st["status"] == "busy":
         st["status"] = "idle"
@@ -127,6 +147,8 @@ def _run_ended(s, e, d, tid):
                 st["files"].append(path)
     if d.get("usage"):
         _add_usage(s, tid, "sidekick", d["usage"])
+    if d["result"] == "dropped":
+        return
     if not tid:
         return
     task = _task(s, tid)
@@ -137,6 +159,8 @@ def _run_ended(s, e, d, tid):
         return
     if task["active_run"] == run["id"]:
         task["active_run"] = None
+    if task.get("pending_revise") == run["id"]:
+        task["pending_revise"] = None
     if task["state"] in TERMINAL:
         return
     if d["result"] == "blocked":
@@ -186,6 +210,7 @@ def _check_ran(s, e, d, tid):
 def _signal(s, e, d, tid):
     if tid:
         _task(s, tid)["signals"].append({"kind": d["kind"], "detail": d.get("detail"), "cand": d.get("cand"),
+                                          "run": d.get("run"), "causes": d.get("causes", []),
                                          "seq": e["seq"]})
 
 

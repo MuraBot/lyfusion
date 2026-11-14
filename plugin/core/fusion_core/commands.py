@@ -116,6 +116,27 @@ def cmd_revise(ctx: Ctx, task_id: str | None, text: str) -> dict:
     task = current_task(state, task_id)
     if task is None:
         raise FusionError("没有进行中的任务")
+    active_run = state["runs"].get(task.get("active_run") or "")
+    if task["state"] == "running" and active_run and active_run["kind"] in ("implement", "changes", "fix"):
+        if active_run["status"] != "started":
+            raise FusionError("运行还没有启动,请稍后重新运行 revise")
+        if task.get("pending_revise"):
+            raise FusionError(f"{task['id']} 已有修改请求正在处理中,请等它启动后再 revise")
+        lead_text = text
+        normalized = lead_text.strip()
+        previous_text = active_run.get("lead_text", active_run.get("message")) or ""
+        if active_run["kind"] == "changes" and previous_text.strip() == normalized:
+            return {"task": task["id"], "run": active_run["id"], "continue_wait": True}
+        limit = ctx.cfg.get("max_change_rounds", 3)
+        if task["change_rounds"] >= limit:
+            raise FusionError(f"{task['id']} 已经提过 {limit} 轮修改意见。按约定先停下来问用户:继续改,还是取消。", code=2)
+        note = commit_decisions(ctx.root)
+        rid = f"r{state['next_run']}"
+        _emit(ctx, [{"type": "run_requested", "task": task["id"],
+                     "data": {"run": rid, "kind": "changes", "interrupt": active_run["id"],
+                              "lead_text": lead_text, "message": normalized}}])
+        return {"task": task["id"], "run": rid, "interrupt": active_run["id"],
+                "decisions_note": note}
     if task["state"] not in ("in_review", "blocked"):
         raise FusionError(f"{task['id']} 当前状态不能修改:{views.STATE_CN.get(task['state'], task['state'])}")
     limit = ctx.cfg.get("max_change_rounds", 3)
@@ -126,7 +147,8 @@ def cmd_revise(ctx: Ctx, task_id: str | None, text: str) -> dict:
     _emit(ctx, [{"type": "changes_requested", "task": task["id"],
                  "data": {"round": task["change_rounds"] + 1}},
                 {"type": "run_requested", "task": task["id"],
-                 "data": {"run": rid, "kind": "changes", "message": text.strip()}}])
+                 "data": {"run": rid, "kind": "changes", "message": text.strip(),
+                          "lead_text": text}}])
     return {"task": task["id"], "run": rid, "round": task["change_rounds"] + 1, "decisions_note": note}
 
 
