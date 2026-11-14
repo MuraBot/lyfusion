@@ -59,6 +59,7 @@
 ## 收尾
 - 版本 `5.0.0-rc.1`(plugin.json、`__init__.py`、README);设计写短文档 `design/v5.0.0-rc.md`;`v5/progress.md` 记结果和额度(开始、结束的 `get_usage`)
 - 本地标签 `v5.0.0-rc.1`,**不推送**;打包 `python v5/build_plugin.py`
+- **打包前必须过插件检查**(Lily 2026-11-14 同意:"这个插件检查还挺重要的"):用桌面端自带的 `%LOCALAPPDATA%\Claude-Data\claude_*\claude-code\<版本>\<hash>\claude.exe plugin validate plugin`(取最新版本目录)。只用 `plugin validate`,这条命令不调用模型。没过不打包。原因:rc.1 的 mod 里 `atom` 的 plugin 名用了常量，桌面端因此拒绝加载整个 mod,也不显示任何报错
 - 回退点:`v5.0.0-aq.2` 标签和 `v5/dist/lyfusion-plugin-5.0.0-aq.2.zip` 是已知能用的版本,不要删。`v5/progress.md` 写一行回退方法(重新上传 aq.2 的 zip;任务 4 做完后,旧版本遇到新格式会提示而不是读坏)
 - 提交身份 MuraBot `339045871+MuraBot@users.noreply.github.com`,末尾 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`
 
