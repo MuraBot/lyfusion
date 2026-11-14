@@ -20,6 +20,7 @@
    - **上下文设置放进 `/fusion` 能改**(Lily 要求):自动压缩上限按模型记(和 effort、fast 一样);引擎换工位的阈值(`context_limit × context_ratio`)跟着它算。`/fusion` 加对应参数,`status` 显示当前值;以后 Fusion 栏的面板也要能改
    - **设置分三层,每个值只存一处**(Lily 2026-11-13 同意):引擎默认值 → 项目 `fusion/config.json`(进 git:测试命令、干净模式等项目的事)→ 本机 `fusion/local.json`(不进 git:模型、effort、快速档、上下文上限等个人选择)。`/fusion` 和以后的 Fusion 栏只改 `local.json`。换工位阈值从上下文上限算出来,不另存数字。新字段都有默认值,旧文件缺字段照默认读
    - **Codex 冒烟检查**:Codex 跟着桌面端自动更新(现在是 alpha 版),参数行为可能悄悄变。`preflight` 查 Codex 版本,并确认干净模式用到的参数还被认得;不调用模型、不花 Codex 额度
+   - **测试提速**(Lily 2026-11-13 同意;任务 1 验收后、任务 2 派工前,lead 直接改,属于一两行的小改):已装 pytest-xdist 3.8.0(依赖 execnet 2.1.2)。实测 `-n 6` 全量 110 秒 → 约 23 秒,连跑 3 次 75 个全过。`fusion/config.json` 的测试命令改成 `cd plugin\core && python -m pytest -q tests -n 6`;README 或 `plugin/core/requirements-dev.txt` 写明开发要装 pytest、pytest-xdist(插件本身仍只用标准库)
 2. **助手卡住、太慢的看护**(Lily 遇到过:助手 1 小时没写完,读代码每次只读几行)
    - 助手说明加:读代码一次读整份文件或大段,不要每次只读几行;同一条命令不要反复跑
    - 引擎记每次运行的统计进台账:用时、命令数、"小块读取"次数(只读几十行的 sed/Get-Content/cat 片段)、重复命令次数、**Codex 版本**。目的是先量再调:有数据才分得清慢在模型、提示还是环境,以后换模型也能公平比
@@ -37,6 +38,12 @@
    - 审查包:阻塞的问题标"(阻塞)"
    - WORK_RULES:猜测只是建议,有相反证据可以不采纳,写进 choices 并给理由;中途只跑相关测试,结束前跑一次全量
    - FIXED_RULES 和 WORK_RULES 的"不能做的事"从同一个列表生成
+   - `v5/rc-lead-feedback.md` 第 1~3 条(Lily 同意):审查包超过 diff 上限时先附非测试文件的 diff;"旧测试跑新代码"没过时写出失败的测试名和输出最后几行;引擎检查和助手自测不一致时写明以引擎为准(助手说明里写沙箱里哪些测试本来过不了)
+
+## 留到 rc.2(Lily 2026-11-13 定)
+- `v5/rc-lead-feedback.md` 第 4 条:计划也接受 Markdown(不用手写 JSON 转义);和"lead 自由发挥 vs 结构化"一起定
+- 第 5 条:助手运行中 lead 可以排队一条补充,本轮结束后先发它
+- 第 6 条先不做
 
 ## 收尾
 - 版本 `5.0.0-rc.1`(plugin.json、`__init__.py`、README);设计写短文档 `design/v5.0.0-rc.md`;`v5/progress.md` 记结果和额度(开始、结束的 `get_usage`)
