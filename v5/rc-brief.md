@@ -16,18 +16,23 @@
    - 做成项目选项,默认干净;保留"和桌面端一样"模式(Minecraft 项目可能要 minecraft_forge MCP)
    - 不读配置后要显式传:`-c model_auto_compact_token_limit=<值>`(默认 400000,Lily 在桌面端设的)、模型、effort、沙箱、service_tier
    - **上下文设置放进 `/fusion` 能改**(Lily 要求):自动压缩上限按模型记(和 effort、fast 一样);引擎换工位的阈值(`context_limit × context_ratio`)跟着它算。`/fusion` 加对应参数,`status` 显示当前值;以后 Fusion 栏的面板也要能改
+   - **设置分三层,每个值只存一处**(Lily 2026-11-13 同意):引擎默认值 → 项目 `fusion/config.json`(进 git:测试命令、干净模式等项目的事)→ 本机 `fusion/local.json`(不进 git:模型、effort、快速档、上下文上限等个人选择)。`/fusion` 和以后的 Fusion 栏只改 `local.json`。换工位阈值从上下文上限算出来,不另存数字。新字段都有默认值,旧文件缺字段照默认读
+   - **Codex 冒烟检查**:Codex 跟着桌面端自动更新(现在是 alpha 版),参数行为可能悄悄变。`preflight` 查 Codex 版本,并确认干净模式用到的参数还被认得;不调用模型、不花 Codex 额度
 2. **助手卡住、太慢的看护**(Lily 遇到过:助手 1 小时没写完,读代码每次只读几行)
    - 助手说明加:读代码一次读整份文件或大段,不要每次只读几行;同一条命令不要反复跑
-   - 引擎记每次运行的统计进台账:用时、命令数、"小块读取"次数(只读几十行的 sed/Get-Content/cat 片段)、重复命令次数
+   - 引擎记每次运行的统计进台账:用时、命令数、"小块读取"次数(只读几十行的 sed/Get-Content/cat 片段)、重复命令次数、**Codex 版本**。目的是先量再调:有数据才分得清慢在模型、提示还是环境,以后换模型也能公平比
+   - 注意(2026-11-13 看护脚本踩到):Codex 一启动就建好空的 `last.txt`,不能用"文件在不在"判断运行结束;看 `turn.completed`/`turn.failed` 或进程退出
    - 引擎看护:已有"20 分钟没新事件 → 叫醒 lead"(`stall_minutes`)。加:运行超过一定时间,或小块读取、重复命令明显偏多时,叫醒 lead 并给出最近命令的摘要,由 lead 决定继续、修改还是取消。阈值放配置
 3. **Codex 卡在标准输入的坑**(2026-11-13 实测):`codex exec` 把提示写在参数里、又没关标准输入时,会打印 "Reading additional input from stdin..." 一直等。引擎现在用 `-` + 提示文件当 stdin(`util.spawn_detached`),没有这个问题。加一个测试锁住:启动 Codex 时 stdin 永远是文件,不继承调用者的
-4. **M3 小试验**:上传的插件能不能加载 mod(`hooks.json` 的 `modules`);输入框下方那一行(`SessionMode`/`PromptHint`)能不能画状态灯。结论写进 `v5/spikes.md`
-5. **M3 Fusion 栏**:输入框下方、模型选择器旁边;"Fusion" 前一个状态灯(关灰色,开 Claude 橙);点开在输入框上方展开面板,有开关、助手模型下拉框、上下文设置。实现前加载 plugin-authoring 技能
-6. **M3 lead 用量**:mod 用 `$.session.usage()`(上下文、5 小时和每周额度、花费,不读 `~/.claude`),每次 accept 记进台账,lead 不多花调用
+4. **状态文件的格式版本**(Lily 2026-11-13 同意):用 lyfusion 改 lyfusion 时,装着的旧版本和仓库里的新版本同时存在,格式一改旧版本就可能读不了。`fusion/config.json`、`fusion/local.json`、`fusion.db` 加格式版本号(`schema_version`);没有版本号的当作 aq.2 的格式,自动迁移;读到比自己新的版本就拒绝并提示升级插件,不要硬读。测试用 aq.2 的旧文件覆盖。要在 5.0.0 正式版前定下来
+5. **M3 小试验**:上传的插件能不能加载 mod(`hooks.json` 的 `modules`);输入框下方那一行(`SessionMode`/`PromptHint`)能不能画状态灯。结论写进 `v5/spikes.md`。先试验再做界面:不行的话 6、7 要换方案
+6. **M3 Fusion 栏**:输入框下方、模型选择器旁边;"Fusion" 前一个状态灯(关灰色,开 Claude 橙);点开在输入框上方展开面板,有开关、助手模型下拉框、上下文设置。实现前加载 plugin-authoring 技能
+7. **M3 lead 用量**:mod 用 `$.session.usage()`(上下文、5 小时和每周额度、花费,不读 `~/.claude`),每次 accept 记进台账,lead 不多花调用
 
 ## 收尾
 - 版本 `5.0.0-rc.1`(plugin.json、`__init__.py`、README);设计写短文档 `design/v5.0.0-rc.md`;`v5/progress.md` 记结果和额度(开始、结束的 `get_usage`)
 - 本地标签 `v5.0.0-rc.1`,**不推送**;打包 `python v5/build_plugin.py`
+- 回退点:`v5.0.0-aq.2` 标签和 `v5/dist/lyfusion-plugin-5.0.0-aq.2.zip` 是已知能用的版本,不要删。`v5/progress.md` 写一行回退方法(重新上传 aq.2 的 zip;任务 4 做完后,旧版本遇到新格式会提示而不是读坏)
 - 提交身份 MuraBot `339045871+MuraBot@users.noreply.github.com`,末尾 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`
 
 ## 看护(Lily 要求)
