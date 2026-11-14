@@ -13,11 +13,10 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Notice, Panel } from '../types'
 
-const PLUGIN = 'lyfusion-plugin'
-const panel = atom({ plugin: PLUGIN, key: 'panel' } as const, null)
-const isOpen = atom({ plugin: PLUGIN, key: 'isOpen' } as const, false)
-const notice = atom({ plugin: PLUGIN, key: 'notice' } as const, null)
-const leadKnows = atom({ plugin: PLUGIN, key: 'leadKnows' } as const, null)
+const panel = atom({ plugin: 'lyfusion-plugin', key: 'panel' } as const, null)
+const isOpen = atom({ plugin: 'lyfusion-plugin', key: 'isOpen' } as const, false)
+const notice = atom({ plugin: 'lyfusion-plugin', key: 'notice' } as const, null)
+const leadKnows = atom({ plugin: 'lyfusion-plugin', key: 'leadKnows' } as const, null)
 
 // 中途开关(Lily 定,rc.1):在面板或 /fusion 里开关后,下一条消息起生效。
 // 用 prompt.submit 在下一条消息的 context 里附说明(打开 = lead 使用说明,关闭 = 一句话);
@@ -196,7 +195,7 @@ export const register: Register = on => {
     await update($, leadKnows, () => state.enabled)
     await update($, notice, current => (current?.kind === 'info' ? null : current))
     return next({ ...e, context: [...(e.context ?? []), note] })
-  })
+  }).catch(($, e, next) => next(e)) // mod 自己出错时照常放行,不拦消息和命令
 
   // 任务 7:lead 跑 explore、accept 时记用量快照。不等它、不拦命令
   on('tool.call', { tool: 'Bash' }, ($, e, next) => {
@@ -205,7 +204,7 @@ export const register: Register = on => {
       void recordLeadUsage($, at, /--task[ =](\S+)/.exec(e.command)?.[1])
     }
     return next(e)
-  })
+  }).catch(($, e, next) => next(e)) // mod 自己出错时照常放行,不拦消息和命令
 
   on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
     if (!requested) {

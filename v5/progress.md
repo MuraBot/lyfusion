@@ -137,7 +137,9 @@
 - mod(`plugin/hooks/register.tsx`、`plugin/types/index.d.ts`,`hooks.json` 加 `modules`,`plugin.json` 加 `types`):SessionMode 画 `<Button><Text color>●</Text> Fusion</Button>`;AbovePrompt 面板用 `Box`、`Text`、`Button`、`Select` 和主题色,有开关、助手、思考强度(低/中/高/超高)、快速档、上下文上限,下面显示换工位阈值、警告和命令失败原因;改设置都调用 `fusion-core config`,面板数据在会话开始、每轮结束、点开面板和改设置后刷新;lead 的 Bash 命令里有 `fusion-core.py … explore|accept` 时把用量快照交给 `lead-usage`,不等、不拦命令。没有 Select 的界面(手机)只显示文字
 - 修改 1 轮(引擎):explore 快照和求差的新口径;`config enabled` 抄了 `on` 的代码 → 抽成共用函数;ledger 分隔符;非法 JSON 退出码 1
 - **lead 小改**:验收后把 `views.py` 里助手写成 `\uXXXX` 的中文转义换回中文(脚本机械替换,14 处);版本号改成 5.0.0-rc.1
-- 没验证:本机没有 TypeScript 和 `claude plugin validate`,mod 的类型只对照类型文件人工核对;桌面端实际样子要 Lily 上传 `v5/dist/lyfusion-plugin-5.0.0-rc.1.zip` 后截图确认
+- **第一次上传不显示**(Lily:"我上传了rc.1,但是没有任何fusion的按钮 T T"):看护会话用桌面端自带的 Claude Code 2.1.317 跑 `plugin validate plugin`,报 `atom` 的 plugin 用了常量 `PLUGIN`(必须是字符串字面量),整个 mod 被拒绝加载。改成字面量后 validate 通过(反馈第 14 条)。排查期间 lead 还加了:引擎命令失败不藏(栏照画、toast、面板写原因、只读 `local.json` 退路)、第一次画栏时也刷新;`prompt.submit`、`tool.call` 两个能拦东西的 hook 加 `.catch` 照常放行
+- **中途开关(Lily 定,放进 rc.1)**:会话中途在面板或 `/fusion` 开关后,下一条消息起生效。mod 在 `$.state` 记"lead 以为的开关",`prompt.submit` 时不一样才在 `context` 附说明(打开 = 引擎 `hook session-start` 的使用说明,关闭 = 一句话);不改系统提示,`prompt.submit` 里不调用引擎
+- 没验证:桌面端实际样子和中途开关要 Lily 上传 `v5/dist/lyfusion-plugin-5.0.0-rc.1.zip` 后截图确认;validate 只做静态检查
 - lead 调用约 30 次(含查 mod 接口约 10 次、写 mod 和文档)
 - Codex(按原值求差):输入约 6.5M(探索 1.3M,续用任务 8 的线程;派工 2.6M;修改 2.6M),输出约 0.16M
 - 用时约 40 分钟(23:30~00:06,不含等 Lily)
