@@ -335,20 +335,26 @@ class Supervisor:
             base = task["base"]
         need_brief = not st.get("briefed")
         kind = run["kind"]
+        note = prompts.model_notes(self.root, st["model"])["sidekick"]
         if kind == "implement":
             prompt = prompts.task_prompt(
-                task, aq.decisions_text(self.root), handoff, [cfg.get("test"), cfg.get("lint")]
+                task, aq.decisions_text(self.root), handoff, [cfg.get("test"), cfg.get("lint")],
+                note, st["model"],
             )
             if run.get("message"):
                 prompt += "\n\n## lead 这次派工的说明\n" + str(run["message"])
         else:
             if kind == "fix":
                 body = prompts.fix_prompt(
-                    run["message"] or "", aq.decisions_text(self.root)
+                    run["message"] or "", aq.decisions_text(self.root),
+                    f"## 助手 {st['model']} 的备注\n{note}" if note else "",
                 )
             elif kind == "changes":
                 m = run["message"] or {}
-                body = prompts.changes_prompt(m, aq.decisions_text(self.root))
+                body = prompts.changes_prompt(
+                    m, aq.decisions_text(self.root),
+                    f"## 助手 {st['model']} 的备注\n{note}" if note else "",
+                )
             elif kind == "report":
                 body = prompts.report_prompt(
                     str(run.get("message") or ""), aq.decisions_text(self.root)
@@ -361,6 +367,7 @@ class Supervisor:
                     prompts.task_prompt(
                         task, aq.decisions_text(self.root), handoff,
                         [cfg.get("test"), cfg.get("lint")],
+                        note, st["model"],
                     )
                     + "\n\n"
                     + body
@@ -814,7 +821,20 @@ class Supervisor:
                 f"fusion: {cid}\n\nTask: {tid}\nRun: {run['id']}\nPlan-Version: {task['version']}\n"
                 f"Station: {run.get('station')}\n"
             )
-            commit = gitops.commit_all(wt, msg, cfg.get("commit_identity"))
+            try:
+                commit = gitops.commit_all(wt, msg, cfg.get("commit_identity"))
+            except FusionError as exc:
+                ended = next((e for e in events if e.get("type") == "run_ended"), None)
+                if ended:
+                    ended["data"]["result"] = "blocked"
+                events.append({
+                    "type": "signal", "task": tid,
+                    "data": {"kind": "candidate_failed", "run": run["id"],
+                             "detail": "\n".join(str(exc).splitlines()[-20:])},
+                })
+                _attach_run_metrics(events, metrics)
+                self.emit(events)
+                return
             if commit:
                 cand = {
                     "cand": cid,

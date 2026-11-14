@@ -35,8 +35,20 @@ def save_history(root: Path, task: str, name: str, text: str) -> None:
     (folder / name).write_text(text, encoding="utf-8")
 
 
+def _is_test_path(path: str) -> bool:
+    parts = path.replace("\\", "/").split("/")
+    name = parts[-1]
+    return "tests" in parts or (name.startswith("test_") and name.endswith(".py")) or "_test." in name or ".test." in name
+
+
 def review_pack(root: Path, task: dict, state: dict, round_no: int) -> str:
-    candidate = state["candidates"].get(task.get("latest"))
+    latest_run = (task.get("runs") or [None])[-1]
+    failed = next(
+        (signal for signal in task.get("signals", [])
+         if signal.get("kind") == "candidate_failed" and signal.get("run") == latest_run),
+        None,
+    )
+    candidate = None if failed else state["candidates"].get(task.get("latest"))
     check = candidate.get("checks") or {} if candidate else {}
     lines = [
         f"# {task['id']} 审查包(第 {round_no} 轮)",
@@ -56,13 +68,19 @@ def review_pack(root: Path, task: dict, state: dict, round_no: int) -> str:
                 f"  {line}" for line in result.get("tail", "").splitlines()[-20:]
             )
     lines.append(f"- 自动修复: {task.get('fix_attempts', 0)} 次")
-    old_test = next(
-        (r for r in check.get("results", []) if r["name"] == "旧测试跑新代码"), None
-    )
+    old_test = next((r for r in check.get("results", []) if "旧测试" in r.get("name", "")), None)
     if old_test:
         lines.append(
             f"- 旧测试跑新代码: {'通过' if old_test['passed'] else '未通过'}(退出码 {old_test['exit']})"
         )
+        if not old_test["passed"]:
+            run = state["runs"].get(candidate.get("run"), {}) if candidate else {}
+            run_dir = run.get("dir")
+            log = Path(run_dir) / "checks" / "old-tests.log" if run_dir else None
+            if log and log.exists():
+                output = log.read_text(encoding="utf-8", errors="replace").splitlines()
+                lines.extend(f"  {line}" for line in [x for x in output if "FAILED " in x][:10])
+                lines.extend(f"  {line}" for line in output[-20:])
     else:
         lines.append("- 旧测试跑新代码: 没跑(没改原有测试)")
     violations = check.get("violations", [])
@@ -88,8 +106,13 @@ def review_pack(root: Path, task: dict, state: dict, round_no: int) -> str:
         lines.append(f"状态:{reason}")
     else:
         lines.extend(["状态:做完", f"摘要:{report.get('summary') or ''}"])
+    report_text = " ".join(str(x) for x in (report.get("summary", ""), *report.get("problems", []))).lower()
+    mentions_test = any(marker in report_text for marker in ("测试", "test", "pytest"))
+    mentions_failure = any(marker in report_text for marker in ("失败", "没过", "未通过", "fail"))
+    if check.get("passed") and mentions_test and mentions_failure:
+        lines.append("助手说有测试没过,引擎在沙箱外跑的检查是通过的,以引擎检查为准")
     for question in report.get("questions", []):
-        lines.append(f"- 问题:{question.get('text', '')}")
+        lines.append(f"- {'(阻塞)' if question.get('blocking') else ''}问题:{question.get('text', '')}")
     for choice in report.get("choices", []):
         if isinstance(choice, dict):
             why = f"(理由:{choice['why']})" if choice.get("why") else ""
@@ -120,7 +143,22 @@ def review_pack(root: Path, task: dict, state: dict, round_no: int) -> str:
         diff = git("diff", candidate["base"], candidate["commit"], cwd=root)
         if len(diff.splitlines()) <= 400:
             lines += ["", "```diff", diff.rstrip(), "```"]
+        else:
+            files = [(line.split("\t", 2)[2], git("diff", candidate["base"], candidate["commit"], "--", line.split("\t", 2)[2], cwd=root)) for line in numstat.splitlines()]
+            non_tests = [part for path, part in files if not _is_test_path(path)]
+            tests = [path for path, _ in files if _is_test_path(path)]
+            if sum(len(part.splitlines()) for part in non_tests) <= 400:
+                if tests:
+                    lines.append("测试文件的 diff 没附")
+                    lines.extend(f"- {path}" for path in tests)
+                selected = "\n".join(non_tests)
+                if selected:
+                    lines += ["", "```diff", selected.rstrip(), "```"]
     else:
+        if failed:
+            lines.append(f"- 候选没建成: {failed.get('detail', '')}")
+            lines.append(f"下一步: {CMD} revise - (说明怎么改)或 {CMD} cancel")
+            return "\n".join(lines) + "\n"
         lines.append("- 无代码候选")
     lines.append(next_step)
     return "\n".join(lines) + "\n"

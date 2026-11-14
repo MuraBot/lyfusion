@@ -2,14 +2,47 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
+
+def model_notes(root, model: str) -> dict[str, str]:
+    if not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9._-]+", model):
+        return {"sidekick": "", "lead": ""}
+    result = {"sidekick": [], "lead": []}
+    paths = (Path(__file__).parent / "prompts" / "models" / f"{model}.md",
+             Path(root) / "fusion" / "models" / f"{model}.md")
+    for path in paths:
+        if not path.is_file():
+            continue
+        section = None
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip() == "## 给助手":
+                section = "sidekick"
+            elif line.strip() == "## 给 lead":
+                section = "lead"
+            elif line.startswith("## "):
+                section = None
+            elif section and line.strip():
+                result[section].append(line)
+    return {key: "\n".join(value) for key, value in result.items()}
+
 REPORT_REMINDER = "最终回复只输出 JSON 报告:status、summary、questions、choices、problems。status 为 done 或 blocked。"
 # 续用同一个会话时(自动修、修改意见、补报告)只重申的短规则;完整的做法在 WORK_RULES,派工时发一次
 FIXED_RULES = """固定规则:
-- 一口气做完本次任务;只在当前工位目录工作,不要提交或切换分支。
-- 不要改弱原有测试。环境错误原样重跑,不要关闭证书检查或绕过检查。
+- 一口气做完本次任务。
 - 读代码时一次读整份文件或大段,可以一条命令读几个文件;不要每次只读几十行。同一条命令不要反复跑,改了代码后重跑测试和 lint 除外。
-- 不调用 Claude,不读 `~/.claude/`、AppData 里 Claude 的文件夹和 Codex 的 auth.json。
+- 中途只跑和改动有关的测试(单个文件或单个用例),沿用项目测试命令里的参数,比如并行;全量测试和 lint 只在结束前各跑一次。
 - 最终回复只输出 JSON 报告(status/summary/questions/choices/problems)。"""
+
+FORBIDDEN = [
+    '只在当前工位目录工作;不提交、不推送、不切分支,提交由引擎做。',
+    '不改弱、不删除原有测试来让自己通过;不改检查命令。环境错误原样重跑,不要关闭证书检查或绕过检查/钩子(--no-verify)。',
+    '不调用 Claude,不读 ~/.claude/、AppData 里 Claude 的文件夹和 Codex 的 auth.json;不替用户接受协议,不下载和任务无关的文件。',
+]
+
+FIXED_RULES += "\n\n不能做的事:\n" + "\n".join(f"- {item}" for item in FORBIDDEN)
+
 
 # 派工时给助手的完整做法(来自 v4 的 sidekick.md)。只给助手看,lead 不为它付调用和上下文
 WORK_RULES = """你是 lyfusion 的助手。lead 负责设计和判断,你按下面的任务单实现。途中不和 lead 通信,你交回的只有代码改动和最终报告。
@@ -36,11 +69,18 @@ WORK_RULES = """你是 lyfusion 的助手。lead 负责设计和判断,你按下
 - choices:没人要求、你自己定下的、用户或其他模块可能在意的做法。what 写选了什么,why 写理由和没选的做法。没有就写空列表
 - problems:没做完的、已知的问题;改了哪些原有测试、为什么
 
-## 不能做的事
-- 只在当前工位目录工作。不提交、不推送、不切分支,提交由引擎做。
-- 不改弱、不删除原有测试来让自己通过;不改检查命令。
-- 不调用 Claude,不读 `~/.claude/`、AppData 里 Claude 的文件夹和 Codex 的 auth.json。不替用户接受协议,不下载和任务无关的文件。"""
+"""
 
+WORK_RULES += "\n\n## 不能做的事\n" + "\n".join(f"- {item}" for item in FORBIDDEN)
+WORK_RULES += """
+
+## Brief 约定
+- Brief 里的"决定"照做;"猜测(未证实)"只是建议,有相反证据可以不采纳,写进 choices 并给理由。
+- Brief 写了"停下的条件",遇到就停下(status blocked)。
+
+## 测试跑法
+- 中途只跑和改动有关的测试(单个文件或单个用例),沿用项目测试命令里的参数,比如并行;全量测试和 lint 只在结束前各跑一次。
+- 沙箱不能结束别的进程,也可能写不了系统临时目录;这类测试在你那里过不了时,在 problems 写明是沙箱限制,引擎会在沙箱外再跑检查;不要把临时目录(例如 pytest 的 --basetemp)放在工位里会被提交的位置。"""
 
 def _checks(plan: dict) -> str:
     return (
@@ -53,10 +93,13 @@ def _checks(plan: dict) -> str:
 
 
 def task_prompt(
-    task: dict, decisions: str, handoff: str | None = None, project_cmds: list[str] | None = None
+    task: dict, decisions: str, handoff: str | None = None, project_cmds: list[str] | None = None,
+    model_note: str = "", model: str = "",
 ) -> str:
     plan = task["plan"]
     parts = [WORK_RULES]
+    if model_note:
+        parts.append(f"## 助手 {model} 的备注\n{model_note}")
     if handoff:
         parts.append("## 上一个工位交接摘要\n" + handoff)
     cmds = [c for c in project_cmds or [] if c]
@@ -72,7 +115,7 @@ def task_prompt(
     return "\n\n".join(parts)
 
 
-def fix_prompt(failures: str, decisions: str) -> str:
+def fix_prompt(failures: str, decisions: str, model_note: str = "") -> str:
     return (
         "## 检查失败\n"
         + failures
@@ -82,10 +125,11 @@ def fix_prompt(failures: str, decisions: str) -> str:
         + FIXED_RULES
         + "\n"
         + REPORT_REMINDER
+        + (f"\n\n{model_note}" if model_note else "")
     )
 
 
-def changes_prompt(text: str, decisions: str) -> str:
+def changes_prompt(text: str, decisions: str, model_note: str = "") -> str:
     return (
         "## lead 的修改意见(原文)\n"
         + text
@@ -95,6 +139,7 @@ def changes_prompt(text: str, decisions: str) -> str:
         + FIXED_RULES
         + "\n"
         + REPORT_REMINDER
+        + (f"\n\n{model_note}" if model_note else "")
     )
 
 
@@ -120,7 +165,8 @@ def explore_prompt(original: str, decisions: str) -> str:
         "项目里没有答案的,查框架源码或官方文档回答,写明出处。\n"
         "4. 列出现有约定和容易踩的坑。\n"
         "读代码时一次读整份文件或大段,可以一条命令读几个文件;不要每次只读几十行。同一条命令不要反复跑(改代码后重跑测试和 lint 除外)。\n"
-        "安全:不读 `~/.claude/`、AppData 里 Claude 的文件夹和 Codex 的 auth.json,不调用 Claude。\n"
+        "安全:不读 `~/.claude/`、AppData 里 Claude 的文件夹和 Codex 的 auth.json,"
+        + "不调用 " + "Claude。\n"
         "## lead 提供的任务原文\n"
         + original
         + "\n\n## fusion/decisions.md 全文\n"
