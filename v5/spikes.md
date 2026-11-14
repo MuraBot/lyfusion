@@ -38,3 +38,32 @@
 - 探针的 monitor 应该在第 4、8 分钟各打印一行,并在 `.probe/monitor.log` 记一笔。8 分钟内两样都没有出现
 - 可能:monitor 没被启动;或者它拿到的 `CLAUDE_PROJECT_DIR`、工作目录不是项目目录,被探针自己的项目检查挡掉了
 - 影响:设计 6.6 已有降级方案(没有通知时,等待列表靠每次提问注入的状态行)。lead 的说明里写了"不用轮询",但没有通知时要靠状态行提醒
+
+## M3 小试验(rc.1 任务 5,2026-11-13)— 等 Lily 上传验证
+**问题**:① 上传的插件能不能加载 mod(`hooks/hooks.json` 的 `modules`);② 输入框下方那一行(`SessionMode`/`PromptHint`)能不能画 Fusion 状态灯。不行的话任务 6、7 要换方案。
+
+**为什么由 lead 直接做,不走 Fusion**:要读 Claude Code 自带的 mod 类型文件(在 AppData 里 Claude 的文件夹)、用 Claude Code 的命令检查、由 Lily 上传和看界面;按规则 Codex 不读 Claude 的文件夹、不调用 Claude。
+
+**查文档得到的(本机 Claude Code 2.1.317 的 mod 类型和 reference)**:
+- 插件的函数钩子写在一个 hooks 模块里,由 `hooks/hooks.json` 的 `modules` 指定(`.ts`/`.tsx`),导出 `register(on, options)`。已安装的插件(包括"桌面应用从上传保存的插件")是从安装时的副本加载;文档写明 marketplace 安装的、只有 hooks 模块的插件"Installed … Plugin is now active",但没写 claude.ai 上传的插件会不会加载 hooks 模块 → 要实测
+- `SessionMode`:输入框底栏右侧的暗色模式标签(`focus`、`memory paused`,用 ` & ` 连起来)。钩子可以改 `modes`(只能是文字),或者**画自己的树**(可以有颜色的 `Text` 和 `Button`)。只在终端和桌面端触发
+- `PromptHint`:输入框下方的提示行(`? for shortcuts` 等)。可以改 `hint`、加 `tail`,或画自己的树;`tail` **只有终端画**,其他界面还不画。只在终端和桌面端触发
+- `AbovePrompt`:输入框上方的一条,适合点开后的面板
+- 颜色可用主题色:`claude`(Claude 橙)、`inactive`(灰)
+- 读文件:`$.fs.read(路径)`;项目目录:`$.session.root()`。不用读 `~/.claude`
+
+**试验插件** `v5/spike-mod/lyfusion-spike/`(打包在 `v5/dist/lyfusion-spike-0.1.0.zip`,4 个文件,只读,不写任何文件):
+- `SessionMode` 画"●(Fusion 开 = 橙,关 = 灰)+ 可点的 Fusion 按钮",原来的模式标签照样显示在前面;项目里没有 `fusion/local.json` 时不画,交给引擎
+- 点 Fusion → `AbovePrompt` 显示一条试验面板:开/关、助手模型、"收起"按钮
+- `PromptHint` 加 `tail`" · Fusion on/off"(预计桌面端不显示,用来核对文档)
+- 本机没有 `claude` 命令行(桌面应用自带的不在 PATH),**没能跑 `claude plugin validate` 和类型检查**;上传时如果报错,把报错原文记下来
+
+**请 Lily 验证**(结果填在下面):
+1. 桌面应用"插件 → 管理插件"上传 `C:\AI WithMe\lyfusion\v5\dist\lyfusion-spike-0.1.0.zip`:能不能上传、有没有提示
+2. 开一个新的 Code 会话,目录选 `C:\AI WithMe\lyfusion`(这里 Fusion 是开着的):输入框下方右侧有没有"● Fusion",点是什么颜色
+3. 点 Fusion:输入框上方有没有出现试验面板;点"收起"能不能收起
+4. 提示行末尾有没有" · Fusion on"(预计没有)
+5. 会话里有没有暗色的报错行(例如 `lyfusion-spike: ui.render hook skipped …`),有就抄下来
+6. 试完可以在"管理插件"里删掉 lyfusion-spike
+
+**结果**:(待填)

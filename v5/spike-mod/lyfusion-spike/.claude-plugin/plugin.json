@@ -1,0 +1,6 @@
+{
+  "name": "lyfusion-spike",
+  "version": "0.1.0",
+  "description": "lyfusion M3 小试验:上传的插件能不能加载 mod,输入框下方能不能画 Fusion 状态灯(只读,不改任何文件)。专为 Claude Code 做,不是 Anthropic 官方产品。",
+  "types": "./types/index.d.ts"
+}
