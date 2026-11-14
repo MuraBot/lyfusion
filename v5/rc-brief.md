@@ -20,6 +20,7 @@
    - 不读配置后要显式传:`-c model_auto_compact_token_limit=<值>`(默认 400000,Lily 在桌面端设的)、模型、effort、沙箱、service_tier
    - **上下文设置放进 `/fusion` 能改**(Lily 要求):自动压缩上限按模型记(和 effort、fast 一样);引擎换工位的阈值(`context_limit × context_ratio`)跟着它算。`/fusion` 加对应参数,`status` 显示当前值;以后 Fusion 栏的面板也要能改
    - **设置分三层,每个值只存一处**(Lily 2026-11-13 同意):引擎默认值 → 项目 `fusion/config.json`(进 git:测试命令、干净模式等项目的事)→ 本机 `fusion/local.json`(不进 git:模型、effort、快速档、上下文上限等个人选择)。`/fusion` 和以后的 Fusion 栏只改 `local.json`。换工位阈值从上下文上限算出来,不另存数字。新字段都有默认值,旧文件缺字段照默认读
+   - **装上 rc.1 后发现(2026-11-14,Lily 同意按建议修)**:`--ignore-user-config` 把用户配置的 `[windows] sandbox = "elevated"` 一起丢了，助手所有命令报 "blocked by policy"(r19)。修法：干净模式下从用户的 `~/.codex/config.toml` 只读出 `windows.sandbox` 和 `sandbox_workspace_write.network_access`,用 `-c` 原样传(读已有的，不另存一份);preflight 加"沙箱里能跑命令"检查(`codex sandbox -c …`,不调用模型);修好前可临时把项目 clean 关掉
    - **Codex 冒烟检查**:Codex 跟着桌面端自动更新(现在是 alpha 版),参数行为可能悄悄变。`preflight` 查 Codex 版本,并确认干净模式用到的参数还被认得;不调用模型、不花 Codex 额度
    - **测试提速**(Lily 2026-11-13 同意;任务 1 验收后、任务 2 派工前,lead 直接改,属于一两行的小改):已装 pytest-xdist 3.8.0(依赖 execnet 2.1.2)。实测 `-n 6` 全量 110 秒 → 约 23 秒,连跑 3 次 75 个全过。`fusion/config.json` 的测试命令改成 `cd plugin\core && python -m pytest -q tests -n 6`;README 或 `plugin/core/requirements-dev.txt` 写明开发要装 pytest、pytest-xdist(插件本身仍只用标准库)
 2. **助手卡住、太慢的看护**(Lily 遇到过:助手 1 小时没写完,读代码每次只读几行)
