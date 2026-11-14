@@ -84,7 +84,7 @@
 - 结果:项目配置 `clean`(默认 true)→ `exec`、`exec resume` 都加 `--ignore-user-config --disable apps --disable plugins`;两种模式都显式传 `model_auto_compact_token_limit`。压缩上限按模型记(`sidekick.models.<模型>.compact`,默认 400000),换工位阈值 = 压缩上限 × `context_ratio`(只能 0~1 之间,保证在 Codex 自动压缩前换工位);去掉 `context_limit`。`/fusion compact 数字`;`status` 显示压缩上限、Codex 环境、换工位阈值和配置警告;`config get` 加 `effective`;`preflight` 加 Codex 冒烟检查(`exec`、`exec resume` 的参数和 `apps`、`plugins` 两个 feature,不调模型)
 - lead 调用约 16 次:explore、读探索包、自己核对 `codex exec resume --help`、写 decisions、写计划文件、delegate、读审查包 ×2、看 diff ×3、revise、accept、看结果和台账;其中约 4 次是派工中途简报更新(设置分三层、冒烟检查、阈值不能设反)带来的
 - 修改 1 轮(把中途更新的要求补上);旧测试跑新代码"失败"是 `current_model_settings` 精确返回值多了 `compact`,计划要的变化,`--waive` 放行
-- Codex(台账):输入 23.2M(缓存 22.7M)、输出 0.15M,gpt-6-luna/high/fast off。用时约 52 分钟(18:45~19:37;第 1 次实现约 23 分钟,修改约 20 分钟,其中全量测试每次约 2 分钟)
+- Codex:输入 15.2M(缓存 14.9M)、输出 0.06M(另有推理 0.03M),gpt-6-luna/high/fast off。台账显示 23.2M/22.7M/0.15M,是任务 3 修掉的 bug(把线程累计值当本次用量相加)算多了,这里按各次运行的原值求差改正。用时约 52 分钟(18:45~19:37;第 1 次实现约 23 分钟,修改约 20 分钟,其中全量测试每次约 2 分钟)
 - 问题:助手沙箱里杀不了进程,`test_cancel_kills_running` 在它那里过不了(引擎的检查是通过的),报告里写"全量测试未通过",容易误读(反馈第 3 条,任务 8 处理);`config.json` 的 `clean` 写成非布尔值时按 true 处理、没有警告(低)
 - **lead 小改(Lily 同意的例外)**:任务 1 后把项目测试命令改成 `cd plugin\core && python -m pytest -q tests -n 6`(pytest-xdist 3.8.0,全量 110 秒 → 约 26 秒,91 个通过),加 `plugin/core/requirements-dev.txt` 写明开发依赖(插件本身仍只用标准库)
 
@@ -93,9 +93,18 @@
 - **顺手修的 bug**:运行中 `revise` 原来只接着等、悄悄丢掉修改意见。改成发中断请求,由拿着租约的监督者停下这一轮(`interrupted`)、在同一会话按意见接着做(算一轮修改);意见和正在做的相同则接着等;请求悬空的三种情况都有处理和测试
 - lead 调用约 15 次:explore、读探索包、自己看真实运行事件、写 brief 文件、delegate、读审查包 ×3、看 diff ×3、查时间戳格式和 cancel 流程 ×2、revise ×2、accept
 - 修改 2 轮:第 1 轮 8 条(中断改走事件由监督者执行、"继续等"规则、提前收尾会读到空报告、无任务运行的 TypeError、阈值比较和中文提醒、时间戳函数合一、读命令判断太宽、叫醒文字);第 2 轮 1 条(中断请求悬空会让等待命令永不结束)
-- Codex(台账):输入 69.5M(缓存 68.4M)、输出 0.44M,gpt-6-luna/high/fast off;探索续用了任务 1 的会话,累计上下文大,输入多。用时约 59 分钟(19:39~20:38;实现约 22 分钟,修改 2 轮约 21 + 6 分钟)
+- Codex:输入 25.5M(缓存 25.0M)、输出 0.10M(另有推理 0.05M),gpt-6-luna/high/fast off(台账显示 69.5M/68.4M/0.44M,同上算多了)。实现换了新线程,原因也是这个 bug:上下文被估大,触发了换工位用时约 59 分钟(19:39~20:38;实现约 22 分钟,修改 2 轮约 21 + 6 分钟)
 - 额度:任务 2 后 5 小时 52%(任务 2 约 12%)、每周 7%
 - 问题:探索工位看不到 `fusion/runs/`(lead 自己摘事件样本);助手第 1 版用"看到 turn.completed 就收尾",和"Codex 最后才写 last.txt"冲突,审查时发现
+
+### 任务 3 Codex 的 stdin + 用量 bug(accepted,`98fa81a`)
+- 结果:3 个测试锁住 stdin(走 CLI 时调用者 stdin 是管道,Codex 的 stdin 是普通文件且内容等于 `prompt.txt`、参数以 `-` 结尾;直接测 `spawn_detached`;`util.run` 的子进程读 stdin 立即 EOF)。实现没改,只在 `spawn_detached` 的说明里写了原因
+- **顺手修的 bug(看护会话发现,lead 核实)**:Codex `turn.completed` 的 usage 是**整个线程的累计值**,引擎当成本次用量:台账把同一线程的累计值一次次相加(任务 1 记多约 1.5 倍、任务 2 约 2.7 倍),`ctx_est` 也被估大、过早换工位。改法:事件里照旧存原值(格式不变),重放时按线程求差得到每次运行的用量,旧库重放也自动纠正;`ctx_est` 用本次增量估(`max(平均, 2×平均 − 上次估计)`)。输出 token 是否已含推理部分,Codex 源码没写明,先保持"输出 + 推理"相加(可能偏多,影响小)
+- lead 调用约 11 次:explore、读探索包、查 `ctx_est` 和原始 usage、读 `codex.summarize`、写 brief、delegate、读审查包、看 diff、查 `thread_bound` 和 `run_ended` 的顺序 ×2、accept
+- 修改 0 轮
+- Codex:输入 5.4M(缓存 5.0M)、输出 0.03M(另有推理 0.01M),按原值求差。探索续用任务 2 的线程,实现又换了新线程(装着的 aq.2 引擎还有这个 bug)
+- 用时约 22 分钟(20:35~20:57)
+- 注意:aq.2 的 H2 对比数据(`fusion-bench`,Codex 约 $0.09)如果中间有续用同一线程的运行,也按累计值相加了,会偏高;对比时要按原值求差重算
 
 ## 日志
 - 2026-11-06:开始 M0。S1、S6 完成
