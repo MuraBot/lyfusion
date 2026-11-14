@@ -1,5 +1,6 @@
 {
-  "description": "lyfusion:仅在新会话注入 4 个动作的使用说明。项目没打开 Fusion 时什么都不输出",
+  "description": "lyfusion:SessionStart 在新会话注入 4 个动作的使用说明(项目没打开 Fusion 时什么都不输出);modules 是 Fusion 栏 mod(输入框下方的 ● Fusion 和面板,accept 时记 lead 用量)",
+  "modules": ["./register.tsx"],
   "hooks": {
     "SessionStart": [
       { "hooks": [ { "type": "command", "command": "python", "args": ["${CLAUDE_PLUGIN_ROOT}/core/fusion-core.py", "hook", "session-start"] } ] }
