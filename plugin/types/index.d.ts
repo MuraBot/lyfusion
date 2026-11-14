@@ -9,6 +9,7 @@ export type Panel = {
   effort: string
   efforts: string[]
   fast: boolean
+  fast_models?: string[] // 支持 Fast Mode 的模型(rc.1 起引擎给;旧引擎没有)
   compact: number
   compacts: number[]
   context_ratio: number

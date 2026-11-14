@@ -1,6 +1,6 @@
 // lyfusion 的 Fusion 栏(rc.1 任务 6、7;lead 写)
 // - SessionMode(输入框下方、模型选择器旁边):"● Fusion" 按钮。Fusion 开 = Claude 橙,关 = 灰;点它展开或收起面板
-// - AbovePrompt(输入框上方):面板。开关、助手模型、思考强度、快速档、上下文上限
+// - AbovePrompt(输入框上方):面板。开关、助手模型、思考强度、Fast Mode、上下文上限
 // - lead 跑 explore、accept 时,把 $.session.usage() 交给引擎记进台账(任务 7),lead 不多花调用
 // 读和改都调用引擎命令 fusion-core(config panel、config <动作>、lead-usage):
 // 校验和格式版本只在引擎一处管,mod 不写 fusion/ 下的文件,也不读 ~/.claude。
@@ -30,6 +30,16 @@ let fusionCommand = false // 这一轮里用户跑了 /fusion:命令的输出 le
 const EFFORT_LABEL: Record<string, string> = { low: '低', medium: '中', high: '高', xhigh: '超高' }
 // lead 跑这两条命令时各记一次用量快照:任务的 lead 花费 = 最后一次 accept − explore(同一个会话才算)
 const SNAPSHOT_AT = /fusion-core\.py["']?\s+(explore|accept)\b/
+
+// 下拉框里显示好读的模型名,存的值不变:gpt-6-luna → GPT-6 Luna
+function modelName(id: string): string {
+  const cap = (word: string) => (word ? word[0].toUpperCase() + word.slice(1) : word)
+  const parts = id.split('-')
+  if (parts[0]?.toLowerCase() === 'gpt' && parts.length >= 2) {
+    return [`GPT-${parts[1]}`, ...parts.slice(2).map(cap)].join(' ')
+  }
+  return parts.map(cap).join(' ')
+}
 
 function tokens(n: number): string {
   return n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(2)}M` : `${Math.round(n / 1000)}k`
@@ -70,6 +80,7 @@ async function rootChanged($: EngineInterface): Promise<boolean> {
   guide = null
   await update($, panel, () => null)
   await update($, leadKnows, () => false)
+  $.ui.invalidate('ui.render')
   return true
 }
 
@@ -106,6 +117,8 @@ async function refresh($: EngineInterface): Promise<void> {
     const data = JSON.parse(lastLine(result.stdout))
     const next = data && data.project === true ? (data as Panel) : null
     await update($, panel, () => next)
+    // 底栏和面板都读 panel;请桌面端把两处一起重画(Lily 截到过:面板已开、底栏圆点还是灰的)
+    $.ui.invalidate('ui.render')
     await update($, notice, current => (current?.kind === 'error' ? null : current))
     if (next) {
       const known = await read($, leadKnows)
@@ -314,14 +327,15 @@ export const register: Register = on => {
     }
     const Select = 'Select' in table ? table.Select : undefined
     const enabled = state.enabled
-    const status = enabled ? '已开:代码活交给 Codex 助手' : '已关'
+    // 哪些模型支持 Fast Mode 由引擎给(fast_models);旧引擎没给这个字段时照旧可选
+    const fastOk = !state.fast_models || state.fast_models.includes(state.model)
 
     const pickers = Select ? (
       <Box flexDirection="row" alignItems="center" gap="md" flexWrap="wrap">
         <Select
           key="model"
           label="助手"
-          options={state.models.map(value => ({ value }))}
+          options={state.models.map(value => ({ value, label: modelName(value) }))}
           value={state.model}
           onSelect={value => void change($, ['model', value])}
         />
@@ -332,13 +346,17 @@ export const register: Register = on => {
           value={state.effort}
           onSelect={value => void change($, ['effort', value])}
         />
-        <Select
-          key="fast"
-          label="快速档"
-          options={[{ value: 'off', label: '关' }, { value: 'on', label: '开' }]}
-          value={state.fast ? 'on' : 'off'}
-          onSelect={value => void change($, ['fast', value])}
-        />
+        {fastOk ? (
+          <Select
+            key="fast"
+            label="Fast Mode"
+            options={[{ value: 'off', label: '关' }, { value: 'on', label: '开' }]}
+            value={state.fast ? 'on' : 'off'}
+            onSelect={value => void change($, ['fast', value])}
+          />
+        ) : (
+          <Text dimColor>Fast Mode:{modelName(state.model)} 不支持</Text>
+        )}
         <Select
           key="compact"
           label="上下文上限"
@@ -346,12 +364,11 @@ export const register: Register = on => {
           value={String(state.compact)}
           onSelect={value => void change($, ['compact', value])}
         />
-        <Text dimColor>到 {tokens(state.switch_at)} 换工位</Text>
       </Box>
     ) : (
       <Text dimColor>
-        助手 {state.model} · 思考强度 {EFFORT_LABEL[state.effort] ?? state.effort} · 快速档 {state.fast ? '开' : '关'} · 上下文上限{' '}
-        {tokens(state.compact)}
+        助手 {modelName(state.model)} · 思考强度 {EFFORT_LABEL[state.effort] ?? state.effort} · Fast Mode{' '}
+        {fastOk ? (state.fast ? '开' : '关') : '不支持'} · 上下文上限 {tokens(state.compact)}
       </Text>
     )
 
@@ -361,7 +378,6 @@ export const register: Register = on => {
           <Box flexDirection="row" alignItems="center" gap="sm">
             <Text color={enabled ? 'claude' : 'inactive'}>●</Text>
             <Text weight="semibold">Fusion</Text>
-            <Text dimColor>{status}</Text>
           </Box>
           <Box flexDirection="row" alignItems="center" gap="sm">
             <Button
@@ -372,7 +388,7 @@ export const register: Register = on => {
                 void change(
                   $,
                   ['enabled', enabled ? 'off' : 'on'],
-                  { kind: 'info', text: enabled ? '已关闭,下一条消息起生效' : '已打开,下一条消息起生效' },
+                  { kind: 'info', text: '下一条消息起生效' },
                 )
               }
             />
