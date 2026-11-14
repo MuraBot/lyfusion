@@ -66,4 +66,13 @@
 5. 会话里有没有暗色的报错行(例如 `lyfusion-spike: ui.render hook skipped …`),有就抄下来
 6. 试完可以在"管理插件"里删掉 lyfusion-spike
 
-**结果**:(待填)
+**结果**(Lily 2026-11-13 桌面端截图实测,经 lyfusion 会话转达):**通过,任务 6、7 不用换方案**
+- 上传的插件能加载 mod(`hooks/hooks.json` 的 `modules`)
+- `SessionMode` 能画灯和按钮,Fusion 开着时灯是 Claude 橙
+- 点 Fusion,`AbovePrompt` 面板正常显示"● Fusion 开 · 助手 gpt-6-luna(试验面板,只读)"和"收起"按钮
+- `PromptHint` 的 `tail` 在桌面端不显示,和文档一致
+- 未确认:"收起"按了能不能收起;有没有暗色报错行(截图里没有)
+- 已知限制:新建会话时不显示,发出第一条消息后才出现(估计桌面端发第一条消息才启动引擎,插件这边改不了)
+- 坑:桌面端把写在 `Button` 前面的 `<Text>●</Text>` 画到了按钮后面,显示成"Fusion ●"。做法:圆点放进按钮里,`<Button …><Text color=…>●</Text> Fusion</Button>`
+
+**Lily 的决定(写进 rc-brief 任务 6)**:圆点和 Fusion 在同一个框里,圆点在左("● Fusion");面板和状态灯的前端(mod)由 lead 自己写,不派给助手;引擎要加的命令照常走 Fusion。lead 定:mod 不直接写 `local.json`,改设置一律调用引擎命令(`fusion-core config …`),校验和格式版本只在引擎一处管;下拉框和上下文设置的可选值也从引擎命令拿,不在 mod 里写死
