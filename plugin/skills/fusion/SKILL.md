@@ -1,7 +1,7 @@
 ---
 name: fusion
 description: 打开、关闭或设置 lyfusion-plugin(只由用户手动运行)
-argument-hint: "on [--test <命令>] [--lint <命令>] | off | status | model <名字> | effort <low|medium|high|xhigh> | fast on|off | test <命令>"
+argument-hint: "on [--test <命令>] [--lint <命令>] | off | status | model <名字> | effort <low|medium|high|xhigh> | fast on|off | compact <数字> | test <命令>"
 disable-model-invocation: true
 ---
 用户给的参数:$ARGUMENTS
@@ -18,6 +18,7 @@ disable-model-invocation: true
 | model 名字 | `FC config model 名字` |
 | effort 档位 | `FC config effort 档位` |
 | fast on / fast off | `FC config fast on|off` |
+| compact 数字 | `FC config compact 数字` |
 | test 命令 | `FC config set '{"config":{"test":"命令"}}'` |
 
 打开后,SessionStart 会注入 4 个动作的使用说明。所有状态都保存在项目的 `fusion/` 目录里。

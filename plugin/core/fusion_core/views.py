@@ -1,7 +1,7 @@
 """Lead-facing status, ledger, and SessionStart usage text."""
 from __future__ import annotations
 
-from .config import current_model_settings
+from .config import configuration_warnings, current_model_settings, effective_settings
 from .util import CMD
 
 STATE_CN = {"exploring": "探索中", "explored": "探索完成", "planned": "待派工", "running": "助手在做",
@@ -47,8 +47,14 @@ def status(root, cfg, state, target: str | None = None) -> str:
     local = cfg.get("local", {})
     sk = local.get("sidekick", {})
     settings = current_model_settings(sk)
+    effective = effective_settings(cfg)
     lines = [f"Fusion: {'开启' if local.get('enabled') else '关闭'}",
-             f"助手: {sk.get('model', '')} · effort {settings['effort'] or '默认'} · fast {'on' if settings['fast'] else 'off'}"]
+             f"助手: {sk.get('model', '')} · effort {settings['effort'] or '默认'} · fast {'on' if settings['fast'] else 'off'} · 压缩 {settings['compact']}",
+             ("Codex 环境: 干净(不读 ~/.codex/config.toml,关 apps、plugins)" if effective["clean"]
+              else "Codex 环境: 和桌面端一样(读 ~/.codex/config.toml)")
+             + "(项目设置 fusion/config.json 的 clean)",
+             f"换工位: 上下文超过 {effective['switch_at']}(压缩上限 {settings['compact']} × {int(effective['context_ratio'] * 100)}%)"]
+    lines.extend(f"警告: {warning}" for warning in configuration_warnings(cfg))
     for task in state["tasks"].values():
         lines.append(task_line(task))
         if task.get("latest"):

@@ -35,10 +35,11 @@ def build_args(cfg: dict, station: dict, run_dir: Path, sandbox: str, resume_thr
                schema: bool, ephemeral: bool = False) -> list[str]:
     sk = cfg["local"]["sidekick"]
     model = station.get("model") or sk["model"]
-    settings = current_model_settings(sk) if model == sk.get("model") else sk.get("models", {}).get(model, {})
+    settings = current_model_settings(sk) if model == sk.get("model") else current_model_settings({**sk, "model": model})
     effort = settings.get("effort")
     common = ["--json", "-o", str(run_dir / "last.txt")]
     conf = []
+    conf += ["-c", f"model_auto_compact_token_limit={settings['compact']}"]
     if effort:
         conf += ["-c", f"model_reasoning_effort={effort}"]
     if settings.get("fast", False):
@@ -49,11 +50,15 @@ def build_args(cfg: dict, station: dict, run_dir: Path, sandbox: str, resume_thr
         common += ["--output-schema", str(SCHEMA)]
     if ephemeral:
         common += ["--ephemeral"]
+    clean = cfg.get("clean", True)
+    if not isinstance(clean, bool):
+        clean = True
+    environment = ["--ignore-user-config", "--disable", "apps", "--disable", "plugins"] if clean else []
     if resume_thread:
         # S1:resume 没有 -s/-C;沙箱用 -c sandbox_mode,工作目录用子进程的 cwd
-        return ["exec", "resume", *common, "-m", model, *conf, "-c", f'sandbox_mode="{sandbox}"',
+        return ["exec", "resume", *environment, *common, "-m", model, *conf, "-c", f'sandbox_mode="{sandbox}"',
                 "--skip-git-repo-check", resume_thread, "-"]
-    return ["exec", *common, "-m", model, *conf, "-s", sandbox, "--skip-git-repo-check",
+    return ["exec", *environment, *common, "-m", model, *conf, "-s", sandbox, "--skip-git-repo-check",
             "-C", str(station["worktree"]), "-"]
 
 

@@ -261,15 +261,17 @@ class Supervisor:
             for r in task["runs"]
         )
         if st and first_run_of_task:
-            limit = cfg.get("context_limit", 400000) * cfg.get("context_ratio", 0.6)
+            compact = config_mod.current_model_settings(sk)["compact"]
+            ratio = config_mod.context_ratio(cfg)
+            limit = int(compact * ratio)
             globs = task.get("plan", {}).get("scope", [])
             reason = None
             if st.get("model") != sk["model"]:
                 reason = f"换了助手模型({st.get('model')} → {sk['model']})"
             elif st.get("ctx_est", 0) > limit:
                 reason = (
-                    f"当前上下文约 {st['ctx_est']} token,超过上限 {cfg.get('context_limit', 400000)} 的 "
-                    f"{int(cfg.get('context_ratio', 0.6) * 100)}%"
+                    f"当前上下文约 {st['ctx_est']} token,超过换工位阈值 {limit}"
+                    f"(压缩上限 {compact} × {int(ratio * 100)}%)"
                 )
             elif st["files"] and globs and not _same_area(st["files"], globs):
                 reason = "新任务的文件范围和这个工位做过的文件不在同一个目录(换了主题)"

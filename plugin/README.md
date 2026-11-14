@@ -8,7 +8,7 @@
 |---|---|---|
 | 引擎 fusion-core | `core/` | Python 标准库和 sqlite;运行 Codex、检查候选并集成 |
 | SessionStart 钩子 | `hooks/hooks.json` | Fusion 开启时注入简短使用说明 |
-| 技能 `/fusion` | `skills/fusion/SKILL.md` | `/fusion on`、`off`、`status`、`model`、`effort`、`fast`、`test`;只由用户手动运行(`disable-model-invocation`),也可以写成 `/lyfusion-plugin:fusion` |
+| 技能 `/fusion` | `skills/fusion/SKILL.md` | `/fusion on`、`off`、`status`、`model`、`effort`、`fast`、`compact`、`test`;只由用户手动运行(`disable-model-invocation`),也可以写成 `/lyfusion-plugin:fusion` |
 
 插件不带 `bin/`(claude.ai 托管的插件不允许):lead 用 `python "<安装目录>/core/fusion-core.py" <子命令>` 运行引擎,完整路径由 SessionStart 注入的使用说明给出;`/fusion` 用 `${CLAUDE_PLUGIN_ROOT}`。
 
@@ -16,7 +16,7 @@ lead 在 Bash 后台运行四个主流程命令,每条命令会等待结果并�
 
 ## 支持什么
 - lead:Claude Code 里的 Claude(桌面应用的 Code 标签或命令行)。在普通聊天里钩子不加载,插件不起作用
-- 助手:OpenAI 的 Codex CLI(`codex exec`)。Codex CLI 能用的模型都可以用 `/fusion model 名字` 切换,每个模型各记各的 effort 和 fast。默认 gpt-6-luna、effort high、fast 关;实际任务里测过的是 gpt-6-luna,gpt-6-astra 只试过切换
+- 助手:OpenAI 的 Codex CLI(`codex exec`)。Codex CLI 能用的模型都可以用 `/fusion model 名字` 切换,每个模型各记各的 effort、fast 和 compact。干净模式是项目设置,在 `fusion/config.json` 的 `clean` 里改;换工位比例是 `context_ratio`。默认 gpt-6-luna、effort high、fast 关;实际任务里测过的是 gpt-6-luna,gpt-6-astra 只试过切换
 - 需要:Python 3(只用标准库,在 3.12 上测过)、git、已登录的 Codex CLI。项目要是 git 仓库
 
 ## 隐私和安全

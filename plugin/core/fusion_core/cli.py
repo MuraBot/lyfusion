@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import re
 import sqlite3
 import sys
 import time
@@ -14,7 +16,7 @@ from . import config as config_mod
 from .commands import Ctx, cmd_accept, cmd_cancel, cmd_delegate, cmd_explore, cmd_revise
 from .state import active_task, replay
 from .supervisor import Supervisor
-from .util import CMD, FusionError, git
+from .util import CMD, FusionError, clean_env, git
 
 USAGE = views.lead_guide()
 
@@ -277,14 +279,49 @@ def _preflight(root: Path) -> dict:
     cfg = (
         config_mod.load(root)
         if fusion
-        else {"local": dict(config_mod.DEFAULT_LOCAL), "base_branch": None}
+        else {**config_mod.DEFAULT_CONFIG, "local": dict(config_mod.DEFAULT_LOCAL), "base_branch": None}
     )
+    env = clean_env(cfg["local"].get("env"))
+    clean = config_mod.effective_settings(cfg)["clean"]
+    codex_command = None
     try:
-        command = codex.find_codex(cfg)
-        result = run(command + ["--version"], cwd=str(root), timeout=60)
+        codex_command = codex.find_codex(cfg)
+        result = run(codex_command + ["--version"], cwd=str(root), timeout=30, env=env)
         add("Codex", result["exit"] == 0, result["output"].strip()[:200])
-    except FusionError as exc:
+    except (FusionError, OSError) as exc:
         add("Codex", False, str(exc))
+    if codex_command:
+        missing = []
+        try:
+            exec_help = run(codex_command + ["exec", "--help"], cwd=str(root), timeout=30, env=env)
+            resume_help = run(codex_command + ["exec", "resume", "--help"], cwd=str(root), timeout=30, env=env)
+            features = run(codex_command + ["features", "list"], cwd=str(root), timeout=30, env=env)
+            for label, result in (("exec --help", exec_help), ("exec resume --help", resume_help)):
+                if result["exit"] != 0:
+                    missing.append(f"{label} 执行失败(exit={result['exit']})")
+                for flag in ("--ignore-user-config", "--disable"):
+                    if flag not in result["output"]:
+                        missing.append(f"{label} 缺少 {flag}")
+            if features["exit"] != 0:
+                missing.append(f"features list 执行失败(exit={features['exit']})")
+            for feature in ("apps", "plugins"):
+                if not re.search(rf"(?m)^\s*{feature}(?:\s|$)", features["output"]):
+                    missing.append(f"features list 缺少 {feature}")
+            detail = "; ".join(missing) if missing else "exec、exec resume 参数和 apps/plugins feature 均可用"
+            if not clean:
+                detail += "(项目没开干净模式,仅供参考)"
+            add("干净模式参数", not missing or not clean, detail)
+        except OSError as exc:
+            detail = f"调用 Codex 失败:{exc}"
+            add("干净模式参数", not clean, detail + ("(项目没开干净模式,仅供参考)" if not clean else ""))
+    else:
+        detail = "找不到 Codex,无法检查参数"
+        if not clean:
+            detail += "(项目没开干净模式,仅供参考)"
+        add("干净模式参数", not clean, detail)
+    if fusion:
+        for warning in config_mod.configuration_warnings(cfg):
+            add("配置警告", True, warning)
     worktree = gitops.station_dir(root)
     add("工位目录不在临时目录", not gitops.in_temp(worktree), str(worktree))
     add(
@@ -352,7 +389,7 @@ def main(argv=None) -> int:
     sub.add_parser("off")
     sub.add_parser("preflight")
     p = sub.add_parser("config")
-    p.add_argument("action", choices=["get", "set", "model", "effort", "fast"])
+    p.add_argument("action", choices=["get", "set", "model", "effort", "fast", "compact"])
     p.add_argument("json", nargs="?")
     p = sub.add_parser("ledger")
     p.add_argument("--task")
@@ -412,21 +449,34 @@ def main(argv=None) -> int:
         elif args.cmd == "config":
             cfg = config_mod.load(root)
             if args.action == "get":
+                cfg["effective"] = config_mod.effective_settings(cfg)
                 print(json.dumps(cfg, ensure_ascii=False, indent=2))
             elif args.action == "set":
                 change = json.loads(args.json or "{}")
-                if "local" in change:
+                local_change = change.get("local", {})
+                project_change = change.get("config", {})
+                if not isinstance(local_change, dict) or not isinstance(project_change, dict):
+                    raise FusionError("config set 的 local 和 config 必须是对象")
+                if "context_ratio" in project_change:
+                    ratio = project_change["context_ratio"]
+                    if (isinstance(ratio, bool) or not isinstance(ratio, (int, float))
+                            or (isinstance(ratio, float) and not math.isfinite(ratio))
+                            or not 0 < ratio < 1):
+                        raise FusionError("context_ratio 只能是有限数,且大于 0、小于 1")
+                if "clean" in project_change and not isinstance(project_change["clean"], bool):
+                    raise FusionError("clean 只能是布尔值 true 或 false")
+                if local_change:
                     local = cfg["local"]
-                    for key, value in change["local"].items():
+                    for key, value in local_change.items():
                         if isinstance(value, dict) and isinstance(local.get(key), dict):
                             local[key].update(value)
                         else:
                             local[key] = value
                     config_mod.save_local(root, local)
-                if "config" in change:
+                if project_change:
                     path = root / "fusion" / "config.json"
                     data = json.loads(path.read_text(encoding="utf-8"))
-                    data.update(change["config"])
+                    data.update(project_change)
                     path.write_text(
                         json.dumps(data, ensure_ascii=False, indent=2) + "\n",
                         encoding="utf-8",
@@ -439,6 +489,18 @@ def main(argv=None) -> int:
                 sidekick = cfg["local"]["sidekick"]
                 if args.action == "model":
                     sidekick["model"] = value
+                    config_mod.save_local(root, cfg["local"])
+                elif args.action == "compact":
+                    try:
+                        compact = int(value)
+                    except ValueError as exc:
+                        raise FusionError("compact 只能是正整数") from exc
+                    if compact <= 0:
+                        raise FusionError("compact 只能是正整数")
+                    model = sidekick["model"]
+                    settings = sidekick.setdefault("models", {}).setdefault(model, {})
+                    settings["compact"] = compact
+                    config_mod.save_local(root, cfg["local"])
                 else:
                     model = sidekick["model"]
                     settings = sidekick.setdefault("models", {}).setdefault(model, {})
@@ -450,7 +512,7 @@ def main(argv=None) -> int:
                         if value not in ("on", "off"):
                             raise FusionError("fast 只能是 on 或 off")
                         settings["fast"] = value == "on"
-                config_mod.save_local(root, cfg["local"])
+                    config_mod.save_local(root, cfg["local"])
                 print(json.dumps(config_mod.load(root), ensure_ascii=False, indent=2))
         elif args.cmd == "preflight":
             print(json.dumps(_preflight(root), ensure_ascii=False))

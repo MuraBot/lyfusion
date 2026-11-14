@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 
 from .util import FusionError, git
+
+DEFAULT_COMPACT = 400000
+DEFAULT_CONTEXT_RATIO = 0.6
 
 DEFAULT_CONFIG = {
     "base_branch": None,          # 默认:init 时 lead 工作目录所在的分支
@@ -15,10 +19,10 @@ DEFAULT_CONFIG = {
     "forbidden": [],              # 额外的禁止规则:{"pattern": 正则, "why": 原因}
     "station_copy": [],           # 建工位目录时要复制的未跟踪文件
     "network": False,             # 助手的沙箱能否联网
+    "clean": True,                # Codex 是否不读用户配置并禁用 apps、plugins
     "check_timeout": 900,         # 单条检查命令的超时(秒)
     "stall_minutes": 20,          # 多久没有新事件算"长时间无进展"
-    "context_limit": 400000,      # 助手模型的上下文上限(估算换工位用)
-    "context_ratio": 0.6,         # 当前上下文超过上限的这个比例就换工位
+    "context_ratio": DEFAULT_CONTEXT_RATIO,  # 必须小于 1,在自动压缩前换工位,避免压缩丢掉只发送一次的工作规则
     "max_fix_attempts": 2,        # 检查失败后让助手修的次数
     "max_change_rounds": 3,       # 同一个任务修改意见的轮数上限,超过要先问用户
     "runs_keep_days": 30,
@@ -67,6 +71,7 @@ def _read(path: Path, default: dict) -> dict:
 def load(root: Path) -> dict:
     cfg = _read(fusion_dir(root) / "config.json", DEFAULT_CONFIG)
     cfg["local"] = _read(fusion_dir(root) / "local.json", DEFAULT_LOCAL)
+    cfg["local"].pop("clean", None)
     _normalize_sidekick(cfg["local"].setdefault("sidekick", {}))
     if not cfg.get("base_branch"):
         cfg["base_branch"] = git("rev-parse", "--abbrev-ref", "HEAD", cwd=root)
@@ -93,11 +98,81 @@ def _normalize_sidekick(sidekick: dict) -> None:
 def current_model_settings(sidekick: dict) -> dict:
     model = sidekick.get("model", DEFAULT_LOCAL["sidekick"]["model"])
     settings = sidekick.get("models", {}).get(model, {})
-    return {"effort": settings.get("effort"), "fast": bool(settings.get("fast", False))}
+    if not isinstance(settings, dict):
+        settings = {}
+    compact = settings.get("compact", DEFAULT_COMPACT)
+    if not _valid_compact(compact):
+        compact = DEFAULT_COMPACT
+    return {
+        "effort": settings.get("effort"),
+        "fast": bool(settings.get("fast", False)),
+        "compact": compact,
+    }
+
+
+def context_ratio(cfg: dict) -> float:
+    ratio = cfg.get("context_ratio", DEFAULT_CONTEXT_RATIO)
+    if not _valid_ratio(ratio):
+        return DEFAULT_CONTEXT_RATIO
+    return float(ratio)
+
+
+def effective_settings(cfg: dict) -> dict:
+    local = cfg.get("local", {})
+    sidekick = local.get("sidekick", {})
+    model = sidekick.get("model", DEFAULT_LOCAL["sidekick"]["model"])
+    settings = current_model_settings(sidekick)
+    ratio = context_ratio(cfg)
+    clean = cfg.get("clean", True)
+    if not isinstance(clean, bool):
+        clean = True
+    return {
+        "model": model,
+        "effort": settings["effort"],
+        "fast": settings["fast"],
+        "compact": settings["compact"],
+        "clean": clean,
+        "context_ratio": ratio,
+        "switch_at": int(settings["compact"] * ratio),
+    }
+
+
+def _valid_compact(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _valid_ratio(value) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and (not isinstance(value, float) or math.isfinite(value))
+        and 0 < value < 1
+    )
+
+
+def configuration_warnings(cfg: dict) -> list[str]:
+    warnings = []
+    ratio = cfg.get("context_ratio", DEFAULT_CONTEXT_RATIO)
+    if not _valid_ratio(ratio):
+        warnings.append(
+            f"fusion/config.json 的 context_ratio 无效,按 {DEFAULT_CONTEXT_RATIO} 计算"
+        )
+    sidekick = cfg.get("local", {}).get("sidekick", {})
+    models = sidekick.get("models", {})
+    if isinstance(models, dict):
+        for model, model_settings in models.items():
+            if (isinstance(model_settings, dict) and "compact" in model_settings
+                    and not _valid_compact(model_settings["compact"])):
+                warnings.append(
+                    f"fusion/local.json 的 sidekick.models.{model}.compact 无效,按 {DEFAULT_COMPACT} 计算"
+                )
+    return warnings
 
 
 def save_local(root: Path, local: dict) -> None:
     path = fusion_dir(root) / "local.json"
+    local = dict(local)
+    local.pop("clean", None)
     path.write_text(json.dumps(local, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 

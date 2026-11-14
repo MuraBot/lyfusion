@@ -19,6 +19,18 @@ from pathlib import Path
 
 def main():
     args = sys.argv[1:]
+    if args == ["--version"]:
+        print(os.environ.get("FAKE_CODEX_VERSION", "codex fake-1.0"))
+        return
+    if args in (["exec", "--help"], ["exec", "resume", "--help"]):
+        mode = "EXEC" if args == ["exec", "--help"] else "RESUME"
+        missing = set(os.environ.get(f"FAKE_CODEX_{mode}_HELP_MISSING", "").split(","))
+        flags = [flag for flag in ("--ignore-user-config", "--disable") if flag not in missing]
+        print("Options:\n" + "\n".join(flags))
+        return
+    if args == ["features", "list"]:
+        print(os.environ.get("FAKE_CODEX_FEATURES", "apps\nplugins"))
+        return
     script = Path(os.environ["FAKE_CODEX_SCRIPT"])
     log = script.with_suffix(".calls.jsonl")
     counter = script.with_suffix(".n")
