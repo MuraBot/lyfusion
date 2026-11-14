@@ -424,6 +424,20 @@ def _preflight(root: Path) -> dict:
     except (FusionError, OSError) as exc:
         add("Codex", False, str(exc))
     if codex_command:
+        sandbox_args = ["sandbox"]
+        sandbox_settings = codex.user_sandbox_settings() if clean else {}
+        windows_sandbox = sandbox_settings.get("windows.sandbox")
+        if windows_sandbox is not None:
+            sandbox_args += ["-c", f"windows.sandbox={json.dumps(windows_sandbox)}"]
+        sandbox_args += ["-c", 'sandbox_mode="read-only"', "--", "git", "rev-parse", "--show-toplevel"]
+        try:
+            sandbox_result = run(codex_command + sandbox_args, cwd=str(root), timeout=30, env=env)
+            sandbox_output = sandbox_result["output"].strip()
+            sandbox_line = sandbox_output.splitlines()[-1] if sandbox_output else "(无输出)"
+            sandbox_ok = sandbox_result["exit"] == 0 and bool(sandbox_output)
+            add("沙箱里能跑命令", sandbox_ok, sandbox_line)
+        except OSError as exc:
+            add("沙箱里能跑命令", False, str(exc).splitlines()[-1])
         missing = []
         try:
             exec_help = run(codex_command + ["exec", "--help"], cwd=str(root), timeout=30, env=env)
@@ -598,7 +612,7 @@ def main(argv=None) -> int:
                 models.append(model)
                 models = list(dict.fromkeys(models))
                 current = config_mod.current_model_settings(sidekick)
-                compact_choices = sorted(set(config_mod.COMPACT_CHOICES + [current["compact"]]))
+                compact_choices = config_mod.compact_choices(model, current["compact"])
                 effective = config_mod.effective_settings(cfg)
                 panel = {
                     "schema_version": SCHEMA,
@@ -607,8 +621,11 @@ def main(argv=None) -> int:
                     "model": model,
                     "models": models,
                     "effort": current["effort"],
-                    "efforts": config_mod.EFFORT_CHOICES,
+                    "efforts": config_mod.model_efforts(model),
                     "fast": current["fast"],
+                    "fast_models": [name for name in models if config_mod.supports_fast(name)],
+                    "model_names": {name: config_mod.MODEL_INFO[name]["name"] for name in models
+                                    if name in config_mod.MODEL_INFO},
                     "compact": current["compact"],
                     "compacts": compact_choices,
                     "context_ratio": effective["context_ratio"],
@@ -662,6 +679,9 @@ def main(argv=None) -> int:
                     if compact <= 0:
                         raise FusionError("compact 只能是正整数")
                     model = sidekick["model"]
+                    limit = config_mod.max_compact(model)
+                    if limit is not None and compact > limit:
+                        raise FusionError(f"上下文上限不能超过 {model} 的 {limit}")
                     settings = sidekick.setdefault("models", {}).setdefault(model, {})
                     settings["compact"] = compact
                     config_mod.save_local(root, cfg["local"])
@@ -669,12 +689,16 @@ def main(argv=None) -> int:
                     model = sidekick["model"]
                     settings = sidekick.setdefault("models", {}).setdefault(model, {})
                     if args.action == "effort":
-                        if value not in config_mod.EFFORT_CHOICES:
-                            raise FusionError("effort 只能是 low、medium、high 或 xhigh")
+                        choices = config_mod.model_efforts(model)
+                        if value not in choices:
+                            joined = "、".join(choices[:-1]) + " 或 " + choices[-1]
+                            raise FusionError(f"effort 只能是 {joined}({model})")
                         settings["effort"] = value
                     else:
                         if value not in ("on", "off"):
                             raise FusionError("fast 只能是 on 或 off")
+                        if value == "on" and not config_mod.supports_fast(model):
+                            raise FusionError(f"{model} 不支持 Fast Mode")
                         settings["fast"] = value == "on"
                     config_mod.save_local(root, cfg["local"])
                 print(json.dumps(config_mod.load(root), ensure_ascii=False, indent=2))

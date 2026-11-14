@@ -1,7 +1,7 @@
 ---
 name: fusion
 description: 打开、关闭或设置 lyfusion-plugin(只由用户手动运行)
-argument-hint: "on [--test <命令>] [--lint <命令>] | off | status | model <名字> | effort <low|medium|high|xhigh> | fast on|off | compact <数字> | test <命令>"
+argument-hint: "on [--test <命令>] [--lint <命令>] | off | status | model <名字> | effort <low|medium|high|xhigh|max|ultra> | fast on|off | compact <数字> | test <命令>"
 disable-model-invocation: true
 ---
 用户给的参数:$ARGUMENTS

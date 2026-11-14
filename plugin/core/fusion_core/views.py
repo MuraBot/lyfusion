@@ -1,7 +1,12 @@
 """Lead-facing status, ledger, and SessionStart usage text."""
 from __future__ import annotations
 
-from .config import configuration_warnings, current_model_settings, effective_settings
+from .config import (
+    configuration_warnings,
+    current_model_settings,
+    effective_settings,
+    supports_fast,
+)
 from .util import CMD
 
 STATE_CN = {"exploring": "探索中", "explored": "探索完成", "planned": "待派工", "running": "助手在做",
@@ -52,8 +57,9 @@ def status(root, cfg, state, target: str | None = None) -> str:
     sk = local.get("sidekick", {})
     settings = current_model_settings(sk)
     effective = effective_settings(cfg)
+    fast_label = "on" if settings["fast"] else "off" if supports_fast(sk.get("model", "")) else "不支持"
     lines = [f"Fusion: {'开启' if local.get('enabled') else '关闭'}",
-             f"助手: {sk.get('model', '')} · effort {settings['effort'] or '默认'} · fast {'on' if settings['fast'] else 'off'} · 压缩 {settings['compact']}",
+             f"助手: {sk.get('model', '')} · effort {settings['effort'] or '默认'} · fast {fast_label} · 压缩 {settings['compact']}",
              ("Codex 环境: 干净(不读 ~/.codex/config.toml,关 apps、plugins)" if effective["clean"]
               else "Codex 环境: 和桌面端一样(读 ~/.codex/config.toml)")
              + "(项目设置 fusion/config.json 的 clean)",

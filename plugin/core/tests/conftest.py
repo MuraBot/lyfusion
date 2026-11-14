@@ -23,6 +23,14 @@ WORK = Path(__file__).resolve().parent / "_work"
 FAKE = Path(__file__).resolve().parent / "fake_codex.py"
 collect_ignore_glob = ["_work/*"]
 
+
+@pytest.fixture(autouse=True)
+def isolated_codex_home(tmp_path, monkeypatch):
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+
 GREET = 'def hello(name):\n    return f"Hello, {name}"\n'
 TEST_GREET = ('import unittest\nfrom app.greet import hello\n\n\nclass T(unittest.TestCase):\n'
               '    def test_hello(self):\n        self.assertEqual(hello("A"), "Hello, A")\n')

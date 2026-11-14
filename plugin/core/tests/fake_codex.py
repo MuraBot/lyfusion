@@ -12,6 +12,7 @@
 import json
 import os
 import stat
+import subprocess
 import sys
 import time
 import uuid
@@ -29,6 +30,13 @@ def main():
         flags = [flag for flag in ("--ignore-user-config", "--disable") if flag not in missing]
         print("Options:\n" + "\n".join(flags))
         return
+    if args and args[0] == "sandbox":
+        if os.environ.get("FAKE_CODEX_SANDBOX_FAIL"):
+            print("rejected: blocked by policy", file=sys.stderr)
+            raise SystemExit(1)
+        separator = args.index("--")
+        command = args[separator + 1:]
+        raise SystemExit(subprocess.run(command, check=False).returncode)
     if args == ["features", "list"]:
         print(os.environ.get("FAKE_CODEX_FEATURES", "apps\nplugins"))
         return

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -10,6 +11,28 @@ from .config import current_model_settings
 from .util import IS_WIN, FusionError, clean_env, run, spawn_detached
 
 SCHEMA = Path(__file__).with_name("report_schema.json")
+
+
+def user_sandbox_settings() -> dict:
+    """只读取干净模式需要保留的两项用户沙箱设置。"""
+    try:
+        import tomllib
+    except ImportError:
+        return {}
+    config_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    try:
+        with (config_home / "config.toml").open("rb") as stream:
+            config = tomllib.load(stream)
+    except (OSError, ValueError, TypeError):
+        return {}
+    result = {}
+    windows = config.get("windows")
+    if isinstance(windows, dict) and isinstance(windows.get("sandbox"), str):
+        result["windows.sandbox"] = windows["sandbox"]
+    workspace_write = config.get("sandbox_workspace_write")
+    if isinstance(workspace_write, dict) and isinstance(workspace_write.get("network_access"), bool):
+        result["sandbox_workspace_write.network_access"] = workspace_write["network_access"]
+    return result
 
 
 def find_codex(cfg: dict) -> list[str]:
@@ -54,15 +77,22 @@ def build_args(cfg: dict, station: dict, run_dir: Path, sandbox: str, resume_thr
         conf += ["-c", f"model_reasoning_effort={effort}"]
     if settings.get("fast", False):
         conf += ["-c", 'service_tier="fast"']
-    if sandbox == "workspace-write" and cfg.get("network"):
-        conf += ["-c", "sandbox_workspace_write.network_access=true"]
+    clean = cfg.get("clean", True)
+    if not isinstance(clean, bool):
+        clean = True
+    user_settings = user_sandbox_settings() if clean else {}
+    if clean:
+        windows_sandbox = user_settings.get("windows.sandbox")
+        if windows_sandbox is not None:
+            conf += ["-c", f"windows.sandbox={json.dumps(windows_sandbox)}"]
+    project_network_access = sandbox == "workspace-write" and bool(cfg.get("network"))
+    if project_network_access or "sandbox_workspace_write.network_access" in user_settings:
+        network_access = project_network_access or user_settings["sandbox_workspace_write.network_access"]
+        conf += ["-c", f"sandbox_workspace_write.network_access={'true' if network_access else 'false'}"]
     if schema:
         common += ["--output-schema", str(SCHEMA)]
     if ephemeral:
         common += ["--ephemeral"]
-    clean = cfg.get("clean", True)
-    if not isinstance(clean, bool):
-        clean = True
     environment = ["--ignore-user-config", "--disable", "apps", "--disable", "plugins"] if clean else []
     if resume_thread:
         # S1:resume 没有 -s/-C;沙箱用 -c sandbox_mode,工作目录用子进程的 cwd

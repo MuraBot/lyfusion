@@ -11,9 +11,16 @@ from .util import FormatTooNew, FusionError, git
 
 DEFAULT_COMPACT = 400000
 DEFAULT_CONTEXT_RATIO = 0.6
-KNOWN_MODELS = ["gpt-6-luna", "gpt-6-astra"]
-EFFORT_CHOICES = ["low", "medium", "high", "xhigh"]
-COMPACT_CHOICES = [200000, 300000, 400000]
+# 来源：Lily 本机 Codex 0.167 的模型缓存，经 lyfusion 会话转达(2026-11-14)；引擎不读 models_cache.json
+MODEL_INFO = {
+    "gpt-6-luna": {"name": "GPT-6-Luna", "efforts": ["low", "medium", "high", "xhigh", "max"],
+                   "fast": True, "max_compact": 872000},
+    "gpt-6-astra": {"name": "GPT-6-Astra", "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+                    "fast": True, "max_compact": 872000},
+}
+KNOWN_MODELS = list(MODEL_INFO)
+DEFAULT_EFFORTS = ["low", "medium", "high", "xhigh"]
+COMPACT_CHOICES = [262144, 400000, 600000, 800000]
 
 DEFAULT_CONFIG = {
     "base_branch": None,          # 默认:init 时 lead 工作目录所在的分支
@@ -127,9 +134,27 @@ def current_model_settings(sidekick: dict) -> dict:
         compact = DEFAULT_COMPACT
     return {
         "effort": settings.get("effort"),
-        "fast": bool(settings.get("fast", False)),
+        "fast": bool(settings.get("fast", False)) and supports_fast(model),
         "compact": compact,
     }
+
+
+def model_efforts(model: str) -> list[str]:
+    return MODEL_INFO.get(model, {}).get("efforts", DEFAULT_EFFORTS)
+
+
+def supports_fast(model: str) -> bool:
+    return bool(MODEL_INFO.get(model, {}).get("fast", False))
+
+
+def max_compact(model: str) -> int | None:
+    return MODEL_INFO.get(model, {}).get("max_compact")
+
+
+def compact_choices(model: str, current: int) -> list[int]:
+    limit = max_compact(model)
+    choices = [value for value in COMPACT_CHOICES if limit is None or value <= limit]
+    return sorted(set(choices + [current]))
 
 
 def context_ratio(cfg: dict) -> float:

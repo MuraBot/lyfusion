@@ -27,27 +27,33 @@ def test_effort_and_fast_are_isolated_by_model(proj, capsys):
 
     command("effort", "low")
     command("fast", "on")
+    command("model", "gpt-6-astra")
+    command("fast", "on")
     command("model", "haiku-5.5")
-    changed = command("fast", "on")
-    assert changed["local"]["sidekick"]["models"]["gpt-6-luna"] == {"effort": "low", "fast": True}
-    assert changed["local"]["sidekick"]["models"]["haiku-5.5"] == {"fast": True}
+    before = (proj.root / "fusion" / "local.json").read_bytes()
+    assert main(["--project", str(proj.root), "config", "fast", "on"]) == 1
+    assert "\u4e0d\u652f\u6301 Fast Mode" in capsys.readouterr().err
+    assert (proj.root / "fusion" / "local.json").read_bytes() == before
+    changed = json.loads(before)
+    assert changed["sidekick"]["models"]["gpt-6-luna"] == {"effort": "low", "fast": True}
+    assert changed["sidekick"]["models"]["gpt-6-astra"] == {"fast": True}
     switched = command("model", "gpt-6-luna")
     assert config.current_model_settings(switched["local"]["sidekick"]) == {
         "effort": "low", "fast": True, "compact": config.DEFAULT_COMPACT,
     }
-    assert json.loads(capsys.readouterr().out or "{}") == {}
 
 
 def test_unregistered_model_uses_codex_defaults_and_status_reports_current_model(proj):
     local = config.load(proj.root)["local"]
     local["sidekick"]["model"] = "haiku-5.5"
+    local["sidekick"]["models"]["haiku-5.5"] = {"fast": True}
     config.save_local(proj.root, local)
     cfg = config.load(proj.root)
     args = build_args(cfg, {"model": "haiku-5.5", "worktree": str(proj.station)}, proj.root / "run", "workspace-write", None, True)
     assert "model_reasoning_effort=high" not in args
     assert not any("service_tier" in arg for arg in args)
     shown = views.status(proj.root, cfg, {"tasks": {}})
-    assert "助手: haiku-5.5 · effort 默认 · fast off" in shown
+    assert "助手: haiku-5.5 · effort 默认 · fast 不支持 · 压缩 400000" in shown
     assert "· 压缩 400000" in shown
     assert "Codex 环境: 干净(不读 ~/.codex/config.toml,关 apps、plugins)(项目设置 fusion/config.json 的 clean)" in shown
     assert "换工位: 上下文超过 240000(压缩上限 400000 × 60%)" in shown
@@ -232,8 +238,21 @@ def test_invalid_compact_and_ratio_fall_back_and_warn(proj):
 def test_preflight_codex_clean_flags_available(proj):
     result = cli._preflight(proj.root)
     rows = {row["check"]: row for row in result["checks"]}
+    sandbox_check = "沙箱里能跑命令"
     assert rows["Codex"]["ok"] and "codex fake-1.0" in rows["Codex"]["detail"]
     assert rows["干净模式参数"]["ok"]
+    assert rows[sandbox_check]["ok"]
+    assert str(proj.root).replace("\\", "/").lower() in rows[sandbox_check]["detail"].replace("\\", "/").lower()
+
+
+def test_preflight_detects_command_rejected_inside_sandbox(proj):
+    local = config.load(proj.root)["local"]
+    local["env"]["FAKE_CODEX_SANDBOX_FAIL"] = "1"
+    config.save_local(proj.root, local)
+    result = cli._preflight(proj.root)
+    row = next(row for row in result["checks"] if row["check"] == "沙箱里能跑命令")
+    assert not row["ok"]
+    assert row["detail"] == "rejected: blocked by policy"
 
 
 def test_preflight_detects_missing_resume_flag(proj):
@@ -289,3 +308,91 @@ def test_station_rotation_threshold_uses_model_compact(proj):
     kept, events, _ = proj.sup._station_for(state(), cfg, {"runs": [], "plan": {"scope": []}})
     assert kept["name"] == "main#1"
     assert not any(event["type"] == "station_retired" for event in events)
+
+
+def test_model_capabilities_and_effort_validation(proj, capsys):
+    assert config.model_efforts("gpt-6-luna") == ["low", "medium", "high", "xhigh", "max"]
+    assert config.model_efforts("gpt-6-astra")[-1] == "ultra"
+    assert config.model_efforts("unknown") == config.DEFAULT_EFFORTS
+    assert not config.supports_fast("unknown") and config.max_compact("unknown") is None
+    assert config.current_model_settings({"model": "unknown", "models": {"unknown": {"fast": True}}})["fast"] is False
+
+    for model, effort, expected in (("gpt-6-luna", "max", 0), ("gpt-6-luna", "ultra", 1),
+                                    ("gpt-6-astra", "ultra", 0), ("unknown", "max", 1)):
+        assert main(["--project", str(proj.root), "config", "model", model]) == 0
+        capsys.readouterr()
+        result = main(["--project", str(proj.root), "config", "effort", effort])
+        assert result == expected
+        capsys.readouterr()
+
+    local = config.load(proj.root)["local"]
+    local["sidekick"]["models"].setdefault("unknown", {})["fast"] = True
+    config.save_local(proj.root, local)
+    args = build_args(config.load(proj.root), {"model": "unknown", "worktree": str(proj.station)},
+                      proj.root / "run", "workspace-write", None, True)
+    assert not any("service_tier" in arg for arg in args)
+
+
+def test_compact_model_upper_bound(proj, capsys):
+    assert main(["--project", str(proj.root), "config", "compact", "900000"]) == 1
+    assert "上下文上限不能超过 gpt-6-luna 的 872000" in capsys.readouterr().err
+    assert main(["--project", str(proj.root), "config", "compact", "1"]) == 0
+    capsys.readouterr()
+    assert main(["--project", str(proj.root), "config", "model", "unknown"]) == 0
+    capsys.readouterr()
+    assert main(["--project", str(proj.root), "config", "compact", "900000"]) == 0
+
+
+def test_clean_mode_preserves_only_user_sandbox_settings(proj, monkeypatch):
+    codex_home = proj.base / "codex-home"
+    codex_home.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    path = codex_home / "config.toml"
+    path.write_text('model = "ignored"\napproval_policy = "never"\n[windows]\nsandbox = "elevated"\n[sandbox_workspace_write]\nnetwork_access = false\n',
+                    encoding="utf-8")
+    cfg = config.load(proj.root)
+    station = {"model": "gpt-6-luna", "worktree": str(proj.station)}
+
+    fresh = build_args(cfg, station, proj.root / "run", "workspace-write", None, True)
+    resumed = build_args(cfg, station, proj.root / "run", "workspace-write", "thread-1", True)
+    for args in (fresh, resumed):
+        window_settings = [args[i + 1] for i, flag in enumerate(args[:-1])
+                           if flag == "-c" and args[i + 1].startswith("windows.sandbox=")]
+        assert window_settings == ['windows.sandbox="elevated"']
+        assert args.count("sandbox_workspace_write.network_access=false") == 1
+        assert not any("ignored" in arg or "approval_policy" in arg or "never" == arg for arg in args)
+
+    monkeypatch.setenv("CODEX_HOME", "")
+    user_home = proj.base / "user-home"
+    fallback_home = user_home / ".codex"
+    fallback_home.mkdir(parents=True)
+    (fallback_home / "config.toml").write_bytes(path.read_bytes())
+    monkeypatch.setattr("fusion_core.codex.Path.home", lambda: user_home)
+    empty_codex_home = build_args(cfg, station, proj.root / "run", "workspace-write", None, True)
+    assert 'windows.sandbox="elevated"' in empty_codex_home
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    cfg["network"] = True
+    project_network = build_args(cfg, station, proj.root / "run", "workspace-write", None, True)
+    assert project_network.count("sandbox_workspace_write.network_access=true") == 1
+    path.write_text('[sandbox_workspace_write]\nnetwork_access = true\n', encoding="utf-8")
+    user_network = build_args({**cfg, "network": False}, station, proj.root / "run", "workspace-write", None, True)
+    assert user_network.count("sandbox_workspace_write.network_access=true") == 1
+    both_network = build_args(cfg, station, proj.root / "run", "workspace-write", None, True)
+    assert both_network.count("sandbox_workspace_write.network_access=true") == 1
+    other_sandbox = build_args(cfg, station, proj.root / "run", "read-only", None, True)
+    assert other_sandbox.count("sandbox_workspace_write.network_access=true") == 1
+
+    path.write_text('[windows]\nsandbox = 3\n[sandbox_workspace_write]\nnetwork_access = "yes"\n', encoding="utf-8")
+    malformed_values = build_args({**cfg, "network": False}, station, proj.root / "run", "workspace-write", None, True)
+    assert not any("windows.sandbox=" in arg or "sandbox_workspace_write.network_access=" in arg for arg in malformed_values)
+    path.write_text("not = [valid", encoding="utf-8")
+    broken_args = build_args({**cfg, "network": False}, station, proj.root / "run", "workspace-write", None, True)
+    assert not any("windows.sandbox=" in arg for arg in broken_args)
+    path.unlink()
+    missing_args = build_args({**cfg, "network": False}, station, proj.root / "run", "workspace-write", None, True)
+    assert not any("windows.sandbox=" in arg for arg in missing_args)
+    path.write_text('[windows]\nsandbox = "elevated"\n', encoding="utf-8")
+    clean_off = build_args({**cfg, "clean": False}, station, proj.root / "run", "workspace-write", None, True)
+    assert clean_off.count("sandbox_workspace_write.network_access=true") == 1
+    assert not any("windows.sandbox=" in arg for arg in clean_off)
