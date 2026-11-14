@@ -32,7 +32,7 @@ def test_effort_and_fast_are_isolated_by_model(proj, capsys):
     command("model", "haiku-5.5")
     before = (proj.root / "fusion" / "local.json").read_bytes()
     assert main(["--project", str(proj.root), "config", "fast", "on"]) == 1
-    assert "\u4e0d\u652f\u6301 Fast Mode" in capsys.readouterr().err
+    assert "haiku-5.5 \u4e0d\u652f\u6301 Fast Mode" in capsys.readouterr().err
     assert (proj.root / "fusion" / "local.json").read_bytes() == before
     changed = json.loads(before)
     assert changed["sidekick"]["models"]["gpt-6-luna"] == {"effort": "low", "fast": True}

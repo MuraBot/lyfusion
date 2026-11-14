@@ -1,7 +1,8 @@
 {
   "test": "cd plugin\\core && python -m pytest -q tests -n 6",
-  "lint": "python -m ruff check plugin/core",
+  "lint": "python -m ruff check --target-version py310 plugin/core",
   "station_copy": [],
   "network": false,
-  "base_branch": "main"
+  "base_branch": "main",
+  "schema_version": 2
 }
