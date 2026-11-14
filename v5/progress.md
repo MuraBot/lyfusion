@@ -139,6 +139,8 @@
 - **lead 小改**:验收后把 `views.py` 里助手写成 `\uXXXX` 的中文转义换回中文(脚本机械替换,14 处);版本号改成 5.0.0-rc.1
 - **第一次上传不显示**(Lily:"我上传了rc.1,但是没有任何fusion的按钮 T T"):看护会话用桌面端自带的 Claude Code 2.1.317 跑 `plugin validate plugin`,报 `atom` 的 plugin 用了常量 `PLUGIN`(必须是字符串字面量),整个 mod 被拒绝加载。改成字面量后 validate 通过(反馈第 14 条)。排查期间 lead 还加了:引擎命令失败不藏(栏照画、toast、面板写原因、只读 `local.json` 退路)、第一次画栏时也刷新;`prompt.submit`、`tool.call` 两个能拦东西的 hook 加 `.catch` 照常放行
 - **中途开关(Lily 定,放进 rc.1)**:会话中途在面板或 `/fusion` 开关后,下一条消息起生效。mod 在 `$.state` 记"lead 以为的开关",`prompt.submit` 时不一样才在 `context` 附说明(打开 = 引擎 `hook session-start` 的使用说明,关闭 = 一句话);不改系统提示,`prompt.submit` 里不调用引擎
+- **第二个问题:toast "fusion-core 退出码 1:C:\Users\<用户名>\.claude\spares\spare-XXXXXX 不在 git 仓库里"**(Lily 截图,看护会话查明):桌面端先在预备目录起好进程,之后才挂到项目;mod 调引擎时没传 `cwd`,用的是预备目录。改:`core()` 显式传 `cwd = $.session.root()`;调引擎前先看 `fusion/config.json` 在不在,不在就不画、不弹 toast;`classic.CwdChanged` 和画栏、发消息、一轮结束时比较项目目录,换了就重新刷新、lead 以为的开关记成关(宁可多附一次说明,不能漏)。这多半也是"新会话发第一条消息前不显示"的原因
+- **打包前必须过 validate**(Lily:"这个插件检查还挺重要的"):`build_plugin.py` 先跑 `claude.exe plugin validate`,没过不出包;脚本不去 AppData 里找 claude.exe,路径用 `--claude` 或 `LYFUSION_CLAUDE_EXE` 给(lead 改,`f06eae4`)
 - 没验证:桌面端实际样子和中途开关要 Lily 上传 `v5/dist/lyfusion-plugin-5.0.0-rc.1.zip` 后截图确认;validate 只做静态检查
 - lead 调用约 30 次(含查 mod 接口约 10 次、写 mod 和文档)
 - Codex(按原值求差):输入约 6.5M(探索 1.3M,续用任务 8 的线程;派工 2.6M;修改 2.6M),输出约 0.16M

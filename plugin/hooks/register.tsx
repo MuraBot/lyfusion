@@ -40,9 +40,37 @@ function lastLine(text: string): string {
   return lines[lines.length - 1] ?? ''
 }
 
+// 引擎一律在会话的项目目录里跑:桌面端先在预备目录(~/.claude/spares/…)起好进程,之后才挂到项目,
+// 进程自己的工作目录靠不住
 async function core($: EngineInterface, args: string[], stdin?: string) {
   const script = `${$.plugin.root}/core/fusion-core.py`
-  return $.process.run(['python', script, ...args], stdin === undefined ? { timeoutMs: 20_000 } : { timeoutMs: 20_000, stdin })
+  const cwd = await $.session.root()
+  return $.process.run(['python', script, ...args], stdin === undefined ? { cwd, timeoutMs: 20_000 } : { cwd, timeoutMs: 20_000, stdin })
+}
+
+async function exists($: EngineInterface, path: string): Promise<boolean> {
+  try {
+    await $.fs.stat(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
+// 会话换了目录(预备目录 → 项目,或 /cd):清掉旧项目的面板;会话开始时的钩子是在旧目录跑的,
+// 没给这个项目注入过说明,所以 lead 以为的开关记成"关"(Fusion 开着的话,下一条消息附说明;宁可重复,不能漏)
+let observedRoot: string | undefined
+async function rootChanged($: EngineInterface): Promise<boolean> {
+  const root = await $.session.root()
+  if (observedRoot === undefined || observedRoot === root) {
+    observedRoot = root
+    return false
+  }
+  observedRoot = root
+  guide = null
+  await update($, panel, () => null)
+  await update($, leadKnows, () => false)
+  return true
 }
 
 function failure(result: { exitCode: number; stdout: string; stderr: string }): Notice {
@@ -65,6 +93,11 @@ async function fail($: EngineInterface, problem: Notice): Promise<void> {
 async function refresh($: EngineInterface): Promise<void> {
   requested = true
   try {
+    // 预备目录和没用过 Fusion 的项目是正常情况:不调引擎、不算错
+    if (!(await exists($, `${await $.session.root()}/fusion/config.json`))) {
+      await update($, panel, () => null)
+      return
+    }
     const result = await core($, ['config', 'panel'])
     if (result.exitCode !== 0) {
       await fail($, failure(result))
@@ -120,12 +153,7 @@ async function localState($: EngineInterface): Promise<Local | null> {
   } catch {
     // 没有 local.json:再看项目设置在不在(本机没打开过,但项目用 Fusion)
   }
-  try {
-    await $.fs.stat(`${root}/fusion/config.json`)
-    return { enabled: false, model: '' }
-  } catch {
-    return null
-  }
+  return (await exists($, `${root}/fusion/config.json`)) ? { enabled: false, model: '' } : null
 }
 
 // 改一项设置:fusion-core config <动作> <值>,再刷新面板
@@ -156,14 +184,22 @@ async function recordLeadUsage($: EngineInterface, at: string, task: string | un
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
-    void refresh($)
+    void rootChanged($).then(() => refresh($))
     return started
   })
+
+  // 桌面端把预备进程挂到项目、或 /cd 时
+  on('classic.CwdChanged', async ($, e, next) => {
+    const done = await next(e)
+    void rootChanged($).then(() => refresh($))
+    return done
+  }).catch(($, e, next) => next(e)) // mod 自己出错时照常放行
 
   // 一轮结束时刷新:lead 或 /fusion 在这一轮里可能改过设置
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
     void (async () => {
+      await rootChanged($)
       await refresh($)
       if (fusionCommand) {
         // /fusion on|off 的输出 lead 已经看到:lead 知道的就是现在的开关
@@ -177,7 +213,8 @@ export const register: Register = on => {
     return done
   })
 
-  // 中途开关:下一条消息起生效。只用缓存的状态,不在这里调用引擎(发消息不能卡)
+  // 中途开关:下一条消息起生效。平时只用缓存的状态,不调用引擎(发消息不能卡);
+  // 只有会话刚换到这个项目时等一次刷新和说明(约几百毫秒),免得第一条消息漏掉说明
   on('prompt.submit', async ($, e, next) => {
     if (FUSION_COMMAND.test(e.text.trim())) {
       fusionCommand = true
@@ -186,10 +223,16 @@ export const register: Register = on => {
     if (e.command) {
       return next(e)
     }
+    if (await rootChanged($)) {
+      await refresh($)
+    }
     const state = await read($, panel)
     const known = await read($, leadKnows)
     if (!state || known === null || known === undefined || known === state.enabled) {
       return next(e)
+    }
+    if (state.enabled && guide === null) {
+      await fetchGuide($)
     }
     const note = state.enabled ? openNote($) : OFF_NOTE
     await update($, leadKnows, () => state.enabled)
@@ -207,7 +250,7 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e)) // mod 自己出错时照常放行,不拦消息和命令
 
   on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
-    if (!requested) {
+    if ((await rootChanged($)) || !requested) {
       void refresh($)
     }
     const state = (await read($, panel)) ?? (await localState($))
