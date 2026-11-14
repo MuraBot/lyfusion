@@ -31,14 +31,13 @@ const EFFORT_LABEL: Record<string, string> = { low: '低', medium: '中', high: 
 // lead 跑这两条命令时各记一次用量快照:任务的 lead 花费 = 最后一次 accept − explore(同一个会话才算)
 const SNAPSHOT_AT = /fusion-core\.py["']?\s+(explore|accept)\b/
 
-// 下拉框里显示好读的模型名,存的值不变。优先用引擎给的显示名(model_names);没登记的模型:gpt-6-luna → GPT-6 Luna
+// 下拉框里显示好读的模型名,存的值不变。优先用引擎给的显示名(model_names,和 Codex 自己的写法一样);
+// 引擎表里没有的模型照同样的写法:gpt-7-nova → GPT-7-Nova
 function modelName(id: string): string {
-  const cap = (word: string) => (word ? word[0].toUpperCase() + word.slice(1) : word)
-  const parts = id.split('-')
-  if (parts[0]?.toLowerCase() === 'gpt' && parts.length >= 2) {
-    return [`GPT-${parts[1]}`, ...parts.slice(2).map(cap)].join(' ')
-  }
-  return parts.map(cap).join(' ')
+  return id
+    .split('-')
+    .map(word => (word.toLowerCase() === 'gpt' ? 'GPT' : word ? word[0].toUpperCase() + word.slice(1) : word))
+    .join('-')
 }
 
 function tokens(n: number): string {
@@ -327,7 +326,9 @@ export const register: Register = on => {
     }
     const Select = 'Select' in table ? table.Select : undefined
     const enabled = state.enabled
-    // 哪些模型支持 Fast Mode 由引擎给(fast_models);旧引擎没给这个字段时照旧可选
+    const name = (id: string) => state.model_names?.[id] ?? modelName(id)
+    // 哪些模型支持 Fast Mode 由引擎给(fast_models);旧引擎没给这个字段时照旧可选。
+    // 不支持时画成灰字(桌面端的 Select 没有"禁用",灰字点不了)
     const fastOk = !state.fast_models || state.fast_models.includes(state.model)
 
     const pickers = Select ? (
@@ -335,7 +336,7 @@ export const register: Register = on => {
         <Select
           key="model"
           label="助手"
-          options={state.models.map(value => ({ value, label: state.model_names?.[value] ?? modelName(value) }))}
+          options={state.models.map(value => ({ value, label: name(value) }))}
           value={state.model}
           onSelect={value => void change($, ['model', value])}
         />
@@ -355,7 +356,7 @@ export const register: Register = on => {
             onSelect={value => void change($, ['fast', value])}
           />
         ) : (
-          <Text dimColor>Fast Mode:{state.model_names?.[state.model] ?? modelName(state.model)} 不支持</Text>
+          <Text dimColor>Fast Mode 不支持</Text>
         )}
         <Select
           key="compact"
@@ -367,7 +368,7 @@ export const register: Register = on => {
       </Box>
     ) : (
       <Text dimColor>
-        助手 {state.model_names?.[state.model] ?? modelName(state.model)} · 思考强度 {EFFORT_LABEL[state.effort] ?? state.effort} · Fast Mode{' '}
+        助手 {name(state.model)} · 思考强度 {EFFORT_LABEL[state.effort] ?? state.effort} · Fast Mode{' '}
         {fastOk ? (state.fast ? '开' : '关') : '不支持'} · 上下文上限 {tokens(state.compact)}
       </Text>
     )
@@ -397,7 +398,15 @@ export const register: Register = on => {
         </Box>
         {pickers}
         {state.warnings.length > 0 ? <Text color="warning">{state.warnings.join('\n')}</Text> : null}
-        {note ? note.kind === 'error' ? <Text color="error">{note.text}</Text> : <Text dimColor>{note.text}</Text> : null}
+        {note ? (
+          note.kind === 'error' ? (
+            <Text color="error">{note.text}</Text>
+          ) : (
+            <Text dimColor size="footnote">
+              {note.text}
+            </Text>
+          )
+        ) : null}
       </Box>
     )
   })
