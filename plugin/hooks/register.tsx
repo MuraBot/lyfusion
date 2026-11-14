@@ -1,7 +1,7 @@
 // lyfusion 的 Fusion 栏(rc.1 任务 6、7;lead 写)
 // - SessionMode(输入框下方、模型选择器旁边):"● Fusion" 按钮。Fusion 开 = Claude 橙,关 = 灰;点它展开或收起面板
 // - AbovePrompt(输入框上方):面板。开关、助手模型、思考强度、快速档、上下文上限
-// - lead 跑 accept 时,把 $.session.usage() 交给引擎记进台账(任务 7),lead 不多花调用
+// - lead 跑 explore、accept 时,把 $.session.usage() 交给引擎记进台账(任务 7),lead 不多花调用
 // 读和改都调用引擎命令 fusion-core(config panel、config <动作>、lead-usage):
 // 校验和格式版本只在引擎一处管,mod 不读写 fusion/ 下的文件,也不读 ~/.claude。
 // 只在打开过 Fusion 的项目里画;没打开过的项目照桌面端原样。
@@ -16,7 +16,8 @@ const isOpen = atom({ plugin: PLUGIN, key: 'isOpen' } as const, false)
 const notice = atom({ plugin: PLUGIN, key: 'notice' } as const, null)
 
 const EFFORT_LABEL: Record<string, string> = { low: '低', medium: '中', high: '高', xhigh: '超高' }
-const ACCEPT = /fusion-core\.py["']?\s+accept\b/
+// lead 跑这两条命令时各记一次用量快照:任务的 lead 花费 = 最后一次 accept − explore(同一个会话才算)
+const SNAPSHOT_AT = /fusion-core\.py["']?\s+(explore|accept)\b/
 
 function tokens(n: number): string {
   return n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(2)}M` : `${Math.round(n / 1000)}k`
@@ -62,10 +63,11 @@ async function change($: EngineInterface, args: string[], done: Notice | null = 
   await refresh($)
 }
 
-async function recordLeadUsage($: EngineInterface, task: string | undefined): Promise<void> {
+// 原样交给引擎:cost 是会话累计值、rateLimits 是整个账号的,怎么求差由引擎在读台账时算
+async function recordLeadUsage($: EngineInterface, at: string, task: string | undefined): Promise<void> {
   try {
     const usage = await $.session.usage()
-    const args = ['lead-usage', ...(task ? ['--task', task] : []), '-']
+    const args = ['lead-usage', '--at', at, ...(task ? ['--task', task] : []), '-']
     const result = await core($, args, JSON.stringify(usage))
     if (result.exitCode !== 0) {
       $.ui.log(`lead-usage: ${failure(result).text}`, { to: 'debug' })
@@ -89,10 +91,11 @@ export const register: Register = on => {
     return done
   })
 
-  // 任务 7:lead 跑 accept 时记一次用量。不等它、不拦命令
+  // 任务 7:lead 跑 explore、accept 时记用量快照。不等它、不拦命令
   on('tool.call', { tool: 'Bash' }, ($, e, next) => {
-    if (ACCEPT.test(e.command)) {
-      void recordLeadUsage($, /--task[ =](\S+)/.exec(e.command)?.[1])
+    const at = SNAPSHOT_AT.exec(e.command)?.[1]
+    if (at) {
+      void recordLeadUsage($, at, /--task[ =](\S+)/.exec(e.command)?.[1])
     }
     return next(e)
   })
