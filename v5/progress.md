@@ -130,6 +130,18 @@
 - 用时约 45 分钟(21:15~21:59)
 - 额度:任务 8 后 5 小时 82%、每周 11%
 
+### 任务 6、7 M3 Fusion 栏和 lead 用量(引擎 accepted `2379a22`;mod 由 lead 写 `46b448f`、`cb11eb0`;等 Lily 深浅主题截图确认)
+- **lead 定:两个任务的引擎部分合成一次 Fusion 派工**(Fusion 里编号 T6),省一轮探索和审查
+- 引擎:`config panel`(一行 JSON:开关、助手模型和可选模型 `KNOWN_MODELS = gpt-6-luna、gpt-6-astra` + 登记过的、思考强度、快速档、上下文上限和可选值、`context_ratio`、换工位阈值、警告;不含 env、Codex 路径);`config enabled on|off`(和顶层 `on` 共用初始化函数,不打印说明);`lead-usage --at explore|accept [--task] -`(收 `$.session.usage()` 原样 JSON,记 `lead_usage` 事件,只存原始快照);ledger 的 lead 列改成"本任务 $x · 验收时 上下文 a/b · 5h y% · 周 z%"。新事件类型 aq.2 重放会忽略,SCHEMA 不加
+- lead 用量的口径(看护会话建议,lead 定):`cost` 是会话累计值、`rateLimits` 是整个账号的,所以本任务花费 = 本任务最后一次 accept 快照 − 同一会话里配给本任务的 explore 快照;跨会话写"-";额度只当背景。助手对"explore 快照配给哪个任务"用的是"写入时还开着的最近任务,没有就配给之后最先建的任务",正常流程下和 lead 写的规则等价,没再返工(反馈第 13 条)
+- mod(`plugin/hooks/register.tsx`、`plugin/types/index.d.ts`,`hooks.json` 加 `modules`,`plugin.json` 加 `types`):SessionMode 画 `<Button><Text color>●</Text> Fusion</Button>`;AbovePrompt 面板用 `Box`、`Text`、`Button`、`Select` 和主题色,有开关、助手、思考强度(低/中/高/超高)、快速档、上下文上限,下面显示换工位阈值、警告和命令失败原因;改设置都调用 `fusion-core config`,面板数据在会话开始、每轮结束、点开面板和改设置后刷新;lead 的 Bash 命令里有 `fusion-core.py … explore|accept` 时把用量快照交给 `lead-usage`,不等、不拦命令。没有 Select 的界面(手机)只显示文字
+- 修改 1 轮(引擎):explore 快照和求差的新口径;`config enabled` 抄了 `on` 的代码 → 抽成共用函数;ledger 分隔符;非法 JSON 退出码 1
+- **lead 小改**:验收后把 `views.py` 里助手写成 `\uXXXX` 的中文转义换回中文(脚本机械替换,14 处);版本号改成 5.0.0-rc.1
+- 没验证:本机没有 TypeScript 和 `claude plugin validate`,mod 的类型只对照类型文件人工核对;桌面端实际样子要 Lily 上传 `v5/dist/lyfusion-plugin-5.0.0-rc.1.zip` 后截图确认
+- lead 调用约 30 次(含查 mod 接口约 10 次、写 mod 和文档)
+- Codex(按原值求差):输入约 6.5M(探索 1.3M,续用任务 8 的线程;派工 2.6M;修改 2.6M),输出约 0.16M
+- 用时约 40 分钟(23:30~00:06,不含等 Lily)
+
 ## 日志
 - 2026-11-06:开始 M0。S1、S6 完成
 - 2026-11-07:v5.0.0-aq 完成(T1、T2、真实冒烟 T3),69 个测试;合并回 main,本地标签 `v5.0.0-aq`,zip `dist/lyfusion-5.0.0-aq.0.zip`
