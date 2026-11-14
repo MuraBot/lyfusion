@@ -9,4 +9,5 @@
 5. 不读 `~/.claude/`、AppData 里 Claude 的文件夹、Codex 的 `auth.json`;引擎不解析 `~/.codex/config.toml`。启动 Codex 和检查命令前去掉 `CLAUDE*`、`ANTHROPIC*` 环境变量。Codex 不用绕过沙箱或审批的参数
 6. 版本号保持 `5.0.0-aq.2`:不改 plugin.json、`__init__.py`、README 里的版本,lead 收尾时统一改
 7. 已有测试都要继续通过。改了已有行为就同时改对应测试,并在报告里写明为什么
+9. 状态格式版本(任务 4 起):`fusion_core.SCHEMA` 一个数,`config.json`、`local.json`、`fusion.db` 共用。只有旧版本会读错的改动才加 1;只加带默认值的新字段、新的事件数据字段(旧版本忽略也不出错)不用加。改了格式就同时改迁移和测试
 8. 中途只跑和改动有关的测试(单个文件或单个用例);全量测试和 lint 只在结束前各跑一次(Lily 2026-11-13 同意;任务 8 写进 WORK_RULES 后从这里删掉)。跑整份测试文件时也加 `-n 6`(`test_cli.py` 单线程约 1 分钟,比并行跑全量的约 26 秒还慢);只跑单个用例不用加
