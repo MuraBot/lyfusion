@@ -88,6 +88,15 @@
 - 问题:助手沙箱里杀不了进程,`test_cancel_kills_running` 在它那里过不了(引擎的检查是通过的),报告里写"全量测试未通过",容易误读(反馈第 3 条,任务 8 处理);`config.json` 的 `clean` 写成非布尔值时按 true 处理、没有警告(低)
 - **lead 小改(Lily 同意的例外)**:任务 1 后把项目测试命令改成 `cd plugin\core && python -m pytest -q tests -n 6`(pytest-xdist 3.8.0,全量 110 秒 → 约 26 秒,91 个通过),加 `plugin/core/requirements-dev.txt` 写明开发依赖(插件本身仍只用标准库)
 
+### 任务 2 助手卡住、太慢的看护(accepted,`9588f55`)
+- 结果:新模块 `runstats.py` 从 `events.jsonl` 算每次运行的命令数、碎读(读文件命令且整条输出 ≤ `small_read_lines` 行,只认命令名)、重复(不算测试、lint、git status/diff)和最近 8 条命令摘要;运行结束时连同用时、Codex 版本(启动前 `codex --version`)写进事件,`ledger` 加"运行"表。看护新加 `watch_minutes` 40、`watch_small_reads` 15、`watch_repeats` 5(项目配置,0 关掉),每 30 秒最多算一次,超阈值发 `watch` 信号,等待的命令退出码 2 并给出原因、最近命令和三条下一步(继续等、revise 改方向、cancel)。收尾只看进程退出;`turn.completed` 后 60 秒还不退出才杀掉收尾(不看 `last.txt`)。提示:WORK_RULES、FIXED_RULES、explore_prompt 都加了"整份或大段读、不反复跑同一条命令",探索提示补了安全规则
+- **顺手修的 bug**:运行中 `revise` 原来只接着等、悄悄丢掉修改意见。改成发中断请求,由拿着租约的监督者停下这一轮(`interrupted`)、在同一会话按意见接着做(算一轮修改);意见和正在做的相同则接着等;请求悬空的三种情况都有处理和测试
+- lead 调用约 15 次:explore、读探索包、自己看真实运行事件、写 brief 文件、delegate、读审查包 ×3、看 diff ×3、查时间戳格式和 cancel 流程 ×2、revise ×2、accept
+- 修改 2 轮:第 1 轮 8 条(中断改走事件由监督者执行、"继续等"规则、提前收尾会读到空报告、无任务运行的 TypeError、阈值比较和中文提醒、时间戳函数合一、读命令判断太宽、叫醒文字);第 2 轮 1 条(中断请求悬空会让等待命令永不结束)
+- Codex(台账):输入 69.5M(缓存 68.4M)、输出 0.44M,gpt-6-luna/high/fast off;探索续用了任务 1 的会话,累计上下文大,输入多。用时约 59 分钟(19:39~20:38;实现约 22 分钟,修改 2 轮约 21 + 6 分钟)
+- 额度:任务 2 后 5 小时 52%(任务 2 约 12%)、每周 7%
+- 问题:探索工位看不到 `fusion/runs/`(lead 自己摘事件样本);助手第 1 版用"看到 turn.completed 就收尾",和"Codex 最后才写 last.txt"冲突,审查时发现
+
 ## 日志
 - 2026-11-06:开始 M0。S1、S6 完成
 - 2026-11-07:v5.0.0-aq 完成(T1、T2、真实冒烟 T3),69 个测试;合并回 main,本地标签 `v5.0.0-aq`,zip `dist/lyfusion-5.0.0-aq.0.zip`
