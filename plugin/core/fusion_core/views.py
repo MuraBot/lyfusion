@@ -121,7 +121,7 @@ def _usage_triplet(usage: dict) -> str:
 def _lead_usage_display(state: dict, task_id: str) -> str:
     accept = state.get("lead_usage", {}).get(task_id)
     if not accept:
-        return "\u672a\u8bb0\u5f55"
+        return "未记录"
     accept_data = accept.get("data", {})
     explores = []
     for record in state.get("lead_usage_events", []):
@@ -144,21 +144,21 @@ def _lead_usage_display(state: dict, task_id: str) -> str:
         amount = f"-${abs(delta):.2f}" if delta < 0 else f"${delta:.2f}"
     else:
         amount = "-"
-    parts = [f"\u672c\u4efb\u52a1 {amount}"]
+    parts = [f"本任务 {amount}"]
     context = []
     if "tokens" in accept_data and "window" in accept_data:
         context.append(
-            f"\u4e0a\u4e0b\u6587 {_compact_tokens(accept_data['tokens'])}/"
+            f"上下文 {_compact_tokens(accept_data['tokens'])}/"
             f"{_compact_tokens(accept_data['window'])}"
         )
     if "five_hour" in accept_data:
         context.append(f"5h {_format_percent(accept_data['five_hour'])}")
     if "seven_day" in accept_data:
-        context.append(f"\u5468 {_format_percent(accept_data['seven_day'])}")
+        context.append(f"周 {_format_percent(accept_data['seven_day'])}")
     if context:
-        parts.append(f"\u9a8c\u6536\u65f6 {context[0]}")
+        parts.append(f"验收时 {context[0]}")
         parts.extend(context[1:])
-    return " \u00b7 ".join(parts)
+    return " · ".join(parts)
 
 
 def _explore_snapshot_task(state: dict, seq: int) -> str | None:
