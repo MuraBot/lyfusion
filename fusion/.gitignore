@@ -1,0 +1,8 @@
+fusion.db
+fusion.db-*
+local.json
+runs/
+handoffs/
+explore.md
+review.md
+tasks/
