@@ -29,6 +29,13 @@
 6. **M3 Fusion 栏**:输入框下方、模型选择器旁边;"Fusion" 前一个状态灯(关灰色,开 Claude 橙);点开在输入框上方展开面板,有开关、助手模型下拉框、上下文设置。实现前加载 plugin-authoring 技能
 7. **M3 lead 用量**:mod 用 `$.session.usage()`(上下文、5 小时和每周额度、花费,不读 `~/.claude`),每次 accept 记进台账,lead 不多花调用
 
+8. **提示词体检的改动**(Lily 2026-11-13 定放进 rc.1):按 `v5/prompt-audit-2026-11-13.md` 的 B 节第 3~8 条和 C 节第 9 条做,一次派工
+   - 模型备注:插件带 `core/prompts/models/<模型>.md`,分"给助手"和"给 lead"两节,按当前助手模型自动拼进派工、修改提示和 SessionStart 说明;项目可在 `fusion/models/` 加自己的。先把 v4 `addon/prompts/models/gpt-6-luna.md` 的"备注"迁过来(删除类任务用禁止句 + 可检查的标准)
+   - LEAD_GUIDE:"用 Read 看具体文件"改成看审查包里工位路径下的文件;推荐小标题加"猜测(未证实)"和"停下的条件";最后一行加 `ledger`。改了要同步 `design/v5.0.0-aq.md` 里的说明块(test_shape 会比对)
+   - 审查包:阻塞的问题标"(阻塞)"
+   - WORK_RULES:猜测只是建议,有相反证据可以不采纳,写进 choices 并给理由;中途只跑相关测试,结束前跑一次全量
+   - FIXED_RULES 和 WORK_RULES 的"不能做的事"从同一个列表生成
+
 ## 收尾
 - 版本 `5.0.0-rc.1`(plugin.json、`__init__.py`、README);设计写短文档 `design/v5.0.0-rc.md`;`v5/progress.md` 记结果和额度(开始、结束的 `get_usage`)
 - 本地标签 `v5.0.0-rc.1`,**不推送**;打包 `python v5/build_plugin.py`
