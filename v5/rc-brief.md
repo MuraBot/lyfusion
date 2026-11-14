@@ -31,6 +31,10 @@
 4. **状态文件的格式版本**(Lily 2026-11-13 同意):用 lyfusion 改 lyfusion 时,装着的旧版本和仓库里的新版本同时存在,格式一改旧版本就可能读不了。`fusion/config.json`、`fusion/local.json`、`fusion.db` 加格式版本号(`schema_version`);没有版本号的当作 aq.2 的格式,自动迁移;读到比自己新的版本就拒绝并提示升级插件,不要硬读。测试用 aq.2 的旧文件覆盖。要在 5.0.0 正式版前定下来
 5. **M3 小试验**:上传的插件能不能加载 mod(`hooks.json` 的 `modules`);输入框下方那一行(`SessionMode`/`PromptHint`)能不能画状态灯。结论写进 `v5/spikes.md`。先试验再做界面:不行的话 6、7 要换方案
 6. **M3 Fusion 栏**:输入框下方、模型选择器旁边;"Fusion" 前一个状态灯(关灰色,开 Claude 橙);点开在输入框上方展开面板,有开关、助手模型下拉框、上下文设置。实现前加载 plugin-authoring 技能
+   - 试验结果(Lily 2026-11-13 实测，截图):上传的插件能加载 mod;`SessionMode` 能画灯和按钮;`AbovePrompt` 面板能显示;提示行的 `tail` 桌面端不画(和文档一致)。新建会话时不显示，发出第一条消息后才出现(估计引擎发第一条消息才启动，插件改不了)。桌面端把代码里写在按钮前面的圆点画到了后面
+   - **Lily 定**:圆点和 "Fusion" 放进同一个框(圆点作为 `Button` 的子元素 `<Text color>`,顺序由自己定);圆点在左边，即"● Fusion",和面板一致
+   - **Lily 定**:面板和状态灯的前端(mod)由 lead 自己写，不派给助手(她觉得 luna 的前端不够好;mod 也要读 Claude Code 的类型文件，按规则 Codex 不读)。引擎这边要加的命令照常走 Fusion
+   - 建议:mod 不直接写 `local.json`,改设置一律调用引擎命令(`fusion-core config …`),校验和格式版本只在引擎一处
 7. **M3 lead 用量**:mod 用 `$.session.usage()`(上下文、5 小时和每周额度、花费,不读 `~/.claude`),每次 accept 记进台账,lead 不多花调用
 
 8. **提示词体检的改动**(Lily 2026-11-13 定放进 rc.1):按 `v5/prompt-audit-2026-11-13.md` 的 B 节第 3~8 条和 C 节第 9 条做,一次派工
