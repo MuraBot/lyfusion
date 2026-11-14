@@ -116,6 +116,20 @@
 - 用时约 17 分钟(20:58~21:14,含卡住后排查约 3 分钟)
 - 额度:任务 4 后 5 小时 63%、每周 9%
 
+### 任务 5 M3 小试验(通过,`a9f9694`、`e2b8e7c`)
+- **lead 例外**:没走 Fusion,lead 直接写。mod 要读 Claude Code 的类型文件,按规则 Codex 不读;只有 3 个小文件(`v5/spike-mod/lyfusion-spike/`),打成 `v5/dist/lyfusion-spike-0.1.0.zip` 请 Lily 上传实测。没有写进 `~/.claude/dev-mods/`(工作区外)
+- 结果(Lily 截图实测):上传的插件能加载 mod;`SessionMode` 能画灯和按钮;`AbovePrompt` 面板能显示;`PromptHint` 的 `tail` 桌面端不画;新会话发第一条消息后才出现;写在 `Button` 前面的 `<Text>●</Text>` 被画到按钮后面 → 圆点放进按钮里。详见 `v5/spikes.md`
+- 任务 6、7 不用换方案
+
+### 任务 8 提示词体检的改动(accepted,`c38d7d1`;Fusion 里编号 T5)
+- 结果:模型备注(`fusion_core/prompts/models/gpt-6-luna.md`,`prompts.model_notes` 先读插件再接项目 `fusion/models/`,给助手的拼进派工/修改/自动修提示,给 lead 的接在 SessionStart 说明后);LEAD_GUIDE 推荐小标题加"猜测(未证实)""停下的条件",最后一行改成看工位路径下的文件、加 `ledger`(设计文档说明块同步);审查包:阻塞问题标"(阻塞)"、diff 超上限先附非测试文件、旧测试没过列 `FAILED` 和最后 20 行、助手说测试没过而引擎检查通过时写"以引擎检查为准"、候选没建成时写原因和下一步;WORK_RULES 和 FIXED_RULES 的"不能做的事"都从 `FORBIDDEN` 生成,加 Brief 约定、测试跑法、沙箱说明;建候选失败(`git add -A`)→ 运行 blocked + `candidate_failed` 信号,不再崩;delegate/revise/explore 开工先把 `review.md`/`explore.md` 换成"T编号 第 N 轮:助手还在做"占位。反馈第 1~3、10 条已做
+- 修改 2 轮:第 1 轮助手约 3 分钟就以 blocked 停下(沙箱里临时目录 PermissionError,反馈第 11 条),lead 说明是沙箱限制后做完;第 2 轮 lead 退回 6 处(LEAD_GUIDE 多改了字;"不能做的事"用正则包了一层、FIXED_RULES 里条目重复;全角标点;"以引擎为准"关键词太窄;后面轮次候选失败会显示旧候选;旧测试日志 `dir` 为 None 会崩)
+- **lead 小改(验收后,3 行)**:助手为满足 lead 写的"源码里'不调用 Claude'只出现一次",把探索提示里的这句拆成 `"不调用 " + "Claude"`;lead 改回原样,测试改成检查 WORK_RULES、FIXED_RULES 各只出现一次(标准写在源码文字上是 lead 的错,见反馈第 12 条)。decisions.md 第 8 条删到只剩本项目参数(`-n 6`、`--basetemp`)
+- lead 调用约 22 次:explore、读探索包、写 brief、delegate、读 blocked 审查包、revise、读审查包、看 diff ×4、revise、读审查包、看 diff ×2、accept、改回拆开的字符串 ×4、跑测试、查台账
+- Codex(按原值求差):实现线程输入 16.5M(缓存 16.3M)、输出 0.13M(派工 1.1M + 修改 7.1M + 修改 8.3M);探索记 3.7M(续用旧线程,实际增量更小)。两轮修改都是续用会话、整份提示重读,修改轮比派工贵得多
+- 用时约 45 分钟(21:15~21:59)
+- 额度:任务 8 后 5 小时 82%、每周 11%
+
 ## 日志
 - 2026-11-06:开始 M0。S1、S6 完成
 - 2026-11-07:v5.0.0-aq 完成(T1、T2、真实冒烟 T3),69 个测试;合并回 main,本地标签 `v5.0.0-aq`,zip `dist/lyfusion-5.0.0-aq.0.zip`

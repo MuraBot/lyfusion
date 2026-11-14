@@ -34,7 +34,7 @@ def test_forbidden_rules_are_shared_and_model_notes_are_loaded(proj):
     assert not any(mark in new_text for mark in ("，", "；", "（", "）", "“", "”"))
     source = (Path(__file__).resolve().parents[1] / "fusion_core/prompts.py").read_text(encoding="utf-8")
     assert "_forbidden_section" not in source
-    assert source.count("不调用 Claude") == 1
+    assert WORK_RULES.count("不调用 Claude") == 1 and FIXED_RULES.count("不调用 Claude") == 1
 
 
 def test_model_notes_reach_assistant_and_lead(proj):

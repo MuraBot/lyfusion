@@ -165,8 +165,7 @@ def explore_prompt(original: str, decisions: str) -> str:
         "项目里没有答案的,查框架源码或官方文档回答,写明出处。\n"
         "4. 列出现有约定和容易踩的坑。\n"
         "读代码时一次读整份文件或大段,可以一条命令读几个文件;不要每次只读几十行。同一条命令不要反复跑(改代码后重跑测试和 lint 除外)。\n"
-        "安全:不读 `~/.claude/`、AppData 里 Claude 的文件夹和 Codex 的 auth.json,"
-        + "不调用 " + "Claude。\n"
+        "安全:不读 `~/.claude/`、AppData 里 Claude 的文件夹和 Codex 的 auth.json,不调用 Claude。\n"
         "## lead 提供的任务原文\n"
         + original
         + "\n\n## fusion/decisions.md 全文\n"
