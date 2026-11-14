@@ -7,7 +7,8 @@ TERMINAL = ("accepted", "cancelled")
 def empty() -> dict:
     return {"seq": 0, "tasks": {}, "next_task": 1, "runs": {}, "next_run": 1,
             "stations": {}, "station_seq": {}, "candidates": {}, "usage": {},
-            "lead_sessions": [], "explore_answers": {}, "engine_errors": [], "next_question": 1}
+            "lead_usage": {}, "lead_usage_events": [], "lead_sessions": [],
+            "explore_answers": {}, "engine_errors": [], "next_question": 1}
 
 
 def replay(events: list[dict], state: dict | None = None) -> dict:
@@ -35,7 +36,7 @@ def _task_created(s, e, d, tid):
                         "fix_attempts": 0, "change_rounds": 0, "questions": [], "signals": [],
                         "branch": None, "base": None, "accepted_commit": None, "accept_cand": None,
                         "latest_report": None, "integration": None, "pending_revise": None,
-                        "created": e["ts"], "closed": None}
+            "created": e["ts"], "created_seq": e["seq"], "closed": None, "closed_seq": None}
     s["next_task"] = max(s["next_task"], int(tid[1:]) + 1)
 
 
@@ -252,11 +253,11 @@ def _integration_ran(s, e, d, tid):
 
 
 def _accepted(s, e, d, tid):
-    _task(s, tid).update(state="accepted", accepted_commit=d.get("commit"), closed=e["ts"])
+    _task(s, tid).update(state="accepted", accepted_commit=d.get("commit"), closed=e["ts"], closed_seq=e["seq"])
 
 
 def _cancelled(s, e, d, tid):
-    _task(s, tid).update(state="cancelled", closed=e["ts"], close_reason=d.get("reason"))
+    _task(s, tid).update(state="cancelled", closed=e["ts"], closed_seq=e["seq"], close_reason=d.get("reason"))
 
 
 def _cleaned(s, e, d, tid):
@@ -264,7 +265,16 @@ def _cleaned(s, e, d, tid):
 
 
 def _usage(s, e, d, tid):
-    _add_usage(s, tid, d.get("who", "lead"), d)
+    who = d.get("who", "lead")
+    if who != "lead":
+        _add_usage(s, tid, who, d)
+
+
+def _lead_usage(s, e, d, tid):
+    record = {"task": tid, "data": d, "seq": e["seq"]}
+    s["lead_usage_events"].append(record)
+    if tid and d.get("at") == "accept":
+        s["lead_usage"][tid] = record
 
 
 def _no_changes(s, e, d, tid):
@@ -295,7 +305,8 @@ HANDLERS = {
     "question_answered": _question_answered, "candidate_created": _candidate_created,
     "check_ran": _check_ran, "signal": _signal, "changes_requested": _changes_requested,
     "accept_requested": _accept_requested, "integration_ran": _integration_ran, "accepted": _accepted,
-    "cancelled": _cancelled, "cleaned": _cleaned, "usage": _usage, "no_changes": _no_changes,
+    "cancelled": _cancelled, "cleaned": _cleaned, "usage": _usage,
+    "lead_usage": _lead_usage, "no_changes": _no_changes,
     "engine_error": _engine_error,
 }
 

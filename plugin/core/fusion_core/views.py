@@ -71,7 +71,7 @@ def status(root, cfg, state, target: str | None = None) -> str:
 
 
 def ledger(state, task_id: str | None = None) -> str:
-    lines = ["| 任务 | 状态 | 目标 | 修复 | 修改轮 | Lead 输入/缓存/输出 (M) | 助手输入/缓存/输出 (M) | 助手模型 / effort / fast |",
+    lines = ["| 任务 | 状态 | 目标 | 修复 | 修改轮 | Lead(验收时) | 助手输入/缓存/输出 (M) | 助手模型 / effort / fast |",
              "|---|---|---|---:|---:|---:|---:|---|"]
     for task in state["tasks"].values():
         if task_id and task["id"] != task_id:
@@ -79,7 +79,7 @@ def ledger(state, task_id: str | None = None) -> str:
         plan = task.get("plan") or {}
         usage = state.get("usage", {}).get(task["id"], {})
         # 引擎不读 Claude 的记录;lead 的用量由 lead 自己用用量工具看,没有数据就写明
-        lead = _usage_triplet(usage["lead"]) if usage.get("lead") else "未记录(lead 用用量工具看)"
+        lead = _lead_usage_display(state, task["id"])
         assistant = _usage_triplet(usage.get("sidekick", {}))
         settings = []
         seen = set()
@@ -115,3 +115,71 @@ def _usage_triplet(usage: dict) -> str:
     cache_m = (usage.get("cache_read", 0) + usage.get("cache_write", 0)) / 1_000_000
     output_m = usage.get("output", 0) / 1_000_000
     return f"{input_m:.3f} / {cache_m:.3f} / {output_m:.3f}"
+
+
+
+def _lead_usage_display(state: dict, task_id: str) -> str:
+    accept = state.get("lead_usage", {}).get(task_id)
+    if not accept:
+        return "\u672a\u8bb0\u5f55"
+    accept_data = accept.get("data", {})
+    explores = []
+    for record in state.get("lead_usage_events", []):
+        if record.get("seq", 0) >= accept.get("seq", 0):
+            continue
+        data = record.get("data", {})
+        if data.get("at") != "explore" or "started_at" not in accept_data:
+            continue
+        if data.get("started_at") != accept_data["started_at"]:
+            continue
+        owner = record.get("task")
+        if owner is None:
+            owner = _explore_snapshot_task(state, record.get("seq", 0))
+        if owner == task_id:
+            explores.append(record)
+    explore = max(explores, key=lambda event: event.get("seq", 0), default=None)
+
+    if explore and "cost_usd" in accept_data and "cost_usd" in explore.get("data", {}):
+        delta = accept_data["cost_usd"] - explore["data"]["cost_usd"]
+        amount = f"-${abs(delta):.2f}" if delta < 0 else f"${delta:.2f}"
+    else:
+        amount = "-"
+    parts = [f"\u672c\u4efb\u52a1 {amount}"]
+    context = []
+    if "tokens" in accept_data and "window" in accept_data:
+        context.append(
+            f"\u4e0a\u4e0b\u6587 {_compact_tokens(accept_data['tokens'])}/"
+            f"{_compact_tokens(accept_data['window'])}"
+        )
+    if "five_hour" in accept_data:
+        context.append(f"5h {_format_percent(accept_data['five_hour'])}")
+    if "seven_day" in accept_data:
+        context.append(f"\u5468 {_format_percent(accept_data['seven_day'])}")
+    if context:
+        parts.append(f"\u9a8c\u6536\u65f6 {context[0]}")
+        parts.extend(context[1:])
+    return " \u00b7 ".join(parts)
+
+
+def _explore_snapshot_task(state: dict, seq: int) -> str | None:
+    tasks = list(state.get("tasks", {}).values())
+    active = [task for task in tasks
+              if task.get("created_seq", 0) < seq
+              and (task.get("closed_seq") is None or task["closed_seq"] > seq)]
+    if active:
+        return max(active, key=lambda task: task.get("created_seq", 0))["id"]
+    upcoming = [task for task in tasks if task.get("created_seq", 0) > seq]
+    if upcoming:
+        return min(upcoming, key=lambda task: task.get("created_seq", 0))["id"]
+    return None
+
+
+def _compact_tokens(value) -> str:
+    if value >= 1000:
+        thousands = value / 1000
+        return f"{int(thousands)}k" if thousands.is_integer() else f"{thousands:g}k"
+    return str(value)
+
+
+def _format_percent(value) -> str:
+    return f"{int(value)}%" if value == int(value) else f"{value:g}%"

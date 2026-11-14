@@ -21,8 +21,61 @@ from .util import CMD, FormatTooNew, FusionError, clean_env, git
 USAGE = views.lead_guide()
 
 
+def _lead_usage_data(raw: dict) -> dict:
+    """Pick individually valid fields from Claude Code's usage() response."""
+    data = {}
+    context = raw.get("context")
+    if isinstance(context, dict):
+        for source, target, integer_only in (
+            ("tokens", "tokens", True), ("window", "window", True),
+            ("percent", "percent", False),
+        ):
+            value = context.get(source)
+            valid = isinstance(value, int) and not isinstance(value, bool) if integer_only else (
+                isinstance(value, (int, float)) and not isinstance(value, bool)
+                and math.isfinite(value)
+            )
+            if valid:
+                data[target] = value
+    limits = raw.get("rateLimits")
+    if isinstance(limits, list):
+        for kind, prefix in (("five_hour", "five_hour"), ("seven_day", "seven_day")):
+            limit = next((item for item in limits if isinstance(item, dict) and item.get("kind") == kind), None)
+            if limit:
+                percent = limit.get("percentUsed")
+                if isinstance(percent, (int, float)) and not isinstance(percent, bool) and math.isfinite(percent):
+                    data[prefix] = percent
+                resets = limit.get("resetsAt")
+                if isinstance(resets, str):
+                    data[f"{prefix}_resets"] = resets
+    cost = raw.get("cost")
+    if isinstance(cost, dict):
+        usd = cost.get("usd")
+        if isinstance(usd, (int, float)) and not isinstance(usd, bool) and math.isfinite(usd):
+            data["cost_usd"] = usd
+    started = raw.get("startedAt")
+    if isinstance(started, (int, float)) and not isinstance(started, bool) and math.isfinite(started):
+        data["started_at"] = started
+    return data
+
+
 def _root(args):
     return config_mod.project_root(args.project)
+
+
+def _setup_project(root: Path, test=None, lint=None, *, enabled: bool = True) -> None:
+    config_mod.init(root, test, lint)
+    conn = store.connect(root)
+    conn.close()
+    cfg = config_mod.load(root)
+    cfg["local"]["enabled"] = enabled
+    config_mod.save_local(root, cfg["local"])
+    decisions = root / "fusion" / "decisions.md"
+    if not decisions.exists():
+        decisions.write_text(
+            "# 设计决定\n> lead 直接编辑这个文件。每次派工,引擎把全文带给助手。只写所有任务都要守的决定。\n",
+            encoding="utf-8",
+        )
 
 
 def _input(args):
@@ -469,10 +522,14 @@ def main(argv=None) -> int:
     sub.add_parser("off")
     sub.add_parser("preflight")
     p = sub.add_parser("config")
-    p.add_argument("action", choices=["get", "set", "model", "effort", "fast", "compact"])
+    p.add_argument("action", choices=["get", "set", "model", "effort", "fast", "compact", "panel", "enabled"])
     p.add_argument("json", nargs="?")
     p = sub.add_parser("ledger")
     p.add_argument("--task")
+    p = sub.add_parser("lead-usage")
+    p.add_argument("source")
+    p.add_argument("--task")
+    p.add_argument("--at", required=True)
     p = sub.add_parser("hook")
     p.add_argument("event", choices=["session-start"])
     args = parser.parse_args(argv)
@@ -505,18 +562,7 @@ def main(argv=None) -> int:
                 ctx.close()
         elif args.cmd in ("on", "off"):
             if args.cmd == "on":
-                config_mod.init(root, args.test, args.lint)
-                conn = store.connect(root)
-                conn.close()
-                cfg = config_mod.load(root)
-                cfg["local"]["enabled"] = True
-                config_mod.save_local(root, cfg["local"])
-                decisions = root / "fusion" / "decisions.md"
-                if not decisions.exists():
-                    decisions.write_text(
-                        "# 设计决定\n> lead 直接编辑这个文件。每次派工,引擎把全文带给助手。只写所有任务都要守的决定。\n",
-                        encoding="utf-8",
-                    )
+                _setup_project(root, args.test, args.lint)
                 print(
                     f"Fusion 已在 {root} 打开。配置在 fusion/config.json,开关和助手模型在 fusion/local.json。"
                 )
@@ -529,8 +575,48 @@ def main(argv=None) -> int:
                 config_mod.save_local(root, cfg["local"])
                 print("Fusion 已关闭(数据都还在,on 可以再打开)。")
         elif args.cmd == "config":
+            if args.action == "panel" and not config_mod.is_fusion_project(root):
+                print(json.dumps({"schema_version": SCHEMA, "project": False}, ensure_ascii=False))
+                return 0
+            if args.action == "enabled":
+                if args.json not in ("on", "off"):
+                    raise FusionError("config enabled 只能是 on 或 off")
+                if not config_mod.is_fusion_project(root):
+                    raise FusionError("这个项目没有打开过 Fusion。先运行 /fusion 打开")
+                _setup_project(root, enabled=args.json == "on")
+                print("Fusion 已打开" if args.json == "on" else "Fusion 已关闭")
+                return 0
             cfg = config_mod.load(root)
-            if args.action == "get":
+            if args.action == "panel":
+                local = cfg["local"]
+                sidekick = local.get("sidekick", {})
+                model = sidekick.get("model", config_mod.DEFAULT_LOCAL["sidekick"]["model"])
+                model_settings = sidekick.get("models", {})
+                models = list(config_mod.KNOWN_MODELS)
+                if isinstance(model_settings, dict):
+                    models.extend(name for name in model_settings if isinstance(name, str))
+                models.append(model)
+                models = list(dict.fromkeys(models))
+                current = config_mod.current_model_settings(sidekick)
+                compact_choices = sorted(set(config_mod.COMPACT_CHOICES + [current["compact"]]))
+                effective = config_mod.effective_settings(cfg)
+                panel = {
+                    "schema_version": SCHEMA,
+                    "project": True,
+                    "enabled": bool(local.get("enabled", False)),
+                    "model": model,
+                    "models": models,
+                    "effort": current["effort"],
+                    "efforts": config_mod.EFFORT_CHOICES,
+                    "fast": current["fast"],
+                    "compact": current["compact"],
+                    "compacts": compact_choices,
+                    "context_ratio": effective["context_ratio"],
+                    "switch_at": effective["switch_at"],
+                    "warnings": config_mod.configuration_warnings(cfg),
+                }
+                print(json.dumps(panel, ensure_ascii=False, separators=(",", ":")))
+            elif args.action == "get":
                 cfg["effective"] = config_mod.effective_settings(cfg)
                 print(json.dumps(cfg, ensure_ascii=False, indent=2))
             elif args.action == "set":
@@ -583,7 +669,7 @@ def main(argv=None) -> int:
                     model = sidekick["model"]
                     settings = sidekick.setdefault("models", {}).setdefault(model, {})
                     if args.action == "effort":
-                        if value not in ("low", "medium", "high", "xhigh"):
+                        if value not in config_mod.EFFORT_CHOICES:
                             raise FusionError("effort 只能是 low、medium、high 或 xhigh")
                         settings["effort"] = value
                     else:
@@ -598,6 +684,40 @@ def main(argv=None) -> int:
             ctx = Ctx(root)
             try:
                 print(views.ledger(ctx.state(), args.task))
+            finally:
+                ctx.close()
+        elif args.cmd == "lead-usage":
+            if args.at not in ("explore", "accept"):
+                raise FusionError("lead-usage --at 只能是 explore 或 accept")
+            if args.source != "-":
+                raise FusionError("lead-usage 的输入必须是 - (标准输入)")
+            try:
+                raw_usage = json.loads(sys.stdin.buffer.read().decode("utf-8-sig"))
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                raise FusionError("lead-usage 的输入不是合法 JSON") from exc
+            if not isinstance(raw_usage, dict):
+                raise FusionError("lead-usage 输入必须是 JSON 对象")
+            ctx = Ctx(root)
+            try:
+                task_id = None
+                if args.at == "accept":
+                    state = ctx.state()
+                    if args.task:
+                        task = state["tasks"].get(args.task)
+                    else:
+                        task = next((item for item in reversed(list(state["tasks"].values()))
+                                     if item["state"] in ("in_review", "integrating")), None)
+                    if task is None:
+                        raise FusionError("找不到要记录 lead 用量的任务", code=2)
+                    task_id = task["id"]
+                elif args.task:
+                    task_id = args.task
+                data = _lead_usage_data(raw_usage)
+                data["at"] = args.at
+                with store.transaction(ctx.conn):
+                    store.append(ctx.conn, [{"type": "lead_usage", "task": task_id, "data": data}], ctx.actor)
+                label = task_id or args.at
+                print(f"已记录 {label} 的 lead 用量")
             finally:
                 ctx.close()
         return 0

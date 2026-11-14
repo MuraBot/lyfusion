@@ -54,7 +54,7 @@ def test_cli_public_command_set_and_version():
     p = subprocess.run([sys.executable, str(CORE / "fusion-core.py"), "--help"], check=False, capture_output=True)
     assert p.returncode == 0
     output = p.stdout.decode("utf-8")
-    names = {"explore", "delegate", "revise", "accept", "status", "cancel", "on", "off", "config", "preflight", "ledger"}
+    names = {"explore", "delegate", "revise", "accept", "status", "cancel", "on", "off", "config", "preflight", "ledger", "lead-usage"}
     match = re.search(r"^\s+\{([^}]+)\}", output, re.MULTILINE)
     assert match
     found = set(match.group(1).split(","))

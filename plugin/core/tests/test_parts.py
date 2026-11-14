@@ -134,13 +134,13 @@ def test_concurrent_writers(proj):
             f"c = store.connect(Path(r'{proj.root}'))\n"
             "for i in range(40):\n"
             "    with store.transaction(c):\n"
-            "        store.append(c, [{'type': 'usage', 'data': {'who': 'lead', 'input': 1}}], 'x')\n"
+            "        store.append(c, [{'type': 'usage', 'data': {'who': 'sidekick', 'input': 1}}], 'x')\n"
             )
     ps = [subprocess.Popen([sys.executable, "-c", code]) for _ in range(3)]
     for p in ps:
         assert p.wait(120) == 0
     s = proj.state()
-    assert s["usage"]["_"]["lead"]["input"] == 120
+    assert s["usage"]["_"]["sidekick"]["input"] == 120
 
 
 # ---------------- 钩子 ----------------

@@ -61,11 +61,14 @@ def test_ledger_shows_usage_in_millions_and_each_run_model_settings():
                           "fix_attempts": 0, "change_rounds": 0, "runs": ["r1", "r2"]}},
         "runs": {"r1": {"model": "gpt-6-luna", "effort": "high", "fast": False},
                  "r2": {"model": "haiku-5.5", "effort": None, "fast": True}},
-        "usage": {"T1": {"lead": {"input": 1_000_000, "cache_read": 200_000, "output": 300_000},
-                          "sidekick": {"input": 2_000_000, "cache_read": 500_000, "cache_write": 100_000, "output": 400_000}}},
+        "usage": {"T1": {"sidekick": {"input": 2_000_000, "cache_read": 500_000, "cache_write": 100_000, "output": 400_000}}},
+        "lead_usage": {"T1": {"task": "T1", "seq": 2,
+                               "data": {"at": "accept", "cost_usd": 1.0}}},
+        "lead_usage_events": [{"task": "T1", "seq": 2,
+                                "data": {"at": "accept", "cost_usd": 1.0}}],
     }
     ledger = views.ledger(state, "T1")
-    assert "1.000 / 0.200 / 0.300" in ledger
+    assert "Lead(验收时)" in ledger and "本任务 -" in ledger
     assert "2.000 / 0.600 / 0.400" in ledger
     assert "gpt-6-luna / high / off" in ledger
     assert "haiku-5.5 / 默认 / on" in ledger

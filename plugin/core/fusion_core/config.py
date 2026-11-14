@@ -11,6 +11,9 @@ from .util import FormatTooNew, FusionError, git
 
 DEFAULT_COMPACT = 400000
 DEFAULT_CONTEXT_RATIO = 0.6
+KNOWN_MODELS = ["gpt-6-luna", "gpt-6-astra"]
+EFFORT_CHOICES = ["low", "medium", "high", "xhigh"]
+COMPACT_CHOICES = [200000, 300000, 400000]
 
 DEFAULT_CONFIG = {
     "base_branch": None,          # 默认:init 时 lead 工作目录所在的分支
