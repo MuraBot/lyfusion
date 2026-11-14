@@ -3,7 +3,9 @@
 // - AbovePrompt(输入框上方):面板。开关、助手模型、思考强度、快速档、上下文上限
 // - lead 跑 explore、accept 时,把 $.session.usage() 交给引擎记进台账(任务 7),lead 不多花调用
 // 读和改都调用引擎命令 fusion-core(config panel、config <动作>、lead-usage):
-// 校验和格式版本只在引擎一处管,mod 不读写 fusion/ 下的文件,也不读 ~/.claude。
+// 校验和格式版本只在引擎一处管,mod 不写 fusion/ 下的文件,也不读 ~/.claude。
+// 引擎命令失败时不藏起来:栏照画(灰),第一次失败弹 toast,面板里写原因;
+// 这时只读 fusion/local.json 显示开关和助手模型(只读退路),改设置请用 /fusion。
 // 只在打开过 Fusion 的项目里画;没打开过的项目照桌面端原样。
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
@@ -34,21 +36,54 @@ async function core($: EngineInterface, args: string[], stdin?: string) {
 }
 
 function failure(result: { exitCode: number; stdout: string; stderr: string }): Notice {
-  return { kind: 'error', text: lastLine(result.stderr) || lastLine(result.stdout) || `fusion-core 退出码 ${result.exitCode}` }
+  const why = lastLine(result.stderr) || lastLine(result.stdout) || '没有输出'
+  return { kind: 'error', text: `fusion-core 退出码 ${result.exitCode}:${why}` }
+}
+
+let requested = false // 这次加载后有没有向引擎要过面板数据(模块可能在 session.start 之后才加载)
+let warned = false // 引擎命令失败的 toast 只弹一次
+
+async function fail($: EngineInterface, problem: Notice): Promise<void> {
+  await update($, notice, () => problem)
+  if (!warned) {
+    warned = true
+    $.ui.toast(`Fusion 栏:${problem.text}`)
+  }
 }
 
 // 向引擎要面板数据。失败时保留上一次的数据,把原因放进提示
 async function refresh($: EngineInterface): Promise<void> {
+  requested = true
   try {
     const result = await core($, ['config', 'panel'])
     if (result.exitCode !== 0) {
-      await update($, notice, () => failure(result))
+      await fail($, failure(result))
       return
     }
     const data = JSON.parse(lastLine(result.stdout))
     await update($, panel, () => (data && data.project === true ? (data as Panel) : null))
+    await update($, notice, current => (current?.kind === 'error' ? null : current))
   } catch (err) {
-    await update($, notice, () => ({ kind: 'error', text: `调用 fusion-core 失败:${String(err)}` }) as Notice)
+    await fail($, { kind: 'error', text: `调用 fusion-core 失败:${String(err)}` })
+  }
+}
+
+type Local = { enabled: boolean; model: string }
+
+// 只读退路:引擎命令还没成功过时,读 local.json 判断是不是 Fusion 项目、开没开。不写
+async function localState($: EngineInterface): Promise<Local | null> {
+  const root = await $.session.root()
+  try {
+    const local = JSON.parse(await $.fs.read(`${root}/fusion/local.json`))
+    return { enabled: Boolean(local?.enabled), model: String(local?.sidekick?.model ?? '') }
+  } catch {
+    // 没有 local.json:再看项目设置在不在(本机没打开过,但项目用 Fusion)
+  }
+  try {
+    await $.fs.stat(`${root}/fusion/config.json`)
+    return { enabled: false, model: '' }
+  } catch {
+    return null
   }
 }
 
@@ -101,7 +136,10 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
-    const state = await read($, panel)
+    if (!requested) {
+      void refresh($)
+    }
+    const state = (await read($, panel)) ?? (await localState($))
     if (!state) {
       return next(e)
     }
@@ -133,12 +171,33 @@ export const register: Register = on => {
       return next(e)
     }
     const state = await read($, panel)
-    if (!state) {
-      return next(e)
-    }
     const note = await read($, notice)
     const table = $.ui.resolve(e)
     const { Box, Text, Button } = table
+    if (!state) {
+      // 引擎命令还没成功过:只读显示,写清原因
+      const local = await localState($)
+      if (!local) {
+        return next(e)
+      }
+      return (
+        <Box flexDirection="column" gap="sm" paddingX="md" paddingY="sm" borderStyle="round" borderColor="promptBorder">
+          <Box flexDirection="row" alignItems="center" justifyContent="space-between" gap="md">
+            <Box flexDirection="row" alignItems="center" gap="sm">
+              <Text color={local.enabled ? 'claude' : 'inactive'}>●</Text>
+              <Text weight="semibold">Fusion</Text>
+              <Text dimColor>
+                {local.enabled ? '已开' : '已关'}
+                {local.model ? ` · 助手 ${local.model}` : ''}(只读)
+              </Text>
+            </Box>
+            <Button key="close" role="dismiss" label="收起" onPress={() => void update($, isOpen, () => false)} />
+          </Box>
+          {note?.kind === 'error' ? <Text color="error">{note.text}</Text> : <Text dimColor>正在向引擎读取设置…</Text>}
+          <Text dimColor>引擎命令调用失败时,改设置请用 /fusion</Text>
+        </Box>
+      )
+    }
     const Select = 'Select' in table ? table.Select : undefined
     const enabled = state.enabled
     const status = enabled ? '已开:代码活交给 Codex 助手' : '已关'

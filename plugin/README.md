@@ -25,7 +25,7 @@ lead 在 Bash 后台运行四个主流程命令,每条命令会等待结果并�
 - 不调用 Claude API,不读取 Claude 配置或 Codex 登录文件。
 - 启动 Codex 前清除 `CLAUDE*`、`ANTHROPIC*` 环境变量;Codex 只在独立工位中工作。
 - 运行日志按常见密钥格式脱敏,`fusion/runs/` 不进 git。
-- Fusion 栏的 lead 用量来自 Claude Code 给插件的 `$.session.usage()`(上下文、额度百分比、本会话花费),不读 `~/.claude/`;只记进本项目的 `fusion/fusion.db`。mod 不读写 `fusion/` 下的文件,也不用定时器开启回合。
+- Fusion 栏的 lead 用量来自 Claude Code 给插件的 `$.session.usage()`(上下文、额度百分比、本会话花费),不读 `~/.claude/`;只记进本项目的 `fusion/fusion.db`。mod 不写 `fusion/` 下的文件(引擎命令失败时只读 `fusion/local.json` 显示开关和助手模型),也不用定时器开启回合。
 
 ## 测试
 
