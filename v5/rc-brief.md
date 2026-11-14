@@ -34,6 +34,7 @@
    - 试验结果(Lily 2026-11-13 实测，截图):上传的插件能加载 mod;`SessionMode` 能画灯和按钮;`AbovePrompt` 面板能显示;提示行的 `tail` 桌面端不画(和文档一致)。新建会话时不显示，发出第一条消息后才出现(估计引擎发第一条消息才启动，插件改不了)。桌面端把代码里写在按钮前面的圆点画到了后面
    - **Lily 定**:圆点和 "Fusion" 放进同一个框(圆点作为 `Button` 的子元素 `<Text color>`,顺序由自己定);圆点在左边，即"● Fusion",和面板一致
    - **Lily 定**:面板和状态灯的前端(mod)由 lead 自己写，不派给助手(她觉得 luna 的前端不够好;mod 也要读 Claude Code 的类型文件，按规则 Codex 不读)。引擎这边要加的命令照常走 Fusion
+   - **Lily 要求**:面板要做得好看，和 Claude 桌面端本身一样顶级。做法：只用桌面端自带的元素(`$.ui.resolve(e)` 给的那套)和主题色(`claude`、`inactive`、`dimColor`),不写死颜色;样式和间距照着模型选择器;深色、浅色主题都要试;做完请 Lily 截图确认
    - 建议:mod 不直接写 `local.json`,改设置一律调用引擎命令(`fusion-core config …`),校验和格式版本只在引擎一处
 7. **M3 lead 用量**:mod 用 `$.session.usage()`(上下文、5 小时和每周额度、花费,不读 `~/.claude`),每次 accept 记进台账,lead 不多花调用
 
