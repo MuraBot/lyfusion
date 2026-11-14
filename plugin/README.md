@@ -1,4 +1,4 @@
-# lyfusion-plugin(v5.0.0-aq.2)
+# lyfusion-plugin(v5.0.0-rc.1)
 
 专为 Claude Code 做的双代理协作插件,是 Lily 的个人项目,不是 Anthropic 官方产品。Claude 当 lead,Codex CLI 当助手。lead 通过 `explore`、`delegate`、`revise`、`accept` 四个阻塞命令工作;任务状态和检查由本地 Python 引擎管理。
 
@@ -31,4 +31,4 @@ lead 在 Bash 后台运行四个主流程命令,每条命令会等待结果并�
 
 运行 `cd core && python -m pytest -q tests -n 6`(开发要装 `core/requirements-dev.txt` 里的 pytest、pytest-xdist;插件本身只用标准库)。测试使用假 Codex,不会调用真实 Codex。mod 没有自动测试,改了要在桌面端深色、浅色主题下各看一次。
 
-打包运行 `python ../v5/build_plugin.py`,生成 `../v5/dist/lyfusion-plugin-5.0.0-aq.2.zip`。未打开过 Fusion 的项目里钩子不输出。
+打包运行 `python ../v5/build_plugin.py`,生成 `../v5/dist/lyfusion-plugin-5.0.0-rc.1.zip`。未打开过 Fusion 的项目里钩子不输出。
