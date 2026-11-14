@@ -7,7 +7,7 @@ import sys
 from . import config as config_mod
 from . import views
 from .commands import Ctx, cmd_lead_session
-from .util import FusionError
+from .util import FormatTooNew, FusionError
 
 
 def run(event: str, data: dict) -> str | None:
@@ -17,7 +17,13 @@ def run(event: str, data: dict) -> str | None:
         root = config_mod.project_root(data.get("cwd") or None)
     except FusionError:
         return None
-    if not config_mod.is_fusion_project(root) or not config_mod.load(root)["local"].get("enabled"):
+    if not config_mod.is_fusion_project(root):
+        return None
+    try:
+        cfg = config_mod.load(root)
+    except FormatTooNew as exc:
+        return f"Fusion 状态格式过新: {exc.path} (版本 {exc.version})。\n请升级 lyfusion-plugin 后再使用。"
+    if not cfg["local"].get("enabled"):
         return None
     ctx = Ctx(root)
     try:
@@ -35,6 +41,8 @@ def main(event: str) -> int:
         data = {}
     try:
         text = run(event, data)
+    except FormatTooNew as exc:
+        text = f"Fusion 状态格式过新: {exc.path} (版本 {exc.version})。\n请升级 lyfusion-plugin 后再使用。"
     except Exception:  # noqa: BLE001 - host hooks must fail closed without surfacing plugin errors.
         return 0
     if text:

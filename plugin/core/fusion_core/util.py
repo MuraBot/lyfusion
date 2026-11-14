@@ -22,6 +22,22 @@ class FusionError(Exception):
         self.code = code
 
 
+class FormatTooNew(FusionError):
+    """The project's state was written by a newer plugin version."""
+
+    def __init__(self, path: str, version: int):
+        from . import SCHEMA, VERSION
+
+        self.path = path
+        self.version = version
+        super().__init__(
+            f"{path} 的格式版本是 {version},这个插件({VERSION})只认到 {SCHEMA}:"
+            "这个项目用过更新版本的 lyfusion-plugin。请让用户升级插件后再用;"
+            "不要手改版本号,也不要删除 fusion/ 里的文件。",
+            code=2,
+        )
+
+
 def now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S")
 

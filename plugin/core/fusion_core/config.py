@@ -6,7 +6,8 @@ import math
 import os
 from pathlib import Path
 
-from .util import FusionError, git
+from . import SCHEMA
+from .util import FormatTooNew, FusionError, git
 
 DEFAULT_COMPACT = 400000
 DEFAULT_CONTEXT_RATIO = 0.6
@@ -64,12 +65,26 @@ def _read(path: Path, default: dict) -> dict:
     data = json.loads(json.dumps(default))
     if path.exists():
         user = json.loads(path.read_text(encoding="utf-8") or "{}")
+        version = user.get("schema_version", 1)
+        if not isinstance(version, int) or isinstance(version, bool) or version <= 0:
+            raise FusionError(f"{path.as_posix()} 的 schema_version 已损坏,必须是正整数")
+        if version > SCHEMA:
+            raise FormatTooNew(path.as_posix(), version)
         for k, v in user.items():
+            if k == "schema_version":
+                continue
             if isinstance(v, dict) and isinstance(data.get(k), dict):
                 data[k].update(v)
             else:
                 data[k] = v
     return data
+
+
+def save_project(root: Path, data: dict) -> None:
+    path = fusion_dir(root) / "config.json"
+    saved = dict(data)
+    saved["schema_version"] = SCHEMA
+    path.write_text(json.dumps(saved, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def load(root: Path) -> dict:
@@ -177,6 +192,7 @@ def save_local(root: Path, local: dict) -> None:
     path = fusion_dir(root) / "local.json"
     local = dict(local)
     local.pop("clean", None)
+    local["schema_version"] = SCHEMA
     path.write_text(json.dumps(local, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
@@ -196,7 +212,7 @@ def init(root: Path, test: str | None = None, lint: str | None = None) -> dict:
         cfg = {k: v for k, v in DEFAULT_CONFIG.items() if k in ("test", "lint", "station_copy", "network")}
         cfg["base_branch"] = git("rev-parse", "--abbrev-ref", "HEAD", cwd=root)
         cfg["test"], cfg["lint"] = test, lint
-        cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        save_project(root, cfg)
     if not (fd / "local.json").exists():
         local = json.loads(json.dumps(DEFAULT_LOCAL))
         local["enabled"] = True
@@ -207,6 +223,6 @@ def init(root: Path, test: str | None = None, lint: str | None = None) -> dict:
             cfg["test"] = test
         if lint is not None:
             cfg["lint"] = lint
-        cfg_path.write_text(json.dumps({k: v for k, v in cfg.items() if k != "local"}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        save_project(root, {k: v for k, v in cfg.items() if k != "local"})
     (fd / ".gitignore").write_text(GITIGNORE, encoding="utf-8")
     return load(root)

@@ -2,6 +2,7 @@
 __pycache__/
 .pytest_cache/
 plugin/core/tests/_work/
+plugin/core/tests/_pytest_tmp/
 v5/probe-project/
 v5/smoke-real/
 v5/dist/

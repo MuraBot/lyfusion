@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from . import SCHEMA
-from .util import dumps, now
+from .util import FormatTooNew, dumps, now
 
 DDL = """
 CREATE TABLE IF NOT EXISTS events (
@@ -34,9 +34,15 @@ def connect(root: Path) -> sqlite3.Connection:
     path = root / "fusion" / "fusion.db"
     path.parent.mkdir(exist_ok=True)
     conn = sqlite3.connect(path, timeout=30, isolation_level=None, check_same_thread=False)
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version > SCHEMA:
+        conn.close()
+        raise FormatTooNew(path.as_posix(), version)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
     conn.executescript(DDL)
+    if version == 0:
+        conn.execute(f"PRAGMA user_version={SCHEMA}")
     return conn
 
 
@@ -84,6 +90,8 @@ def read(conn: sqlite3.Connection, after: int = 0) -> list[dict]:
 
 def upgrade(event: dict) -> dict:
     """按事件格式版本升级旧事件。目前只有版本 1。"""
+    if event.get("v", 1) > SCHEMA:
+        raise FormatTooNew("fusion/fusion.db", event["v"])
     return event
 
 

@@ -11,12 +11,12 @@ import sys
 import time
 from pathlib import Path
 
-from . import VERSION, aq, store, views
+from . import SCHEMA, VERSION, aq, store, views
 from . import config as config_mod
 from .commands import Ctx, cmd_accept, cmd_cancel, cmd_delegate, cmd_explore, cmd_revise
 from .state import active_task, replay
 from .supervisor import Supervisor
-from .util import CMD, FusionError, clean_env, git
+from .util import CMD, FormatTooNew, FusionError, clean_env, git
 
 USAGE = views.lead_guide()
 
@@ -299,6 +299,48 @@ def _preflight(root: Path) -> dict:
     def add(name, ok, detail):
         rows.append({"check": name, "ok": ok, "detail": detail})
 
+    version_details = []
+    format_ok = True
+    for name in ("config.json", "local.json"):
+        path = root / "fusion" / name
+        if not path.exists():
+            version_details.append(f"{path.as_posix()}: 没有,按 1")
+            continue
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8") or "{}")
+            version = raw.get("schema_version", 1)
+            label = str(version) if "schema_version" in raw else "没有,按 1"
+            if not isinstance(version, int) or isinstance(version, bool) or version <= 0:
+                format_ok = False
+                label += "(损坏)"
+            elif version > SCHEMA:
+                format_ok = False
+                label += "(需要升级插件)"
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            label = "损坏"
+            format_ok = False
+        version_details.append(f"{path.as_posix()}: {label}")
+    db_path = root / "fusion" / "fusion.db"
+    if db_path.exists():
+        try:
+            readonly = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+            db_version = readonly.execute("PRAGMA user_version").fetchone()[0]
+            row_versions = readonly.execute("SELECT MAX(v) FROM events").fetchone()[0]
+            readonly.close()
+            version_details.append(f"{db_path.as_posix()}: {db_version if db_version else '没有,按 1'}")
+            if db_version > SCHEMA or (row_versions is not None and row_versions > SCHEMA):
+                format_ok = False
+                if db_version <= SCHEMA and row_versions is not None and row_versions > SCHEMA:
+                    version_details[-1] += f"(事件版本 {row_versions},需要升级插件)"
+                elif db_version > SCHEMA:
+                    version_details[-1] += "(需要升级插件)"
+        except sqlite3.Error:
+            version_details.append(f"{db_path.as_posix()}: 损坏")
+            format_ok = False
+    else:
+        version_details.append(f"{db_path.as_posix()}: 没有,按 1")
+    add("状态格式", format_ok, "; ".join(version_details))
+
     add("git", True, git("--version", cwd=root))
     add("Python", sys.version_info >= (3, 10), sys.version.split()[0])
     fusion = config_mod.is_fusion_project(root)
@@ -307,11 +349,18 @@ def _preflight(root: Path) -> dict:
         fusion,
         str(root / "fusion") if fusion else "运行 /fusion on",
     )
-    cfg = (
-        config_mod.load(root)
-        if fusion
-        else {**config_mod.DEFAULT_CONFIG, "local": dict(config_mod.DEFAULT_LOCAL), "base_branch": None}
-    )
+    try:
+        cfg = (
+            config_mod.load(root)
+            if fusion
+            else {**config_mod.DEFAULT_CONFIG, "local": dict(config_mod.DEFAULT_LOCAL), "base_branch": None}
+        )
+    except FormatTooNew:
+        cfg = {
+            **config_mod.DEFAULT_CONFIG,
+            "local": dict(config_mod.DEFAULT_LOCAL),
+            "base_branch": git("rev-parse", "--abbrev-ref", "HEAD", cwd=root, check=False)[1].strip() or None,
+        }
     env = clean_env(cfg["local"].get("env"))
     clean = config_mod.effective_settings(cfg)["clean"]
     codex_command = None
@@ -457,6 +506,8 @@ def main(argv=None) -> int:
         elif args.cmd in ("on", "off"):
             if args.cmd == "on":
                 config_mod.init(root, args.test, args.lint)
+                conn = store.connect(root)
+                conn.close()
                 cfg = config_mod.load(root)
                 cfg["local"]["enabled"] = True
                 config_mod.save_local(root, cfg["local"])
@@ -505,13 +556,9 @@ def main(argv=None) -> int:
                             local[key] = value
                     config_mod.save_local(root, local)
                 if project_change:
-                    path = root / "fusion" / "config.json"
-                    data = json.loads(path.read_text(encoding="utf-8"))
+                    data = json.loads((root / "fusion" / "config.json").read_text(encoding="utf-8"))
                     data.update(project_change)
-                    path.write_text(
-                        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-                        encoding="utf-8",
-                    )
+                    config_mod.save_project(root, data)
                 print(json.dumps(config_mod.load(root), ensure_ascii=False, indent=2))
             else:
                 value = args.json
