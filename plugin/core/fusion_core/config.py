@@ -33,7 +33,8 @@ DEFAULT_CONFIG = {
     "clean": True,                # Codex 是否不读用户配置并禁用 apps、plugins
     "check_timeout": 900,         # 单条检查命令的超时(秒)
     "stall_minutes": 20,          # 多久没有新事件算"长时间无进展"
-    "watch_minutes": 40,           # 运行超过多久叫醒 lead;0 关闭
+    # 运行超过多久叫醒 lead;0 关闭。也让 lead 的提示缓存(约 1 小时)不过期,保持在 50 以内。
+    "watch_minutes": 40,
     "watch_small_reads": 15,       # 碎读达到多少次叫醒 lead;0 关闭
     "watch_repeats": 5,            # 重复命令达到多少次叫醒 lead;0 关闭
     "small_read_lines": 80,        # 单条读命令输出不超过多少行算碎读

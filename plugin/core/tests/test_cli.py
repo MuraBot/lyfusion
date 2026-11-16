@@ -52,6 +52,7 @@ def test_explore_stdin_utf8_writes_artifacts(proj):
     assert artifact.splitlines()[1].startswith("助手会话编号:")
     assert (proj.root / "fusion/explore.md").read_text(encoding="utf-8") == artifact
     assert p.stdout.decode("utf-8").splitlines()[0] == "结果: fusion/explore.md"
+    assert "计划用 Markdown" in p.stdout.decode("utf-8")
 
 
 def test_delegate_four_field_plan_and_resumes_explore(proj):
@@ -76,6 +77,23 @@ def test_delegate_four_field_plan_and_resumes_explore(proj):
     calls = proj.calls()
     assert calls[0]["resume"] is False and calls[1]["resume"] is True
     assert "fusion/decisions.md 全文" in calls[1]["prompt"]
+
+
+def test_delegate_markdown_plan(proj):
+    proj.script([{"text": "探索结论。"}, {"report": report(summary="完成", status="done")}])
+    p = cli(proj, "explore", "-", input_text="任务原话")
+    assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
+    md = "# 加模块\n\n## 目标\n加 app/new.py\n\n## scope\n- app/**\n"
+    p = cli(proj, "delegate", "-", input_text=md)
+    assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
+    state = proj.state()
+    expected = {"goal": "加模块", "brief": "## 目标\n加 app/new.py", "scope": ["app/**"]}
+    from fusion_core import aq
+
+    assert state["tasks"]["T1"]["plan"] == aq.parse_plan(json.dumps(expected, ensure_ascii=False))
+    prompt = (proj.root / "fusion/runs/r2/prompt.txt").read_text(encoding="utf-8")
+    assert "## 目标\n加模块" in prompt
+    assert "加 app/new.py" in prompt
 
 
 def test_codex_stdin_is_prompt_file_for_explore_and_resume(proj):

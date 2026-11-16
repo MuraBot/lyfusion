@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from . import gitops, validate
@@ -18,10 +19,81 @@ def read_input(value: str | None, stdin) -> str:
 
 
 def parse_plan(text: str) -> dict:
+    if not text.lstrip("\ufeff \t\r\n").startswith("{"):
+        return validate.plan(_markdown_plan(text))
     try:
         return validate.plan(json.loads(text))
     except json.JSONDecodeError as exc:
         raise FusionError(f"计划不是合法的 JSON:{exc}") from exc
+
+
+def _markdown_plan(text: str) -> dict:
+    """把 Markdown 计划转换成四字段计划。"""
+    text = text.lstrip("\ufeff \t\r\n")
+    lines = text.splitlines()
+    first = next((index for index, line in enumerate(lines) if line.strip()), None)
+    if first is None:
+        raise FusionError('Markdown 计划第一行要是 "# 一句话目标";也可以用 JSON(第一个字符是 {)')
+    goal_match = re.fullmatch(r"#\s+(.+?)\s*", lines[first])
+    if not goal_match or not goal_match.group(1).strip():
+        raise FusionError('Markdown 计划第一行要是 "# 一句话目标";也可以用 JSON(第一个字符是 {)')
+    goal = goal_match.group(1).strip()
+
+    reserved: dict[str, list[str]] = {}
+    removed = {first}
+    section: str | None = None
+    fence: str | None = None
+    heading = re.compile(r"^#{1,6}\s+")
+    reserved_heading = re.compile(r"^## (scope|checks)\s*$", re.IGNORECASE)
+    for index, line in enumerate(lines):
+        stripped = line.lstrip()
+        if fence:
+            if section:
+                removed.add(index)
+            if stripped.startswith(fence):
+                fence = None
+            continue
+        if stripped.startswith(("```", "~~~")):
+            fence = stripped[:3]
+            if section:
+                removed.add(index)
+            continue
+        if heading.match(line):
+            match = reserved_heading.fullmatch(line)
+            if match:
+                name = match.group(1).lower()
+                if name in reserved:
+                    raise FusionError(f"## {name} 一节只能写一次")
+                reserved[name] = []
+                section = name
+                removed.add(index)
+                continue
+            section = None
+        if section:
+            removed.add(index)
+            if not line.strip():
+                continue
+            item_match = re.fullmatch(r"\s*[-*]\s+(.+?)\s*", line)
+            if not item_match:
+                raise FusionError(f'## {section} 一节每行写 "- 项":{line}')
+            item = item_match.group(1).strip()
+            if len(item) >= 2 and item.startswith("`") and item.endswith("`"):
+                item = item[1:-1].strip()
+            if not item:
+                raise FusionError(f'## {section} 一节每行写 "- 项":{line}')
+            reserved[section].append(item)
+
+    brief_lines = [line for index, line in enumerate(lines) if index not in removed]
+    while brief_lines and not brief_lines[0].strip():
+        brief_lines.pop(0)
+    while brief_lines and not brief_lines[-1].strip():
+        brief_lines.pop()
+    plan = {"goal": goal, "brief": "\n".join(brief_lines)}
+    if "scope" in reserved:
+        plan["scope"] = reserved["scope"]
+    if "checks" in reserved:
+        plan["checks"] = [{"run": command} for command in reserved["checks"]]
+    return plan
 
 
 def decisions_text(root: Path) -> str:

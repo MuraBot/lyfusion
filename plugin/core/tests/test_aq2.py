@@ -52,5 +52,7 @@ def test_review_lists_candidate_station_and_each_command_once(proj):
 def test_guide_and_rules_carry_lily_decisions():
     assert "每个任务都先做,不要自己通读代码" in LEAD_GUIDE
     assert "自动提交" in LEAD_GUIDE
+    assert '"# 一句话目标"' in LEAD_GUIDE
+    assert "检查标准写在产出上" in LEAD_GUIDE
     assert len(LEAD_GUIDE.splitlines()) <= 20
     assert "不要对整个项目或没改的文件跑格式化器" in WORK_RULES

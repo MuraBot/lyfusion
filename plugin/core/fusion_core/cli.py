@@ -190,7 +190,7 @@ def _write_explore(root, tid, state, original: str | None, continued: bool = Fal
     )
     if continued:
         print("已有运行在进行,接着等它;这次的输入没有用")
-    print(f"下一步: {CMD} delegate -(计划 JSON 用 heredoc 传)")
+    print(f"下一步: {CMD} delegate -(计划用 Markdown,heredoc 传)")
 
 
 def _do_explore(args, root):
@@ -518,7 +518,7 @@ def main(argv=None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     for name, help_text in (
         ("explore", "探索原话 Markdown 或 -"),
-        ("delegate", "四字段计划 JSON 或 -"),
+        ("delegate", "计划用 Markdown 或 JSON,或 -"),
         ("revise", "修改意见或 -"),
     ):
         p = sub.add_parser(name)

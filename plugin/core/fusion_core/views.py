@@ -19,9 +19,10 @@ LEAD_GUIDE = """lyfusion 已开:这个项目的代码活交给 Codex 助手做,�
 不要开 Monitor、不要 sleep、不要轮询。醒来后直接读结果文件。
 1. 探索(每个任务都先做,不要自己通读代码):fusion-core explore - <<'EOF' …… EOF
    写用户的任务原话(一字不改)和你想知道的,最多 3 条,编号 Q1~Q3。结果:fusion/explore.md
-2. 派工:fusion-core delegate - <<'EOF' {计划} EOF   续用探索的会话。结果:fusion/review.md
-   计划是 JSON:{\"goal\": \"一句话\", \"brief\": \"Markdown 正文\", \"checks\": [{\"run\": \"命令\", \"expect\": 0}], \"scope\": [\"src/**\"]}
-   checks、scope 可省。brief 推荐小标题:目标、决定、猜测(未证实)、不要做的事、已知的坑、停下的条件。
+2. 派工:fusion-core delegate - <<'EOF' 计划 EOF   续用探索的会话。结果:fusion/review.md
+   计划用 Markdown:第一行 "# 一句话目标",下面是 brief 正文;可选的 "## scope"、"## checks" 两节每行写 "- glob" 或 "- 命令"(期望退出码 0)。
+   也接受原来的 JSON(第一个字符是 {)。brief 推荐小标题:目标、决定、不变的行为、猜测(未证实)、不要做的事、已知的坑、停下的条件。
+   检查标准写在产出上(命令输出、渲染出的文字),不写在源码文字上:助手会照字面去凑。
 3. 修改:fusion-core revise - <<'EOF' 修改意见 EOF   自由文字,助手的问题也在这里回答。结果:fusion/review.md
 4. 验收:fusion-core accept   合并、重跑检查、压成 1 个提交、快进主分支。
 跨任务都要守的设计决定写进 fusion/decisions.md(普通文件,直接编辑),引擎每次派工把全文带给助手,并自动提交它。
