@@ -439,6 +439,56 @@ def _do_wait(args, root):
     _print_review(path, summary, _review_text(root, path, task, result, task["change_rounds"] + 1), task, result)
 
 
+def _maybe_print_handoff_reminder(root: Path, task_id: str) -> None:
+    cfg = config_mod.load(root)
+    handoff = config_mod.handoff_settings(cfg)
+    if handoff["mode"] == "off":
+        return
+    conn = store.connect(root)
+    try:
+        events = store.read(conn)
+        snapshot = next((event for event in reversed(events)
+                         if event["type"] == "lead_usage" and event.get("task") == task_id
+                         and (event.get("data") or {}).get("at") == "accept"), None)
+        if snapshot is None:
+            return
+        tokens = (snapshot.get("data") or {}).get("tokens")
+        if not isinstance(tokens, int) or isinstance(tokens, bool):
+            return
+        if tokens < handoff["tokens"]:
+            return
+        reminder = next((event for event in reversed(events)
+                         if event["type"] == "handoff_reminder"), None)
+        after_reminder = reminder["seq"] if reminder else 0
+        reset_seen = any(
+            event["type"] == "lead_usage"
+            and (event.get("data") or {}).get("at") == "accept"
+            and isinstance((event.get("data") or {}).get("tokens"), int)
+            and not isinstance((event.get("data") or {}).get("tokens"), bool)
+            and (event.get("data") or {}).get("tokens") < handoff["tokens"]
+            and event["seq"] > after_reminder
+            for event in events
+        )
+        last_tokens = (reminder or {}).get("data", {}).get("tokens", 0)
+        if not isinstance(last_tokens, int) or isinstance(last_tokens, bool):
+            last_tokens = 0
+        if reminder and tokens < last_tokens + 150000 and not reset_seen:
+            return
+        with store.transaction(conn):
+            store.append(conn, [{"type": "handoff_reminder", "task": task_id,
+                                 "data": {"tokens": tokens}}], "lead")
+    finally:
+        conn.close()
+    print(f"Lead context: {tokens} tokens (handoff threshold {handoff['tokens']}). "
+          "Write a handoff now; see the guide.")
+
+
+def _print_accept_success(root, task) -> None:
+    print(
+        f"提交: {task['accepted_commit']}\n快进分支: {config_mod.load(root)['base_branch']}\n下一步: {CMD} status"
+    )
+    _maybe_print_handoff_reminder(root, task["id"])
+
 def _report_accept(root, task):
     if task["state"] != "accepted":
         detail = (task.get("integration") or {}).get("detail", task["state"])
@@ -449,9 +499,7 @@ def _report_accept(root, task):
         else:
             message = f"集成失败:{detail}"
         raise FusionError(message, code=2)
-    print(
-        f"提交: {task['accepted_commit']}\n快进分支: {config_mod.load(root)['base_branch']}\n下一步: {CMD} status"
-    )
+    _print_accept_success(root, task)
 
 
 def _do_accept(args, root):
@@ -461,9 +509,12 @@ def _do_accept(args, root):
     finally:
         ctx.close()
     if out.get("commit"):
-        print(
-            f"提交: {out['commit']}\n快进分支: {config_mod.load(root)['base_branch']}\n下一步: {CMD} status"
-        )
+        task = Ctx(root)
+        try:
+            accepted = task.state()["tasks"][out["task"]]
+        finally:
+            task.close()
+        _print_accept_success(root, accepted)
         return
     state = _wait(root, out["task"])
     task = state["tasks"][out["task"]]
@@ -665,7 +716,8 @@ def main(argv=None) -> int:
     sub.add_parser("off")
     sub.add_parser("preflight")
     p = sub.add_parser("config")
-    p.add_argument("action", choices=["get", "set", "model", "effort", "fast", "compact", "panel", "enabled"])
+    p.add_argument("action", choices=["get", "set", "model", "effort", "fast", "compact", "panel", "enabled",
+                                      "handoff", "handoff-tokens"])
     p.add_argument("json", nargs="?")
     p = sub.add_parser("ledger")
     p.add_argument("--task")
@@ -711,7 +763,7 @@ def main(argv=None) -> int:
                 print(
                     f"Fusion 已在 {root} 打开。配置在 fusion/config.json,开关和助手模型在 fusion/local.json。"
                 )
-                print(USAGE)
+                print(views.lead_guide(config_mod.load(root)))
             elif not config_mod.is_fusion_project(root):
                 print("这个项目没有打开过 Fusion。")
             else:
@@ -761,6 +813,7 @@ def main(argv=None) -> int:
                     "compacts": compact_choices,
                     "context_ratio": effective["context_ratio"],
                     "switch_at": effective["switch_at"],
+                    "handoff": config_mod.handoff_settings(cfg) | {"modes": config_mod.HANDOFF_MODES},
                     "warnings": config_mod.configuration_warnings(cfg),
                 }
                 print(json.dumps(panel, ensure_ascii=False, separators=(",", ":")))
@@ -793,6 +846,22 @@ def main(argv=None) -> int:
                     data = json.loads((root / "fusion" / "config.json").read_text(encoding="utf-8"))
                     data.update(project_change)
                     config_mod.save_project(root, data)
+                print(json.dumps(config_mod.load(root), ensure_ascii=False, indent=2))
+            elif args.action == "handoff":
+                if args.json not in config_mod.HANDOFF_MODES:
+                    raise FusionError("handoff must be clear, write, or off")
+                cfg["local"]["handoff_mode"] = args.json
+                config_mod.save_local(root, cfg["local"])
+                print(json.dumps(config_mod.load(root), ensure_ascii=False, indent=2))
+            elif args.action == "handoff-tokens":
+                try:
+                    tokens = int(args.json or "")
+                except ValueError as exc:
+                    raise FusionError("handoff-tokens must be a positive integer") from exc
+                if tokens <= 0:
+                    raise FusionError("handoff-tokens must be a positive integer")
+                cfg["local"]["handoff_tokens"] = tokens
+                config_mod.save_local(root, cfg["local"])
                 print(json.dumps(config_mod.load(root), ensure_ascii=False, indent=2))
             else:
                 value = args.json

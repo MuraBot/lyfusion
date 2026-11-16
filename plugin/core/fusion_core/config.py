@@ -4,13 +4,14 @@ from __future__ import annotations
 import json
 import math
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from . import SCHEMA
 from .util import FormatTooNew, FusionError, git
 
 DEFAULT_COMPACT = 400000
 DEFAULT_CONTEXT_RATIO = 0.6
+HANDOFF_MODES = ["clear", "write", "off"]
 # 来源：Lily 本机 Codex 0.167 的模型缓存，经 lyfusion 会话转达(2026-11-14)；引擎不读 models_cache.json
 MODEL_INFO = {
     "gpt-6-luna": {"name": "GPT-6-Luna", "efforts": ["low", "medium", "high", "xhigh", "max"],
@@ -40,6 +41,7 @@ DEFAULT_CONFIG = {
     "watch_repeats": 5,            # 重复命令达到多少次叫醒 lead;0 关闭
     "small_read_lines": 80,        # 单条读命令输出不超过多少行算碎读
     "context_ratio": DEFAULT_CONTEXT_RATIO,  # 必须小于 1,在自动压缩前换工位,避免压缩丢掉只发送一次的工作规则
+    "handoff_dir": "fusion/handoffs",
     "max_fix_attempts": 2,        # 检查失败后让助手修的次数
     "max_change_rounds": 3,       # 同一个任务修改意见的轮数上限,超过要先问用户
     "runs_keep_days": 30,
@@ -49,6 +51,8 @@ DEFAULT_CONFIG = {
 
 DEFAULT_LOCAL = {
     "enabled": False,
+    "handoff_mode": "write",
+    "handoff_tokens": 200000,
     "sidekick": {"model": "gpt-6-luna", "models": {"gpt-6-luna": {"effort": "high", "fast": False}}},
     "env": {},                    # 给助手和检查命令的额外环境变量
     "codex": None,                # Codex 命令,列表;默认自动查找
@@ -184,6 +188,27 @@ def effective_settings(cfg: dict) -> dict:
         "context_ratio": ratio,
         "switch_at": int(settings["compact"] * ratio),
     }
+
+
+def handoff_settings(cfg: dict) -> dict:
+    """Return validated handoff settings, falling back to defaults for stored values."""
+    local = cfg.get("local", {})
+    mode = local.get("handoff_mode", DEFAULT_LOCAL["handoff_mode"])
+    if mode not in HANDOFF_MODES:
+        mode = DEFAULT_LOCAL["handoff_mode"]
+    tokens = local.get("handoff_tokens", DEFAULT_LOCAL["handoff_tokens"])
+    if not isinstance(tokens, int) or isinstance(tokens, bool) or tokens <= 0:
+        tokens = DEFAULT_LOCAL["handoff_tokens"]
+    handoff_dir = cfg.get("handoff_dir", DEFAULT_CONFIG["handoff_dir"])
+    if not isinstance(handoff_dir, str) or not handoff_dir.strip():
+        handoff_dir = DEFAULT_CONFIG["handoff_dir"]
+    else:
+        handoff_dir = handoff_dir.replace("\\", "/").strip()
+        parts = handoff_dir.split("/")
+        if (not handoff_dir or handoff_dir.startswith("/") or ".." in parts
+                or Path(handoff_dir).is_absolute() or PureWindowsPath(handoff_dir).is_absolute()):
+            handoff_dir = DEFAULT_CONFIG["handoff_dir"]
+    return {"mode": mode, "tokens": tokens, "dir": handoff_dir}
 
 
 def _valid_compact(value) -> bool:

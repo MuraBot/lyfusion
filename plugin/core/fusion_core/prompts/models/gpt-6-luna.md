@@ -4,4 +4,4 @@
 
 ## 给 lead
 
-写删除类计划和修改意见时用禁止句,配一条能检查的标准(例如"删掉 X,不要包一层;做完列出搜索旧名字剩下的命中");需要审美和画面验收的前端任务表现差(待观察)。
+When drafting deletion requests or revision feedback, use a prohibition and one checkable criterion (for example, "Delete X; do not add an adapter; search for the old name and report remaining matches"). Frontend tasks that depend on aesthetics or visual QA may need human review (unverified).

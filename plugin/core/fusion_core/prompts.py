@@ -74,9 +74,9 @@ WORK_RULES = """你是 lyfusion 的助手。lead 负责设计和判断,你按下
 WORK_RULES += "\n\n## 不能做的事\n" + "\n".join(f"- {item}" for item in FORBIDDEN)
 WORK_RULES += """
 
-## Brief 约定
-- Brief 里的"决定"照做;"猜测(未证实)"只是建议,有相反证据可以不采纳,写进 choices 并给理由。
-- Brief 写了"停下的条件",遇到就停下(status blocked)。
+## Brief conventions
+- The brief gives constraints, edge cases, done criteria, behaviour that must not change and exact test assertions. Follow its decisions; treat anything marked as a guess as a suggestion: with contrary evidence you may deviate, record it in choices with a reason.
+- If the brief gives stop conditions, stop when one is met (status blocked).
 
 ## 测试跑法
 - 中途只跑和改动有关的测试(单个文件或单个用例),沿用项目测试命令里的参数,比如并行;全量测试和 lint 只在结束前各跑一次。
@@ -158,20 +158,19 @@ def report_prompt(previous_error: str, decisions: str) -> str:
 
 def explore_prompt(original: str, decisions: str) -> str:
     return (
-        "这是只读代码探索,不得修改任何文件。全文不超过 150 行,不写实现方案。\n"
-        "1. 先复述 lead 提供的任务和目标,再列出不确定的地方。\n"
-        "2. 找相关代码片段,按重要程度排序;每条写 `文件:起止行`、为什么相关,并引用不超过 15 行原文。\n"
-        "3. 按编号逐条回答 lead 的问题(Q1~Q3,有几条答几条;没有问题就跳过这一节),引用上面的片段。"
-        "项目里没有答案的,查框架源码或官方文档回答,写明出处。\n"
-        "4. 列出现有约定和容易踩的坑。\n"
-        "读代码时一次读整份文件或大段,可以一条命令读几个文件;不要每次只读几十行。同一条命令不要反复跑(改代码后重跑测试和 lint 除外)。\n"
-        "安全:不读 `~/.claude/`、AppData 里 Claude 的文件夹和 Codex 的 auth.json,不调用 Claude。\n"
-        "## lead 提供的任务原文\n"
+        "This is read-only code exploration. Do not modify any files. Keep the entire answer, including the draft, to 150 lines or fewer. Do not write an implementation plan.\n"
+        "1. Restate the lead's task and goal, then list uncertainties.\n"
+        "2. Find relevant code excerpts in order of importance. For each, give `file:start-end`, explain why it matters, and quote no more than 15 source lines.\n"
+        "3. Answer the lead's numbered questions (Q1~Q3; answer those present and omit this section if there are none), referring to the excerpts above. If the repository cannot answer one, check framework source or official documentation and name the source.\n"
+        "4. List existing conventions and pitfalls.\n"
+        "Read whole files or large sections; one command may read several files. Do not repeat the same command (except rerunning tests and lint after code changes).\n"
+        "Safety: do not read `~/.claude/`, Claude folders under AppData, or Codex auth.json; do not call Claude.\n"
+        "Finish with `## Draft (mechanical only)` and exactly three lists: files involved (path — one line describing what is there), suggested check commands, and verbatim signatures of functions likely to change. The draft contains no approach or recommended implementation. Keep this section within the 150-line total.\n"
+        "## Lead's task (verbatim)\n"
         + original
-        + "\n\n## fusion/decisions.md 全文\n"
+        + "\n\n## fusion/decisions.md (full text)\n"
         + decisions
     )
-
 
 def handoff_summary(state: dict, old: dict) -> str:
     lines = [f"上一个工位 {old['name']} 做过的任务:{', '.join(old['tasks']) or '(无)'}"]

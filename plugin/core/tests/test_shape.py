@@ -23,17 +23,17 @@ def test_removed_public_surfaces_are_absent():
 
 
 def test_no_bin_dir_and_guide_has_full_command():
-    # claude.ai 托管的插件不能带顶层 bin/;lead 用使用说明里的完整命令运行引擎
+    # claude.ai 鎵樼鐨勬彃浠朵笉鑳藉甫椤跺眰 bin/;lead 鐢ㄤ娇鐢ㄨ鏄庨噷鐨勫畬鏁村懡浠よ繍琛屽紩鎿?
     from fusion_core.util import CMD
     from fusion_core.views import lead_guide
 
     assert not (PLUGIN / "bin").exists()
     assert (CORE / "fusion-core.py").exists() and CMD.endswith('/core/fusion-core.py"')
     guide = lead_guide()
-    for sub in ("explore -", "delegate -", "revise -", "accept", "wait", "status", "cancel"):
+    for sub in ("explore -", "delegate -", "revise -", "accept", "wait", "cancel"):
         assert f"{CMD} {sub}" in guide, sub
     assert "fusion-core " not in guide.replace(CMD, "")
-    # /fusion 是只给用户手动运行的技能:裸名 /fusion 能用,描述不进 Claude 的上下文
+    # /fusion 鏄彧缁欑敤鎴锋墜鍔ㄨ繍琛岀殑鎶€鑳?瑁稿悕 /fusion 鑳界敤,鎻忚堪涓嶈繘 Claude 鐨勪笂涓嬫枃
     assert not (PLUGIN / "commands").exists()
     skill = (PLUGIN / "skills/fusion/SKILL.md").read_text(encoding="utf-8")
     front = skill.split("---")[1].splitlines()
@@ -47,7 +47,7 @@ def test_usage_matches_design_and_is_short():
     source = DESIGN.read_text(encoding="utf-8")
     section = source.split("```text\n", 1)[1].split("\n```", 1)[0]
     assert LEAD_GUIDE == section
-    assert len(LEAD_GUIDE.splitlines()) <= 20
+    assert len(LEAD_GUIDE.splitlines()) <= 24
 
 
 def test_cli_public_command_set_and_version():

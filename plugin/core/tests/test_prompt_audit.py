@@ -23,12 +23,11 @@ def test_forbidden_rules_are_shared_and_model_notes_are_loaded(proj):
     notes = model_notes(proj.root, "gpt-6-luna")
     assert "删除旧功能时直接删" in notes["sidekick"]
     assert "项目备注" in notes["sidekick"]
-    assert "需要审美和画面验收的前端任务表现差" in notes["lead"]
-    assert "Lead 备注" in notes["lead"]
+    assert "use a prohibition and one checkable criterion" in notes["lead"]
     assert model_notes(proj.root, "../gpt-6-luna") == {"sidekick": "", "lead": ""}
     assert "全量测试和 lint 只在结束前各跑一次" in FIXED_RULES
     assert "沙箱不能结束别的进程" in WORK_RULES
-    added_rules = WORK_RULES[WORK_RULES.index("## Brief 约定"):]
+    added_rules = WORK_RULES[WORK_RULES.index("## Brief conventions"):]
     model_text = (Path(__file__).resolve().parents[1] / "fusion_core/prompts/models/gpt-6-luna.md").read_text(encoding="utf-8")
     new_text = "\n".join(FORBIDDEN) + added_rules + model_text
     assert not any(mark in new_text for mark in ("，", "；", "（", "）", "“", "”"))
@@ -73,9 +72,10 @@ def test_explore_replaces_its_previous_artifact(proj):
     assert proj.read("fusion/explore.md") == f"# {result['task']} 第 1 轮:助手还在做,结果出来后覆盖这个文件\n"
 
 
-def test_guide_has_new_read_path_usage_and_synchronized_design(proj):
-    assert "审查包里工位路径下的文件(你自己目录里的还是旧代码)" in LEAD_GUIDE
-    assert "fusion-core ledger" in LEAD_GUIDE
+def test_guide_keeps_workstation_read_path_without_old_status_tools(proj):
+    assert "Read the files under the workstation path" in LEAD_GUIDE
+    assert "fusion-core ledger" not in LEAD_GUIDE
+    assert "fusion-core status" not in LEAD_GUIDE
 
 
 def test_candidate_commit_failure_blocks_with_reason_and_can_resume(proj):

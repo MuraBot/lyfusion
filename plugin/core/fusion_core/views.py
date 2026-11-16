@@ -1,10 +1,13 @@
 """Lead-facing status, ledger, and SessionStart usage text."""
 from __future__ import annotations
 
+import math
+
 from .config import (
     configuration_warnings,
     current_model_settings,
     effective_settings,
+    handoff_settings,
     supports_fast,
 )
 from .util import CMD
@@ -14,32 +17,68 @@ STATE_CN = {"exploring": "探索中", "explored": "探索完成", "planned": "�
             "accepted": "已验收", "cancelled": "已取消"}
 SESSION_LIMIT = 20
 
-LEAD_GUIDE = """lyfusion 已开:这个项目的代码活交给 Codex 助手做,你(lead)只做 4 件事。
-每条命令都在 Bash 前台跑,timeout 设 600000;结果(探索包、审查包)直接打印在输出里,不用再读文件。不要 run_in_background、Monitor、sleep、轮询。
-等满 9 分钟助手还没做完,命令先返回(退出码 3),再跑 fusion-core wait 接着等,助手不受影响。前台等待时用户发的消息会排队。
-1. 探索(每个任务都先做,不要自己通读代码):fusion-core explore - <<'EOF' …… EOF
-   写用户的任务原话(一字不改)和你想知道的,最多 3 条,编号 Q1~Q3。结果:fusion/explore.md
-2. 派工:fusion-core delegate - <<'EOF' 计划 EOF   续用探索的会话。结果:fusion/review.md
-   计划用 Markdown:第一行 "# 一句话目标",下面是 brief 正文;可选的 "## scope"、"## checks" 两节每行写 "- glob" 或 "- 命令"(期望退出码 0)。
-   也接受原来的 JSON(第一个字符是 {)。brief 推荐小标题:目标、决定、不变的行为、猜测(未证实)、不要做的事、已知的坑、停下的条件。
-   检查标准写在产出上(命令输出、渲染出的文字),不写在源码文字上:助手会照字面去凑。
-3. 修改:fusion-core revise - <<'EOF' 修改意见 EOF   自由文字,助手的问题也在这里回答。结果:fusion/review.md
-4. 验收:fusion-core accept   合并、重跑检查、压成 1 个提交、快进主分支。可以和下一个任务的 explore 用 && 连成一条命令。
-跨任务都要守的设计决定写进 fusion/decisions.md(普通文件,直接编辑),引擎每次派工把全文带给助手,并自动提交它。
-审查包不够看时,用 Read 看审查包里工位路径下的文件(你自己目录里的还是旧代码)。看进度 fusion-core status;看用量 fusion-core ledger;放弃任务 fusion-core cancel。"""
+LEAD_GUIDE = """lyfusion is on: the Codex sidekick writes this project's code; you (the lead) define each task completely and review the result.
+Run every command below in the foreground in Bash with timeout 600000; results print straight to the output. No run_in_background, Monitor, sleep or polling.
+If the sidekick is still working after 9 minutes the command returns early (exit code 3); run fusion-core wait to keep waiting. The sidekick is not affected. Messages the user sends while you wait are queued.
+Choose a tier after a quick look at the code, not from the task wording alone:
+  A. Do it yourself: a small change in a known place (about 2 files, 30 lines), no slow tests; questions and architecture advice; serial root-cause debugging.
+  B. Delegate without exploring: you already know which files change. Start at step 2.
+  C. Full flow: location unclear, many files, mechanical refactors, expensive verification.
+1. Explore: fusion-core explore - <<'EOF' … EOF
+   The user's task verbatim, then at most 3 questions numbered Q1~Q3.
+2. Delegate: fusion-core delegate - <<'EOF' plan EOF   Reuses the exploration thread.
+   Line 1 is "# one-sentence goal", then the brief. Optional "## scope" and "## checks" sections hold one "- glob" or "- command" (exit code 0 expected) per line.
+   The brief states constraints, edge cases, done criteria, behaviour that must not change and exact test assertions. Signatures and key snippets are fine; never dictate whole files. Put several small points into one brief.
+   Write checks against outputs (command output, rendered text), not source wording: the sidekick will match wording literally.
+3. Revise: fusion-core revise - <<'EOF' feedback EOF   Free text; answer the sidekick's questions here too.
+4. Accept: fusion-core accept   Merges, reruns checks, squashes to one commit, fast-forwards main. Chain it with the next task: accept && explore ….
+Design decisions every task must follow go in fusion/decisions.md (edit it directly); each delegation sends it in full and commits it.
+If the review pack is not enough, Read the files under the workstation path it shows (your own checkout still has the old code). Abandon a task: fusion-core cancel.
+{handoff}"""
 
 
-def lead_guide() -> str:
-    """注入给 lead 的使用说明:模板里的 fusion-core 换成安装目录里的完整命令(插件不能带 bin/)。"""
-    return LEAD_GUIDE.replace("fusion-core ", CMD + " ")
+def lead_guide(cfg: dict | None = None) -> str:
+    """Render the lead guide with project settings."""
+    from . import config as config_mod
+    cfg = cfg or {"local": config_mod.DEFAULT_LOCAL, **config_mod.DEFAULT_CONFIG}
+    wait_minutes = cfg.get("wait_minutes", config_mod.DEFAULT_CONFIG["wait_minutes"])
+    if (not isinstance(wait_minutes, (int, float)) or isinstance(wait_minutes, bool)
+            or not math.isfinite(wait_minutes) or wait_minutes < 0):
+        wait_minutes = config_mod.DEFAULT_CONFIG["wait_minutes"]
+    handoff = config_mod.handoff_settings(cfg)
+    handoff_lines = ""
+    if handoff["mode"] != "off":
+        first = (f"Handoff: when accept says your context passed {handoff['tokens']} tokens, write a handoff "
+                 f"(at most 80 lines) to {handoff['dir']}/<YYYY-MM-DD>-<nn>.md: goal, done (commit ids, no code), "
+                 "constraints that hold, workstation state, next commands, pitfalls and methods.")
+        second = ("Then tell the user they can /clear when convenient. Do not clear the session yourself."
+                  if handoff["mode"] == "write" else
+                  'Then load the tool with ToolSearch "select:mcp__ccd_session_mgmt__clear_session" and call it '
+                  'with session_id "self". Where that tool does not exist (CLI), ask the user to run /clear.')
+        handoff_lines = f"{first}\n{second}"
+    guide = LEAD_GUIDE.replace("9 minutes", f"{wait_minutes:g} minutes")
+    guide = guide.replace("\n{handoff}", f"\n{handoff_lines}" if handoff_lines else "")
+    return guide.replace("fusion-core ", CMD + " ")
 
 
 def session_context(root, cfg, state, source=None) -> str:
+    from . import config as config_mod
     from .prompts import model_notes
     model = cfg.get("local", {}).get("sidekick", {}).get("model", "")
     note = model_notes(root, model)["lead"]
-    guide = lead_guide()
-    return guide + (f"\n\n## 给 lead 的模型备注({model})\n{note}" if note else "")
+    context = lead_guide(cfg)
+    if note:
+        context += f"\n\n## Model notes for the lead ({model})\n{note}"
+    handoff = config_mod.handoff_settings(cfg)
+    if source in ("clear", "compact") and handoff["mode"] != "off":
+        directory = root / handoff["dir"]
+        if directory.is_dir():
+            files = sorted(path.name for path in directory.glob("*.md")
+                           if path.is_file() and path.name[:1].isdigit())
+            if files:
+                action = "cleared" if source == "clear" else "compacted"
+                context += f"\nContext was {action}: read the latest handoff first: {handoff['dir']}/{files[-1]}"
+    return context
 
 
 def task_line(task: dict) -> str:
@@ -58,13 +97,15 @@ def status(root, cfg, state, target: str | None = None) -> str:
     sk = local.get("sidekick", {})
     settings = current_model_settings(sk)
     effective = effective_settings(cfg)
+    handoff = handoff_settings(cfg)
     fast_label = "on" if settings["fast"] else "off" if supports_fast(sk.get("model", "")) else "不支持"
     lines = [f"Fusion: {'开启' if local.get('enabled') else '关闭'}",
              f"助手: {sk.get('model', '')} · effort {settings['effort'] or '默认'} · fast {fast_label} · 压缩 {settings['compact']}",
              ("Codex 环境: 干净(不读 ~/.codex/config.toml,关 apps、plugins)" if effective["clean"]
               else "Codex 环境: 和桌面端一样(读 ~/.codex/config.toml)")
              + "(项目设置 fusion/config.json 的 clean)",
-             f"换工位: 上下文超过 {effective['switch_at']}(压缩上限 {settings['compact']} × {int(effective['context_ratio'] * 100)}%)"]
+             f"换工位: 上下文超过 {effective['switch_at']}(压缩上限 {settings['compact']} × {int(effective['context_ratio'] * 100)}%)",
+             f"Handoff: {handoff['mode']} (at {handoff['tokens']} tokens) · {handoff['dir']}"]
     lines.extend(f"警告: {warning}" for warning in configuration_warnings(cfg))
     for task in state["tasks"].values():
         lines.append(task_line(task))

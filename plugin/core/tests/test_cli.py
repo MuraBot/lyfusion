@@ -412,14 +412,15 @@ def test_explore_prompt_is_plain_text_without_report_rules(proj):
 
     prompt = explore_prompt("Q1: entry?", "# Decisions")
     assert "FIXED_RULES" not in prompt
-    assert "最终回复只输出 JSON 报告" not in prompt
+    assert "final report" not in prompt
     for phrase in (
-        "起止行",
-        "不超过 15 行",
+        "Do not modify any files",
+        "quote no more than 15 source lines",
         "Q1~Q3",
-        "约定和",
-        "150 行",
-        "不写实现方案",
+        "conventions and pitfalls",
+        "150 lines or fewer",
+        "Do not write an implementation plan",
+        "## Draft (mechanical only)",
     ):
         assert phrase in prompt
 

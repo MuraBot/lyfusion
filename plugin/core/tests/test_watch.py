@@ -407,7 +407,9 @@ def test_wait_watch_exits_two_and_lists_actions(monkeypatch, tmp_path):
 
 def test_work_and_explore_prompts_repeat_code_read_rules():
     prompt = explore_prompt("question", "decisions")
-    for text in (WORK_RULES, FIXED_RULES, prompt):
-        assert "整份文件或大段" in text
-        assert "不要反复跑" in text
-    assert "不调用 Claude" in prompt and "auth.json" in prompt
+    for text in (WORK_RULES, FIXED_RULES):
+            assert "整份文件或大段" in text
+            assert "不要反复跑" in text
+    assert "Read whole files or large sections" in prompt
+    assert "Do not repeat the same command" in prompt
+    assert "do not call Claude" in prompt and "auth.json" in prompt
