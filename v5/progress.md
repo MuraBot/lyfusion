@@ -210,3 +210,12 @@
 - 助手在同一线程照一句话改;supervisor 判护栏(只改本任务改过的文件、≤20 行、检查全绿、没违规、报告 done),过了自己发 `accept_requested`,没过留在审查、算一轮修改;合并后打印 `## Minor fix diff`;LEAD_GUIDE 第 4 步加一行
 - 修改 1 轮:`wait` 命令被加了 `keep_waiting=True`,等于关掉 9 分钟先返回(为了让慢测试过);改回来并加回归测试
 - 台账第一次有 lead 调用数:10 次工具 / 9 次请求(从 T12 accept 到 T13 accept),本任务 lead $0.74
+### T14 运行批:任务 5 前半、7、8 的 args.json、17 的引擎部分 + 等待时长 bug(accepted,`503fd63`;C 档)
+- 等待时长:存的是本地时间、没带时区，算的时候当成 UTC,这台机器 UTC−8 就多 480 分钟(交接 02 里猜的"UTC+8"方向反了);改成按本地时间解释
+- 看护不再单独叫醒(删 `watch_*` 的信号和配置，旧配置忽略);每次退出码 3 打印用时、命令数、碎读、重复、最近的命令(英文);`stall_minutes` 照旧停下(lead 定)
+- 删 `_same_area`;不再写顶层 `fusion/explore.md`/`review.md` 和占位文件，指向 `fusion/tasks/T*/`;已有的文件不删
+- blocked 且没有阻塞问题时自动续一轮(`continue`,项目设置 `auto_continue` 默认 2)
+- 按命令种类计时：引擎第一次读到事件时记时间(`runs/<run>/event-stamps.jsonl`),台账运行表加全量测试/部分测试/lint/其他/思考 5 列
+- `args.json` 记完整 argv(含 codex 前缀)
+- 修改 0 轮;accept 要 `--waive`(旧测试断言是要改掉的行为);旧测试跑新代码这一步跑了约 10 分钟，等待命令超过 10 分钟转到后台一次
+- 额度:T14 验收后 5 小时 84%;之后 5 小时窗口重置为 0%,每周 34%
