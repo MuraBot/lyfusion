@@ -22,7 +22,7 @@ import type { ElementTable, EngineInterface, Register, RenderChildren, RenderEle
 import type { Notice, Panel, Stale } from '../types'
 
 // The version this module was built as: the same string as plugin.json and fusion_core.VERSION (tests/test_shape.py checks)
-const MOD_VERSION = '5.0.0-rc.5'
+const MOD_VERSION = '5.0.0-rc.6'
 const PANE = 'fusion'
 
 const panel = atom({ plugin: 'lyfusion-plugin', key: 'panel' } as const, null)
@@ -111,10 +111,15 @@ function lastLine(text: string): string {
 }
 
 // Rounded greys are pictures (rc.5): a Box has no corner radius and a Client cannot draw an Svg. A half-transparent grey
-// reads on light and dark themes alike; the picture takes the width of the Box it sits in. The row height (22 px) and
-// the 6 px corners are what Lily picked in the rc.5 preview
-const HIGHLIGHT_SVG =
-  '<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%"><rect width="100%" height="100%" rx="6" ry="6" fill="#808080" fill-opacity="0.22"/></svg>'
+// reads on light and dark themes alike. The row height (22 px) and the 6 px corners are what Lily picked in the rc.5
+// preview. An Svg's width is a pixel count or the markup's own width up to its Box: a picture sized "100%" has no
+// width of its own and is drawn 300 px wide, and a wide one scaled down squashes its corners (rc.6). So a row's grey
+// is two halves, each a long picture drawn unscaled (slice) and cut by its Box: the left half keeps the left corners,
+// the right half the right ones.
+const highlightHalf = (align: 'xMin' | 'xMax') =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="4096" height="22" viewBox="0 0 4096 22" preserveAspectRatio="${align}YMid slice"><rect width="4096" height="22" rx="6" ry="6" fill="#808080" fill-opacity="0.22"/></svg>`
+const HIGHLIGHT_LEFT_SVG = highlightHalf('xMin')
+const HIGHLIGHT_RIGHT_SVG = highlightHalf('xMax')
 const BADGE_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%"><rect width="100%" height="100%" rx="4" ry="4" fill="#808080" fill-opacity="0.18"/></svg>'
 
@@ -365,8 +370,13 @@ async function desktopCard($: EngineInterface, table: ElementTable, state: Panel
   const row = (id: string, item: Item) => (
     <Box key={`item-${id}-${item.value}`} width="100%" height={1}>
       {item.disabled ? null : (
-        <Box position="absolute" top={0} left={0} right={0} bottom={0} overflow="hidden" display="none" hover={{ display: 'flex' }}>
-          <Svg source={HIGHLIGHT_SVG} alt="Highlight" height={22} />
+        <Box position="absolute" top={0} left={0} right={0} bottom={0} overflow="hidden" flexDirection="row" display="none" hover={{ display: 'flex' }}>
+          <Box width="50%" overflow="hidden">
+            <Svg source={HIGHLIGHT_LEFT_SVG} alt="Highlight" height={22} />
+          </Box>
+          <Box width="50%" overflow="hidden" justifyContent="flex-end">
+            <Svg source={HIGHLIGHT_RIGHT_SVG} alt="Highlight end" height={22} />
+          </Box>
         </Box>
       )}
       <Box

@@ -45,7 +45,7 @@ function panelJson(version: string): string {
 type On = Parameters<TestBody>[1]
 
 // A project that uses Fusion, an engine of `version`; returns the engine commands run and the toasts shown
-function fakeEngine(on: On, version = '5.0.0-rc.5') {
+function fakeEngine(on: On, version = '5.0.0-rc.6') {
   const calls: string[][] = []
   const toasts: string[] = []
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -77,8 +77,12 @@ test('the desktop card shows the settings and opens a list in place', async ($, 
   expect((await ui.find({ key: 'row-nav-effort' }))?.text).toContain('High')
   expect((await ui.find({ key: 'row-nav-compact' }))?.text).toContain('400k')
   expect((await ui.find({ type: 'Svg' }))?.props.alt).toBe('Fusion on')
-  // Each pickable row has the rounded highlight the surface shows on hover
-  expect((await ui.findAll({ type: 'Svg' })).filter(svg => svg.props.alt === 'Highlight')).toHaveLength(3)
+  // Each pickable row has the rounded highlight the surface shows on hover: two halves, each with a width of its own
+  // (a "100%" picture is drawn 300 px wide and leaves a wide pane's row half grey)
+  const halves = (await ui.findAll({ type: 'Svg' })).filter(svg => svg.props.alt.startsWith('Highlight'))
+  expect(halves.filter(svg => svg.props.alt === 'Highlight')).toHaveLength(3)
+  expect(halves.filter(svg => svg.props.alt === 'Highlight end')).toHaveLength(3)
+  for (const svg of halves) expect(svg.props.source).not.toContain('width="100%"')
 
   // Reasoning effort: the list replaces the card; High is checked and recommended; Luna offers nothing below High
   await ui.post({ pick: 'nav', value: 'effort' }, { in: 'pick-nav-effort' })
@@ -129,12 +133,12 @@ test('a custom context limit is checked against the model maximum', async ($, on
 })
 
 test('a newer engine on disk: one line, one toast, no setting changed', async ($, on) => {
-  const engine = fakeEngine(on, '5.0.0-rc.6')
+  const engine = fakeEngine(on, '5.0.0-rc.7')
   await $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
 
   const line = await ui.find({ type: 'Text', text: /lyfusion was updated/ })
-  expect(line?.text).toBe('lyfusion was updated (5.0.0-rc.5 → 5.0.0-rc.6). Start a new session to load it.')
+  expect(line?.text).toBe('lyfusion was updated (5.0.0-rc.6 → 5.0.0-rc.7). Start a new session to load it.')
   expect(await ui.find({ type: 'Client' })).toBeUndefined()
   expect(engine.toasts.filter(text => text.includes('Start a new session'))).toHaveLength(1)
 
