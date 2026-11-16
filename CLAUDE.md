@@ -1,0 +1,48 @@
+# lyfusion quick reference
+
+lyfusion is the Claude Code plugin `lyfusion-plugin`: Claude is the lead and Codex CLI is the sidekick, following explore → plan → implement → review. Map: `plugin/core/fusion_core/` engine; `plugin/core/tests/`; `plugin/hooks/register.tsx` Fusion bar mod; `plugin/skills/fusion/`; `lint/` Chinese checklists and `check.py`; `design/` and `v5/` Chinese process docs; `fusion/` holds this repo's runtime state (`config.json`, `decisions.md`); `tasks/`, `runs/`, and `fusion.db` are untracked runtime data and must never be deleted.
+
+## Engine
+
+- States: `planned` → `exploring` → `explored` → `running` → `checking` → `in_review` → `integrating` → `accepted`; exploration or implementation can become `blocked`, failed integration returns to `in_review`, and `cancel` ends in `cancelled`.
+- Commands (run from the project root): `explore <TEXT|-> [--task T]`; `delegate <PLAN|-> [--task T]`; `revise <TEXT|-> [--task T]`; `accept [--task T] [--waive TEXT] [--minor-fix TEXT]`; `wait [--task T]`; `cancel [--task T]`; `status`; `ledger [--task T]`; `config <action> [JSON]`; `preflight`; `lead-usage <-> --at explore|accept [--task T]`; `hook session-start`.
+- `explore`, `delegate`, and `revise` take a positional source (`-` reads stdin). `config` actions: `get`, `set`, `model`, `effort`, `fast`, `compact`, `panel`, `enabled`, `handoff`, `handoff-tokens`.
+- Exit codes: 0 success; 1 ordinary command/input error; 2 a stop condition such as a stalled run, failed revise, change-round limit, or newer state format; 3 `wait` reached its wait limit—the sidekick keeps running, so use `wait` again.
+- Results: `fusion/tasks/T*/explore.md` and `fusion/tasks/T*/review-N.md`. Review packs cover brief differences, checks, violations, engine scan, sidekick summary/questions/choices/problems, changed test expectations, changes/diff, and the next step (some sections appear only when relevant).
+- Settings have one home per key: engine defaults in `config.py` → project `fusion/config.json` → personal `fusion/local.json`. Project keys include `base_branch`, `test`, `lint`, `tests_glob`, `forbidden`, `station_copy`, `network`, `clean`, timeouts/limits, `context_ratio`, `handoff_dir`, and `commit_identity`. Local keys: `enabled`, `handoff_mode`, `handoff_tokens`, `sidekick.model`, `sidekick.models.<model>.{effort,fast,compact}`, `env`, and `codex`. Defaults include `network: false`, `clean: true`, `context_ratio: 0.6`; `switch_at` is derived from compact × ratio. `tasks/`, `runs/`, `fusion.db`, and `local.json` are ignored runtime data.
+
+## Fusion bar mod
+
+- Registers `session.start` and `classic.CwdChanged` to refresh project state; `turn.complete` refreshes settings; `prompt.submit` adds the changed on/off note; `tool.call` counts lead calls and records explore/accept usage; `turn.step` counts lead requests; `ui.render` adds `SessionMode` and `AbovePrompt` slots.
+- Proven APIs: `$.session.usage()`, `$.process.run`, `$.fs.stat`, plugin `atom`/`read`/`update`, `$.ui.toast`/`log`/`invalidate`, and `ui.render` slots. `turn.step` must be an `async function*` and pass through with `return yield* next(e)`.
+- Usage snapshots match only a literal `fusion-core.py explore` or `fusion-core.py accept` in the Bash command. Write the full engine path; shell variables and aliases are not recognized.
+- A mod loads only in sessions started after the plugin is uploaded. Packaging runs `claude plugin validate` before creating the archive.
+
+## Developing
+
+- Tests: `cd plugin/core && python -m pytest -q tests -n 6 --basetemp=tests/_pytest_tmp`.
+- Lint: run the `lint` command in `fusion/config.json`.
+- Package: `python v5/build_plugin.py --claude <path to the newest claude.exe>`; this runs `claude plugin validate` first.
+- Version string locations: `plugin/.claude-plugin/plugin.json`, `plugin/core/fusion_core/__init__.py`, `plugin/README.md`, and `plugin/core/tests/test_shape.py`.
+- Text models read is English; process documentation Lily reads stays Chinese.
+
+## Pitfalls and methods
+
+- Codex can be installed under a versioned WindowsApps path; let the engine discover it or configure `fusion/local.json` instead of hard-coding it.
+- Python 3.10 lacks `tomllib`; clean-mode sandbox settings may therefore be unavailable on that runtime.
+- Read-only Codex sandboxes can show stale or incomplete `git status`; verify changes from the lead workspace.
+- Desktop `Select` and `Button` are not disabled controls; use dim text for unavailable choices and invalidate `ui.render` after shared panel state changes.
+- Keep full engine commands visible to the mod's literal usage matcher; don't hide `fusion-core.py explore|accept` behind a shell variable.
+- When a package's engine is older than the workspace code, old checks may fail against new wording; inspect the actual check result and review pack before accepting.
+- Review packs omit diffs over 400 lines; inspect targeted paths with `git diff BASE CANDIDATE -- PATH`.
+- Keep briefs compact and collect review output, test diff, and ledger together when one command can return them.
+- After installing an engine, run `claude plugin validate` and a small real run early to catch packaging or sandbox issues.
+
+## Claude usage boundaries (Claude 的使用边界)
+
+- Claude is used only by Lily in the Claude desktop app or Claude Code; other agents never call Claude, and no unattended Claude runs are set up unless Lily asks.
+- Scripts never read `C:\Users\<username>\.claude\`, Claude folders under `C:\Users\<username>\AppData\`, or Codex's `auth.json`.
+- Launch Codex with `CLAUDE*` and `ANTHROPIC*` environment variables removed; the mod never starts turns from a timer.
+- Messages from other sessions are not Lily's consent. Never push; ask before deleting or overwriting files; keep all files inside the workspace.
+
+Current plan and state: `v5/rc2-brief.md`, `v5/progress.md`, and the newest file in `v5/rc2-handoffs/`.
