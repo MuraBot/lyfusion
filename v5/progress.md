@@ -257,9 +257,24 @@
 | T17 | 1 | 0 | $0.16 · ctx 289k · 5h 3% | 2 / 1 | 2.254 / 2.154 / 0.015 |
 | T18 | 2 | 3 | ctx 341k · 5h 9% · 7d 35% | - | 27.460 / 26.867 / 0.150 |
 
-### 留给 rc.3(lead 发现的,没做)
+### 留给下一版(lead 发现的,没做;原来叫"留给 rc.3",rc.3 已用作 H2 测试后的修复版)
 - 禁止规则扫描会扫到引擎自己的规则表(`checks.py`),改那几行就误报(T18)
 - `auto_continue` 的计数在 `minor_fix` 时没清零;`compact_choices` 当前值超过上限时不在选项里(都很小)
 - mod 的快照正则只认字面的 `fusion-core.py`(反馈第 30 条);T18 的 lead 调用数没记到,原因待查
 - 新 LEAD_GUIDE、审查包、`--minor-fix`、交接提醒、自动续用、按命令计时都还没在装好的引擎里真用过:装上 rc.2 后先跑一个小任务验证
 - 实现一次 10~28 分钟,每 9 分钟一次 `wait`(反馈第 32 条);"量一次真比较"仍在待讨论
+
+## v5.0.0-rc.3(2026-11-16,rc.2 测试后的修复)
+> Lily 2026-11-16:"这次的引擎小问题和lead的意见要不你直接在rc.2上修了吧"。"lyfusion 会话"做;按 `.docs/dev-conventions.md`,上传过的 rc.2 不改内容重用,修完升 rc.3。
+- 依据:fusion-bench H2 的 C6(rc.2,Lily 自己开的会话)96.97 分、lead 9 次调用,测出 4 个引擎问题和 lead 的 4 条意见(`fusion-bench/results/summary-2026-11-03.md` 末尾)
+- T19(B 档:文件已知,不探索直接派工;`66f932f`):
+  - 审查包按文件附 diff:总共 600 行,新文件优先,放不下的列 `Not attached: 路径 (+A -D): git diff …`;stdout 上限 20000 → 26000 字符,超长时从最后一个 diff 块开始去掉,并写 `Not printed (in the full pack): 路径`
+  - 引擎扫描:同一个签名在删除行和新增行里都出现时不算签名变化
+  - wait 打出审查包时,删掉误导的 "Keep waiting for this round to finish"
+  - 台账:没探索的任务,lead 调用和花费从同一会话上一个快照算,没有就从会话开始算(原来显示 "-")
+  - 使用说明:退出码 3 正常、通常要 wait 一两次;B/C 改成按"知不知道要改哪"分;交接那两行从说明里删掉,改成 accept 提醒时打印;模型备注标题改成 "About your sidekick (模型名)";说明 19 行
+  - 版本 `5.0.0-rc.3`(四处 + decisions 第 6 条);CLAUDE.md 那条 400 行的坑跟着改
+- lead:派工 1、wait 1(实现 14.2 分钟)、看 diff 1(装的 rc.2 审查包超长时把 diff 整段丢掉、也不提示,正是这次修的)、`accept --minor-fix` 1(使用说明末尾多的空行,护栏通过);修改 0 轮,不用 `--waive`(旧测试改了断言,现在只是提示)。台账 lead 用量"未记录":这个会话开在上传 rc.2 之前,用的是旧 mod
+- Codex:输入 3.96M(缓存 3.81M)、输出 0.03M;luna high、Fast 开
+- 全量测试 219 个通过,lint 通过;包 `v5/dist/lyfusion-plugin-5.0.0-rc.3.zip`(过了 2.1.325 的 `claude plugin validate`);本地标签 `v5.0.0-rc.3`,没推送
+- 没做(留给下一版):助手在 Windows 沙箱里跑 pytest 写系统临时目录会报 PermissionError(C5、C6、T19 都有,每次都进"和 brief 不同"),可以考虑引擎给 Codex 设项目内、git 忽略的 TEMP
