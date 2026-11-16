@@ -72,7 +72,7 @@ def test_station_rotates_on_model_change_with_handoff(proj):
     local["sidekick"]["model"] = "gpt-6-astra"
     config_mod.save_local(proj.root, local)
     proj.do(C._new_task, plan_farewell(goal="第二个"), "explored")
-    proj.do(C.cmd_delegate, plan_farewell(goal="???"), "T2")
+    proj.do(C.cmd_delegate, plan_farewell(goal="?" * 3), "T2")
     proj.drain()
     s = proj.state()
     assert s["stations"]["main#1"]["status"] == "retired"
