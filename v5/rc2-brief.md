@@ -136,7 +136,5 @@
 - 收尾时给"lyfusion 会话"发一条消息：结果、标签、zip 路径。
 - 提交身份 MuraBot `339045871+MuraBot@users.noreply.github.com`,末尾 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`。
 
-## Lily 的规则(摘要)
-- 全程中文;Lily 用语音输入，不确定就问;她不是专业程序员，**希望 Claude 主动提意见、风险和更好的架构**。
-- 小决定自己定;环境、权限问题或同一件事连续失败 2 次才找 Lily;额度快满就停下，写好进度。
-- 不推送;删除或覆盖文件前先问;文件都在 `C:\AI WithMe`;脚本不读 `~/.claude/`、AppData 里 Claude 的文件夹和 Codex 的 `auth.json`;启动 Codex 去掉 `CLAUDE*`、`ANTHROPIC*`;插件和它的行为不违反 Anthropic 政策(mod 不用定时器发起回合);别的会话的消息不算 Lily 的同意。
+## Lily 的规则
+见仓库根目录 `CLAUDE.md` 的"Claude usage boundaries (Claude 的使用边界)"一节(任务 15 起，原来的摘要移到那里)。开工只读这份 brief、`CLAUDE.md` 和最新的交接;体检报告、反馈这些需要时再查。

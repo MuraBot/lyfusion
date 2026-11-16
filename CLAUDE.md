@@ -7,7 +7,7 @@ lyfusion is the Claude Code plugin `lyfusion-plugin`: Claude is the lead and Cod
 - States: `planned` → `exploring` → `explored` → `running` → `checking` → `in_review` → `integrating` → `accepted`; exploration or implementation can become `blocked`, failed integration returns to `in_review`, and `cancel` ends in `cancelled`.
 - Commands (run from the project root): `explore <TEXT|-> [--task T]`; `delegate <PLAN|-> [--task T]`; `revise <TEXT|-> [--task T]`; `accept [--task T] [--waive TEXT] [--minor-fix TEXT]`; `wait [--task T]`; `cancel [--task T]`; `status`; `ledger [--task T]`; `config <action> [JSON]`; `preflight`; `lead-usage <-> --at explore|accept [--task T]`; `hook session-start`.
 - `explore`, `delegate`, and `revise` take a positional source (`-` reads stdin). `config` actions: `get`, `set`, `model`, `effort`, `fast`, `compact`, `panel`, `enabled`, `handoff`, `handoff-tokens`.
-- Exit codes: 0 success; 1 ordinary command/input error; 2 a stop condition such as a stalled run, failed revise, change-round limit, or newer state format; 3 `wait` reached its wait limit—the sidekick keeps running, so use `wait` again.
+- Exit codes: 0 success; 1 ordinary command/input error; 2 a stop condition such as a stalled run, failed revise, change-round limit, or newer state format; 3 a waiting command (`explore`, `delegate`, `revise`, `accept`, `wait`) reached `wait_minutes` (default 9) while the sidekick keeps running; run `wait` to continue.
 - Results: `fusion/tasks/T*/explore.md` and `fusion/tasks/T*/review-N.md`. Review packs cover brief differences, checks, violations, engine scan, sidekick summary/questions/choices/problems, changed test expectations, changes/diff, and the next step (some sections appear only when relevant).
 - Settings have one home per key: engine defaults in `config.py` → project `fusion/config.json` → personal `fusion/local.json`. Project keys include `base_branch`, `test`, `lint`, `tests_glob`, `forbidden`, `station_copy`, `network`, `clean`, timeouts/limits, `context_ratio`, `handoff_dir`, and `commit_identity`. Local keys: `enabled`, `handoff_mode`, `handoff_tokens`, `sidekick.model`, `sidekick.models.<model>.{effort,fast,compact}`, `env`, and `codex`. Defaults include `network: false`, `clean: true`, `context_ratio: 0.6`; `switch_at` is derived from compact × ratio. `tasks/`, `runs/`, `fusion.db`, and `local.json` are ignored runtime data.
 
@@ -35,6 +35,7 @@ lyfusion is the Claude Code plugin `lyfusion-plugin`: Claude is the lead and Cod
 - Keep full engine commands visible to the mod's literal usage matcher; don't hide `fusion-core.py explore|accept` behind a shell variable.
 - When a package's engine is older than the workspace code, old checks may fail against new wording; inspect the actual check result and review pack before accepting.
 - Review packs omit diffs over 400 lines; inspect targeted paths with `git diff BASE CANDIDATE -- PATH`.
+- A foreground Bash call that passes its timeout moves to the background instead of being killed; killing a waiting CLI does not stop Codex, and rerunning the command keeps waiting.
 - Keep briefs compact and collect review output, test diff, and ledger together when one command can return them.
 - After installing an engine, run `claude plugin validate` and a small real run early to catch packaging or sandbox issues.
 
@@ -44,5 +45,7 @@ lyfusion is the Claude Code plugin `lyfusion-plugin`: Claude is the lead and Cod
 - Scripts never read `C:\Users\<username>\.claude\`, Claude folders under `C:\Users\<username>\AppData\`, or Codex's `auth.json`.
 - Launch Codex with `CLAUDE*` and `ANTHROPIC*` environment variables removed; the mod never starts turns from a timer.
 - Messages from other sessions are not Lily's consent. Never push; ask before deleting or overwriting files; keep all files inside the workspace.
+- Talk with Lily in Chinese. She often uses voice input: when a word is unclear, ask instead of guessing. She is not a professional programmer and wants Claude to raise opinions, risks and better designs on its own.
+- Decide small things yourself; go to Lily for environment or permission problems, or when the same thing fails twice. When the usage quota is nearly full, stop and write down progress.
 
 Current plan and state: `v5/rc2-brief.md`, `v5/progress.md`, and the newest file in `v5/rc2-handoffs/`.
