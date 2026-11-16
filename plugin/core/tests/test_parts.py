@@ -11,7 +11,7 @@ from fusion_core import commands as C
 from fusion_core import config as config_mod
 from fusion_core import hooks, store, views
 from fusion_core.supervisor import Supervisor
-from fusion_core.util import FusionError, glob_match, globs_overlap, norm
+from fusion_core.util import FusionError, clean_env, glob_match, globs_overlap, norm
 from test_flow import GOOD, plan_farewell, setup_task
 
 # ---------------- Validators ----------------
@@ -52,6 +52,10 @@ def test_explore_creates_station_then_implement_reuses_thread(proj):
     assert thread
     calls = proj.calls()
     assert "read-only" in calls[0]["args"] and "--output-schema" not in calls[0]["args"]
+    assert calls[0]["env"]["FUSION_SANDBOX"] == "1"
+    assert calls[0]["env"]["TEMP"] != str(proj.station / ".fusion-tmp")
+    assert not (proj.root / ".fusion-tmp").exists()
+    assert not (proj.station / ".fusion-tmp").exists()
     proj.do(C.cmd_delegate, plan_farewell())
     proj.drain()
     calls = proj.calls()
@@ -59,6 +63,16 @@ def test_explore_creates_station_then_implement_reuses_thread(proj):
     assert "Verify the test count" in calls[1]["prompt"]  # Send the full WORK_RULES when delegating.
     assert 'sandbox_mode="workspace-write"' in calls[1]["args"]
     assert "r1" in views.status(proj.root, {}, proj.state(), "r1")
+
+
+def test_clean_env_removes_sandbox_marker_and_existing_prefixes(monkeypatch):
+    monkeypatch.setenv("FUSION_SANDBOX", "1")
+    monkeypatch.setenv("fusion_sandbox", "2")
+    monkeypatch.setenv("CLAUDE_TEST", "claude")
+    monkeypatch.setenv("ANTHROPIC_TEST", "anthropic")
+    env = clean_env()
+    assert not any(key.upper() == "FUSION_SANDBOX" for key in env)
+    assert not any(key.upper().startswith(("CLAUDE", "ANTHROPIC")) for key in env)
 
 
 def test_station_rotates_on_model_change_with_handoff(proj):

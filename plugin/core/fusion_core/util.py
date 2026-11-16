@@ -108,8 +108,9 @@ def globs_overlap(a, b) -> bool:
 
 
 def clean_env(extra: dict | None = None) -> dict:
-    """Remove CLAUDE* and ANTHROPIC* environment variables; use this for Codex and check commands."""
-    env = {k: v for k, v in os.environ.items() if not k.upper().startswith(("CLAUDE", "ANTHROPIC"))}
+    """Remove Claude, Anthropic, and inherited Fusion sandbox markers from child environments."""
+    env = {k: v for k, v in os.environ.items()
+           if not k.upper().startswith(("CLAUDE", "ANTHROPIC")) and k.upper() != "FUSION_SANDBOX"}
     env.update({k: str(v) for k, v in (extra or {}).items()})
     return env
 

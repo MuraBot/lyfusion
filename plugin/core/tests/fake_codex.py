@@ -56,7 +56,9 @@ def main():
     out = args[args.index("-o") + 1] if "-o" in args else None
     with open(log, "a", encoding="utf-8") as f:
         f.write(json.dumps({"n": n, "args": args, "cwd": os.getcwd(), "prompt": prompt, "resume": resume,
-                            "thread": thread, "stdin_is_file": stdin_is_file}, ensure_ascii=False) + "\n")
+                            "thread": thread, "stdin_is_file": stdin_is_file,
+                            "env": {k: os.environ.get(k) for k in ("FUSION_SANDBOX", "TEMP", "TMP", "TMPDIR")}},
+                         ensure_ascii=False) + "\n")
 
     def emit(obj):
         sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")

@@ -109,7 +109,16 @@ def launch(cfg: dict, station: dict, run_dir: Path, prompt: str, sandbox: str, r
     args = build_args(cfg, station, run_dir, sandbox, resume_thread, schema, ephemeral)
     cmd = find_codex(cfg) + args
     (run_dir / "args.json").write_text(json.dumps(cmd, ensure_ascii=False, indent=1), encoding="utf-8")
-    env = clean_env(cfg["local"].get("env"))
+    engine_env = {"FUSION_SANDBOX": "1"}
+    if sandbox == "workspace-write":
+        temp_dir = Path(station["worktree"]) / ".fusion-tmp"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        gitignore = temp_dir / ".gitignore"
+        if not gitignore.exists():
+            gitignore.write_text("*\n", encoding="utf-8")
+        temp_path = str(temp_dir)
+        engine_env.update({"TEMP": temp_path, "TMP": temp_path, "TMPDIR": temp_path})
+    env = clean_env({**engine_env, **(cfg["local"].get("env") or {})})
     return spawn_detached(cmd, cwd=str(station["worktree"]), env=env, stdin_path=run_dir / "prompt.txt",
                           stdout_path=run_dir / "events.jsonl", stderr_path=run_dir / "stderr.log")
 

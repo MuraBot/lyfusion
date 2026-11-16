@@ -85,7 +85,7 @@ Include only information that cannot be seen in the repository; the lead can ins
 
 ## Test instructions
 - Mid-task, run only relevant tests (one file or one test), using the project's options such as parallelism. Run the full suite and lint once at the end.
-- The sandbox may be unable to terminate other processes or write to the system temp directory. If a test fails for either reason, explain the sandbox limitation in problems; the engine will rerun checks outside the sandbox. Do not put temporary directories (such as pytest's --basetemp) in a location that will be committed from the station."""
+- In the sandbox FUSION_SANDBOX=1 is set and TEMP/TMP point to an ignored folder in the station. Tests that cannot run in the sandbox skip themselves with a reason; such skips are expected, so do not list them in problems. The engine reruns every check outside the sandbox. Never put temporary directories (such as pytest's --basetemp) where they would be committed."""
 
 def _checks(plan: dict) -> str:
     return (

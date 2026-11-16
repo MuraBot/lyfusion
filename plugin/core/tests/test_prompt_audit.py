@@ -26,7 +26,11 @@ def test_forbidden_rules_are_shared_and_model_notes_are_loaded(proj):
     assert "use a prohibition and one checkable criterion" in notes["lead"]
     assert model_notes(proj.root, "../gpt-6-luna") == {"sidekick": "", "lead": ""}
     assert "Run the full test suite and lint once at the end" in FIXED_RULES
-    assert "The sandbox may be unable to terminate other processes" in WORK_RULES
+    assert ("In the sandbox FUSION_SANDBOX=1 is set and TEMP/TMP point to an ignored folder in the station. "
+            "Tests that cannot run in the sandbox skip themselves with a reason; such skips are expected, so do not "
+            "list them in problems. The engine reruns every check outside the sandbox. Never put temporary directories "
+            "(such as pytest's --basetemp) where they would be committed.") in WORK_RULES
+    assert "explain the sandbox limitation in problems" not in WORK_RULES
     added_rules = WORK_RULES[WORK_RULES.index("## Brief conventions"):]
     model_text = (Path(__file__).resolve().parents[1] / "fusion_core/prompts/models/gpt-6-luna.md").read_text(encoding="utf-8")
     new_text = "\n".join(FORBIDDEN) + added_rules + model_text
