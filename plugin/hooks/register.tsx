@@ -52,6 +52,9 @@ function modelName(id: string): string {
     .join('-')
 }
 
+// Lead handoff modes (rc.2 task 10): what the lead does when its context passes the threshold
+const HANDOFF_LABEL: Record<string, string> = { clear: 'write + /clear', write: 'write only', off: 'off' }
+
 function tokens(n: number): string {
   return n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(2)}M` : `${Math.round(n / 1000)}k`
 }
@@ -424,11 +427,21 @@ export const register: Register = on => {
           value={String(state.compact)}
           onSelect={value => void change($, ['compact', value])}
         />
+        {state.handoff ? (
+          <Select
+            key="handoff"
+            label="Lead handoff"
+            options={state.handoff.modes.map(value => ({ value, label: HANDOFF_LABEL[value] ?? value }))}
+            value={state.handoff.mode}
+            onSelect={value => void change($, ['handoff', value])}
+          />
+        ) : null}
       </Box>
     ) : (
       <Text dimColor>
         助手 {name(state.model)} · 思考强度 {EFFORT_LABEL[state.effort] ?? state.effort} · Fast Mode{' '}
         {fastOk ? (state.fast ? '开' : '关') : '不支持'} · 上下文上限 {tokens(state.compact)}
+        {state.handoff ? ` · Lead handoff ${HANDOFF_LABEL[state.handoff.mode] ?? state.handoff.mode}` : ''}
       </Text>
     )
 

@@ -16,6 +16,8 @@ export type Panel = {
   context_ratio: number
   switch_at: number
   warnings: string[]
+  // Lead handoff mode (rc.2 task 10); older engines do not send it
+  handoff?: { mode: string; tokens: number; modes: string[]; dir: string }
 }
 
 // 面板里最后一条提示:引擎命令失败的原因,或者打开 Fusion 后的说明
