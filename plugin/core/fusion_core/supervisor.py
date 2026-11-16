@@ -154,7 +154,7 @@ class Supervisor:
                 self.interrupt_run(s, cfg, run)
                 return 1
         for t in s["tasks"].values():
-            if t["state"] == "cancelled" and not t.get("cleaned"):
+            if t["state"] in ("cancelled", "taken_over") and not t.get("cleaned"):
                 self.cleanup(s, cfg, t)
                 return 1
         for run in s["runs"].values():
@@ -461,7 +461,9 @@ class Supervisor:
             self.emit([{"type": "run_ended", "data": {"run": request["id"], "result": "dropped"}}])
             return
         if task["state"] in TERMINAL:
-            self._drop_revise_request(request, task, "Task cancelled" if task["state"] == "cancelled" else "Task accepted")
+            reason = {"cancelled": "Task cancelled", "accepted": "Task accepted",
+                      "taken_over": "Task taken over"}[task["state"]]
+            self._drop_revise_request(request, task, reason)
             return
         if task["state"] in ("in_review", "blocked"):
             self._activate_revise_request(request, task, request.get("lead_text") or "")

@@ -30,7 +30,7 @@ def test_no_bin_dir_and_guide_has_full_command():
     assert not (PLUGIN / "bin").exists()
     assert (CORE / "fusion-core.py").exists() and CMD.endswith('/core/fusion-core.py"')
     guide = lead_guide()
-    for sub in ("explore -", "delegate -", "revise -", "accept", "wait", "cancel"):
+    for sub in ("explore -", "delegate -", "revise -", "accept", "wait", "cancel", "takeover"):
         assert f"{CMD} {sub}" in guide, sub
     assert "fusion-core " not in guide.replace(CMD, "")
     # /fusion is a user-invoked skill; aliases work, but its description is excluded from Claude context.
@@ -65,7 +65,7 @@ def test_cli_public_command_set_and_version():
     p = subprocess.run([sys.executable, str(CORE / "fusion-core.py"), "--help"], check=False, capture_output=True)
     assert p.returncode == 0
     output = p.stdout.decode("utf-8")
-    names = {"explore", "delegate", "revise", "accept", "wait", "status", "cancel", "on", "off", "config", "preflight", "ledger", "lead-usage"}
+    names = {"explore", "delegate", "revise", "accept", "wait", "status", "cancel", "takeover", "on", "off", "config", "preflight", "ledger", "lead-usage"}
     match = re.search(r"^\s+\{([^}]+)\}", output, re.MULTILINE)
     assert match
     found = set(match.group(1).split(","))

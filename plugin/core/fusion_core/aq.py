@@ -299,7 +299,10 @@ def _assertion_lines(root: Path, candidate: dict, files: list[dict]) -> list[str
     return lines
 
 
-def review_pack(root: Path, task: dict, state: dict, round_no: int) -> str:
+def review_pack(root: Path, task: dict, state: dict, round_no: int, cfg: dict | None = None) -> str:
+    if cfg is None:
+        from . import config as config_mod
+        cfg = config_mod.load(root)
     latest_run = (task.get("runs") or [None])[-1]
     failed = next(
         (signal for signal in task.get("signals", [])
@@ -433,16 +436,64 @@ def review_pack(root: Path, task: dict, state: dict, round_no: int) -> str:
         return "\n".join(lines) + "\n"
     else:
         lines.append("No code candidate.")
-    lines.append(next_step_text(task, check))
+    lines.extend(next_step_text(task, check, state, cfg).splitlines())
     return "\n".join(lines) + "\n"
 
 
-def next_step_text(task: dict, check: dict) -> str:
+def struggle_signals(task: dict, state: dict, cfg: dict) -> list[str]:
+    if task.get("state") in ("accepted", "cancelled", "taken_over"):
+        return []
+    signals = []
+    candidates = task.get("candidates", [])
+    if len(candidates) >= 2:
+        previous, latest = (state.get("candidates", {}).get(cand) for cand in candidates[-2:])
+        if previous and latest and previous.get("checks") and latest.get("checks"):
+            def failures(candidate):
+                return [result for result in (candidate.get("checks") or {}).get("results", [])
+                        if result.get("restored") is None and not result.get("passed")]
+            old, new = failures(previous), failures(latest)
+            old_commands = {result.get("cmd") for result in old}
+            repeated = [f"{result.get('name')} ({result.get('cmd')})"
+                        for result in new if result.get("cmd") in old_commands]
+            if repeated:
+                signals.append(f"the same check failed on {previous['cand']} and {latest['cand']}: "
+                               + "; ".join(repeated))
+    task_signals = task.get("signals", [])
+    blocked = sum(signal.get("kind") == "blocked" for signal in task_signals)
+    stalled = sum(signal.get("kind") in ("stalled", "candidate_failed") for signal in task_signals)
+    if blocked >= 2:
+        signals.append(f"the sidekick stopped {blocked} times")
+    if stalled >= 2:
+        signals.append(f"runs stalled or failed {stalled} times")
+    limit = cfg.get("max_change_rounds", 3)
+    rounds = task.get("change_rounds", 0)
+    if rounds >= limit:
+        signals.append(f"revision rounds reached the limit ({rounds}/{limit})")
+    return signals
+
+
+def next_step_text(task: dict, check: dict, state: dict | None = None,
+                   cfg: dict | None = None) -> str:
+    if state is None:
+        state = {"candidates": {}}
+    if cfg is None:
+        from . import config as config_mod
+        cfg = config_mod.DEFAULT_CONFIG
+    signals = struggle_signals(task, state, cfg)
     report = task.get("latest_report") or {}
-    if task.get("state") == "blocked" or report.get("status") == "blocked":
-        return f"Next: {CMD} revise - (answer the sidekick's questions)"
-    failed = any(not result.get("passed") and result.get("restored") is None
-                 for result in check.get("results", []))
-    if failed or check.get("violations"):
-        return f"Next: {CMD} revise - (or, after review, {CMD} accept --waive \"reason\")"
-    return f"Next: {CMD} accept (or {CMD} revise - to request changes)"
+    if any(signal.startswith("revision rounds reached the limit") for signal in signals):
+        first = (f"Next: ask the user whether to allow more revision rounds (max_change_rounds in fusion/config.json), "
+                 f"or {CMD} takeover, or {CMD} cancel")
+    elif task.get("state") == "blocked" or report.get("status") == "blocked":
+        first = f"Next: {CMD} revise - (answer the sidekick's questions)"
+    else:
+        failed = any(not result.get("passed") and result.get("restored") is None
+                     for result in check.get("results", []))
+        if failed or check.get("violations"):
+            first = f"Next: {CMD} revise - (or, after review, {CMD} accept --waive \"reason\")"
+        else:
+            first = f"Next: {CMD} accept (or {CMD} revise - to request changes)"
+    if signals:
+        return (first + "\n" + f"Sidekick is struggling ({'; '.join(signals)}). If finishing it yourself is cheaper, "
+                f"run {CMD} takeover; the engine never does this on its own.")
+    return first

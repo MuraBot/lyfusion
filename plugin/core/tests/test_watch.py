@@ -426,7 +426,7 @@ def test_revise_continue_wait_message_explains_matching_opinion(proj, monkeypatc
         "tasks": {"T1": task}, "candidates": {}, "runs": {},
     })
     monkeypatch.setattr(cli, "_write_review", lambda root, *args: (root / "review.md", "fusion/tasks/T1/review-2.md"))
-    monkeypatch.setattr(cli.aq, "next_step_text", lambda task, checks: "next")
+    monkeypatch.setattr(cli.aq, "next_step_text", lambda task, checks, state=None, cfg=None: "next")
     cli._do_revise(Namespace(source="-", task="T1"), proj.root)
     output = capsys.readouterr().out
     assert "Revision matches the current round; keep waiting." in output

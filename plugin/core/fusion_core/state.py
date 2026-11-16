@@ -1,7 +1,7 @@
 """Replay durable events into the aq task, run, station, and candidate state."""
 from __future__ import annotations
 
-TERMINAL = ("accepted", "cancelled")
+TERMINAL = ("accepted", "cancelled", "taken_over")
 
 
 def empty() -> dict:
@@ -284,6 +284,10 @@ def _cancelled(s, e, d, tid):
     _task(s, tid).update(state="cancelled", closed=e["ts"], closed_seq=e["seq"], close_reason=d.get("reason"))
 
 
+def _taken_over(s, e, d, tid):
+    _task(s, tid).update(state="taken_over", closed=e["ts"], closed_seq=e["seq"], takeover=d)
+
+
 def _cleaned(s, e, d, tid):
     _task(s, tid).update(cleaned=True, branch=None)
 
@@ -330,7 +334,7 @@ HANDLERS = {
     "check_ran": _check_ran, "signal": _signal, "changes_requested": _changes_requested,
     "accept_requested": _accept_requested, "integration_ran": _integration_ran, "accepted": _accepted,
     "minor_fix_requested": _minor_fix_requested, "minor_fix_rejected": _minor_fix_rejected,
-    "cancelled": _cancelled, "cleaned": _cleaned, "usage": _usage,
+    "cancelled": _cancelled, "taken_over": _taken_over, "cleaned": _cleaned, "usage": _usage,
     "lead_usage": _lead_usage, "no_changes": _no_changes,
     "engine_error": _engine_error,
 }

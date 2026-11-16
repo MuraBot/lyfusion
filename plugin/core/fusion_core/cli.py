@@ -12,9 +12,17 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import SCHEMA, VERSION, aq, codex, runstats, store, views
+from . import SCHEMA, VERSION, aq, codex, gitops, runstats, store, views
 from . import config as config_mod
-from .commands import Ctx, cmd_accept, cmd_cancel, cmd_delegate, cmd_explore, cmd_revise
+from .commands import (
+    Ctx,
+    cmd_accept,
+    cmd_cancel,
+    cmd_delegate,
+    cmd_explore,
+    cmd_revise,
+    cmd_takeover,
+)
 from .state import active_task, replay
 from .supervisor import Supervisor
 from .util import CMD, FormatTooNew, FusionError, clean_env, git
@@ -165,6 +173,7 @@ def _wait(root: Path, task_id: str, *, explore: bool = False) -> dict:
                 "blocked",
                 "accepted",
                 "cancelled",
+                "taken_over",
             ) and not (minor_pending and task["state"] == "in_review"):
                 return state
             for signal in new_signals:
@@ -206,7 +215,7 @@ def _review_text(root, path, task, state, round_no):
     if path.exists():
         return path.read_text(encoding="utf-8")
     checks = (state.get("candidates", {}).get(task.get("latest")) or {}).get("checks") or {}
-    return f"{aq.next_step_text(task, checks)}\n"
+    return f"{aq.next_step_text(task, checks, state, config_mod.load(root))}\n"
 
 
 def _write_explore(root, tid, state, original: str | None, continued: bool = False):
@@ -556,6 +565,55 @@ def _do_accept(args, root):
     _report_accept(root, task)
 
 
+def _do_takeover(args, root):
+    ctx = Ctx(root)
+    try:
+        before = ctx.state()
+        out = cmd_takeover(ctx, args.task)
+        candidate = before["candidates"].get(out["candidate"] or "")
+        stats = {}
+        if candidate:
+            for item in gitops.changed_files(root, candidate["base"], candidate["commit"]):
+                stat = git("diff", "--numstat", candidate["base"], candidate["commit"], "--", item["path"], cwd=root)
+                row = next((line for line in stat.splitlines() if "\t" in line), "0\t0")
+                added, deleted = row.split("\t", 2)[:2]
+                stats[item["path"]] = f"+{added} -{deleted}"
+    finally:
+        ctx.close()
+    sup = Supervisor(root, poll=0.2)
+    deadline = time.monotonic() + 60
+    try:
+        while time.monotonic() < deadline:
+            if store.take_lease(sup.conn, sup.holder):
+                sup.tick()
+                store.release_lease(sup.conn, sup.holder)
+            if sup.state()["tasks"][out["task"]].get("cleaned"):
+                break
+            time.sleep(0.2)
+        else:
+            raise FusionError(f"Takeover cleanup did not finish within 60 seconds; run {CMD} status to inspect the task")
+    finally:
+        try:
+            store.release_lease(sup.conn, sup.holder)
+        except sqlite3.Error:
+            pass
+        sup.conn.close()
+    print(f"Taken over: {out['task']}")
+    if out["candidate"]:
+        print(f"Candidate: {out['candidate']}")
+    else:
+        print("No candidate: nothing was copied; do the task yourself from the start.")
+    print("Files placed in your working tree (uncommitted):")
+    for path in out["files"] or ["none"]:
+        print(f"- {path} {stats.get(path, '')}".rstrip())
+    print("Failed checks on that candidate:")
+    for check in out["failed_checks"] or [None]:
+        print(f"- {check['name']}: {check['cmd']}" if check else "- none")
+    print(f"Project test: {out['test'] or '(not configured)'}")
+    print(f"Project lint: {out['lint'] or '(not configured)'}")
+    print("Finish it yourself, run the tests and lint, and commit; the engine no longer manages this task.")
+
+
 def _print_minor_fix_diff(root, task, state):
     minor = task.get("minor_fix") or {}
     previous = state["candidates"][minor["previous"]]
@@ -767,6 +825,8 @@ def main(argv=None) -> int:
     p.add_argument("--task")
     p = sub.add_parser("cancel")
     p.add_argument("--task")
+    p = sub.add_parser("takeover")
+    p.add_argument("--task")
     sub.add_parser("status")
     p = sub.add_parser("on")
     p.add_argument("--test")
@@ -809,6 +869,8 @@ def main(argv=None) -> int:
                 print(f"Cancelled: {out['task']}\nNext: {CMD} status")
             finally:
                 ctx.close()
+        elif args.cmd == "takeover":
+            _do_takeover(args, root)
         elif args.cmd == "status":
             ctx = Ctx(root)
             try:

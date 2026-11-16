@@ -364,9 +364,163 @@ def test_change_rounds_limit(proj):
     for i in range(3):
         proj.do(C.cmd_revise, "T1", f"round {i + 1}")
         proj.drain()
-    with pytest.raises(FusionError, match="Stop and ask the user"):
+    with pytest.raises(FusionError, match="Choose one: ask the user"):
         proj.do(C.cmd_revise, "T1", "round 4")
     assert "round 1" in proj.calls()[1]["prompt"]
+    from fusion_core.aq import review_pack
+    text = review_pack(proj.root, proj.task(), proj.state(), 4)
+    assert text.splitlines()[-2].startswith("Next: ask the user whether to allow more revision rounds")
+    assert "revision rounds reached the limit (3/3)" in text.splitlines()[-1]
+
+
+def test_takeover_applies_latest_candidate_and_cleans_sidekick(proj):
+    setup_task(proj)
+    proj.script([GOOD])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
+    proj.drain()
+    head = proj.git("rev-parse", "HEAD")
+    out = proj.do(C.cmd_takeover, "T1")
+    assert out["candidate"] == "T1.c1"
+    assert proj.read("app/farewell.py") == FAREWELL
+    assert "?? app/farewell.py" in proj.git("status", "--porcelain")
+    assert proj.git("rev-parse", "HEAD") == head
+    proj.drain()
+    task = proj.task()
+    assert task["state"] == "taken_over" and task["cleaned"]
+    assert proj.git("branch", "--list", "fusion/T1") == ""
+    diff = proj.root / "fusion" / "runs" / "T1-taken_over.diff"
+    assert diff.exists() and diff.stat().st_size > 0
+    event = next(event for event in proj.events("taken_over", "T1"))
+    assert event["data"]["cand"] == "T1.c1"
+    assert event["data"]["failed_checks"] == []
+    assert proj.do(C._new_task, None, "explored") == "T2"
+    with pytest.raises(FusionError, match="already Taken over"):
+        proj.do(C.cmd_takeover, "T1")
+
+
+def test_takeover_event_lists_failed_candidate_checks(proj):
+    setup_task(proj)
+    proj.script([{"write": {"app/farewell.py": BROKEN}, "report": report("Implemented") }])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
+    proj.drain()
+    candidate = proj.state()["candidates"]["T1.c1"]
+    assert not candidate["checks"]["passed"]
+    out = proj.do(C.cmd_takeover, "T1")
+    assert out["failed_checks"] == [{"name": "Check 1", "cmd": plan_farewell()["checks"][0]["run"]}]
+    event = next(event for event in proj.events("taken_over", "T1"))
+    assert event["data"]["failed_checks"] == out["failed_checks"]
+
+
+def test_takeover_refuses_dirty_tracked_lead_tree(proj):
+    setup_task(proj)
+    proj.script([GOOD])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
+    proj.drain()
+    proj.write("app/greet.py", "lead edit\n")
+    with pytest.raises(FusionError, match="uncommitted changes to tracked files"):
+        proj.do(C.cmd_takeover, "T1")
+    assert proj.task()["state"] == "in_review"
+    assert proj.read("app/greet.py") == "lead edit\n"
+    assert not proj.events("taken_over", "T1")
+
+
+def test_takeover_refuses_candidate_that_no_longer_applies(proj):
+    setup_task(proj)
+    proj.script([GOOD])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
+    proj.drain()
+    proj.write("app/farewell.py", "lead version\n")
+    proj.commit("lead conflict")
+    with pytest.raises(FusionError, match="do not apply"):
+        proj.do(C.cmd_takeover, "T1")
+    assert proj.task()["state"] == "in_review"
+    assert proj.read("app/farewell.py") == "lead version\n"
+    assert not proj.events("taken_over", "T1")
+
+
+def test_takeover_cli_prints_handoff_and_finishes_cleanup(proj):
+    import subprocess
+
+    from conftest import CORE
+
+    setup_task(proj)
+    proj.script([GOOD])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
+    proj.drain()
+    result = subprocess.run([sys.executable, str(CORE / "fusion-core.py"), "--project", str(proj.root),
+                             "takeover", "--task", "T1"], check=False, capture_output=True, text=True,
+                            encoding="utf-8")
+    assert result.returncode == 0, result.stderr
+    assert "Taken over: T1" in result.stdout
+    assert "Candidate: T1.c1" in result.stdout
+    assert "- app/farewell.py +2 -0" in result.stdout
+    assert result.stdout.rstrip().endswith(
+        "Finish it yourself, run the tests and lint, and commit; the engine no longer manages this task."
+    )
+    assert proj.task()["state"] == "taken_over" and proj.task()["cleaned"]
+
+
+def test_takeover_cli_stops_a_running_sidekick(proj):
+    import subprocess
+
+    from conftest import CORE
+    from fusion_core.util import pid_alive
+
+    setup_task(proj)
+    proj.script([{"sleep": 20, "report": report()}])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
+    for _ in range(50):
+        proj.sup.tick()
+        if proj.state()["runs"]["r1"]["status"] == "started":
+            break
+        time.sleep(0.05)
+    state = proj.state()
+    pid = state["runs"]["r1"]["pid"]
+    result = subprocess.run([sys.executable, str(CORE / "fusion-core.py"), "--project", str(proj.root),
+                             "takeover", "--task", "T1"], check=False, capture_output=True, text=True,
+                            encoding="utf-8")
+    assert result.returncode == 0, result.stderr
+    finished = proj.state()
+    assert finished["runs"]["r1"]["result"] == "cancelled"
+    assert finished["tasks"]["T1"]["state"] == "taken_over" and finished["tasks"]["T1"]["cleaned"]
+    if pid_alive(pid) and os.environ.get("FUSION_SANDBOX") == "1":
+        deadline = time.monotonic() + 40
+        while pid_alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        if not pid_alive(pid):
+            pytest.skip("Codex sandbox cannot terminate processes; the engine reruns this test outside the sandbox")
+    assert not pid_alive(pid)
+
+
+def test_takeover_without_candidate_closes_blocked_task(proj):
+    setup_task(proj)
+    proj.script([{"report": report("Need input", status="blocked",
+                                    questions=[{"text": "Which option?", "blocking": True}])}])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
+    proj.drain()
+    out = proj.do(C.cmd_takeover, "T1")
+    assert out["candidate"] is None and out["files"] == []
+    assert proj.git("status", "--porcelain") == ""
+    proj.drain()
+    assert proj.task()["state"] == "taken_over" and proj.task()["cleaned"]
+
+
+def test_two_blocked_stops_show_struggle_signal(proj):
+    from fusion_core.aq import review_pack
+
+    setup_task(proj)
+    blocked = {"report": report("Need input", status="blocked",
+                                questions=[{"text": "Which option?", "blocking": True}])}
+    proj.script([blocked, blocked])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
+    proj.drain()
+    proj.do(C.cmd_revise, "T1", "Answering the question")
+    proj.drain()
+    task = proj.task()
+    assert sum(signal["kind"] == "blocked" for signal in task["signals"]) == 2
+    text = review_pack(proj.root, task, proj.state(), 2)
+    assert "the sidekick stopped 2 times" in text
+    assert "Sidekick is struggling (" in text and "takeover" in text
 
 
 def test_nonblocking_question_does_not_block_acceptance(proj):

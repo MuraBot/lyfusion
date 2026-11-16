@@ -1,12 +1,13 @@
 """Public command actions. Events, rather than mutable state, are authoritative."""
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from . import config as config_mod
 from . import gitops, store, validate, views
 from .state import TERMINAL, active_task, replay
-from .util import FusionError, git
+from .util import CMD, FusionError, git
 
 
 class Ctx:
@@ -129,7 +130,7 @@ def cmd_revise(ctx: Ctx, task_id: str | None, text: str) -> dict:
             return {"task": task["id"], "run": active_run["id"], "continue_wait": True}
         limit = ctx.cfg.get("max_change_rounds", 3)
         if task["change_rounds"] >= limit:
-            raise FusionError(f"{task['id']} already has {limit} revision rounds. Stop and ask the user whether to continue or cancel.", code=2)
+            raise FusionError(f"{task['id']} already has {limit} revision rounds. Choose one: ask the user whether to allow more rounds (max_change_rounds in fusion/config.json), take it over yourself ({CMD} takeover), or {CMD} cancel.", code=2)
         note = commit_decisions(ctx.root)
         rid = f"r{state['next_run']}"
         _emit(ctx, [{"type": "run_requested", "task": task["id"],
@@ -141,7 +142,7 @@ def cmd_revise(ctx: Ctx, task_id: str | None, text: str) -> dict:
         raise FusionError(f"{task['id']} cannot be revised in its current state: {views.STATE_LABEL.get(task['state'], task['state'])}")
     limit = ctx.cfg.get("max_change_rounds", 3)
     if task["change_rounds"] >= limit:
-        raise FusionError(f"{task['id']} already has {limit} revision rounds. Stop and ask the user whether to continue or cancel.", code=2)
+        raise FusionError(f"{task['id']} already has {limit} revision rounds. Choose one: ask the user whether to allow more rounds (max_change_rounds in fusion/config.json), take it over yourself ({CMD} takeover), or {CMD} cancel.", code=2)
     note = commit_decisions(ctx.root)
     rid = f"r{state['next_run']}"
     _emit(ctx, [{"type": "changes_requested", "task": task["id"],
@@ -175,7 +176,7 @@ def cmd_accept(ctx: Ctx, task_id: str | None = None, waive: str | None = None,
     if minor_fix is not None:
         limit = ctx.cfg.get("max_change_rounds", 3)
         if task["change_rounds"] >= limit:
-            raise FusionError(f"{task['id']} already has {limit} revision rounds. Stop and ask the user whether to continue or cancel.", code=2)
+            raise FusionError(f"{task['id']} already has {limit} revision rounds. Choose one: ask the user whether to allow more rounds (max_change_rounds in fusion/config.json), take it over yourself ({CMD} takeover), or {CMD} cancel.", code=2)
         files = [item["path"] for item in gitops.changed_files(
             ctx.root, candidate["base"], candidate["commit"]
         )]
@@ -206,6 +207,54 @@ def cmd_cancel(ctx: Ctx, task_id: str | None = None, reason: str | None = None) 
         raise FusionError("There is no active task")
     _emit(ctx, [{"type": "cancelled", "task": task["id"], "data": {"reason": reason or "Lead cancelled"}}])
     return {"task": task["id"]}
+
+
+def cmd_takeover(ctx: Ctx, task_id: str | None = None) -> dict:
+    state = replay(store.read(ctx.conn))
+    task = current_task(state, task_id)
+    if task is None:
+        raise FusionError("There is no active task")
+    if task["state"] in TERMINAL:
+        raise FusionError(f"{task['id']} is already {views.STATE_LABEL.get(task['state'], task['state'])}")
+    if task["state"] == "integrating":
+        raise FusionError(f"{task['id']} is integrating and cannot be taken over")
+    cand_id = task.get("latest")
+    candidate = state["candidates"].get(cand_id or "")
+    files = []
+    failed_checks = []
+    if candidate:
+        status = git("status", "--porcelain", "--untracked-files=no", cwd=ctx.root)
+        if status:
+            raise FusionError("Lead working tree has uncommitted changes to tracked files; commit or discard them first, "
+                              f"or use {CMD} cancel (it saves the sidekick's diff as evidence in fusion/runs/).")
+        patch = subprocess.run(["git", "diff", "--binary", candidate["base"], candidate["commit"]],
+                               cwd=ctx.root, stdin=subprocess.DEVNULL, capture_output=True, check=False)
+        if patch.returncode:
+            raise FusionError(f"Could not create the candidate patch: {patch.stderr.decode('utf-8', 'replace').splitlines()[0]}")
+        check = subprocess.run(["git", "apply", "--check"], cwd=ctx.root, input=patch.stdout,
+                               capture_output=True, check=False)
+        if check.returncode:
+            error = (check.stderr or check.stdout).decode("utf-8", "replace").splitlines()
+            first = error[0] if error else "git apply failed"
+            raise FusionError(f"The candidate's changes do not apply to your working tree ({first}); use {CMD} cancel "
+                              "(it saves the diff in fusion/runs/) and redo the work yourself.")
+        applied = subprocess.run(["git", "apply"], cwd=ctx.root, input=patch.stdout,
+                                 capture_output=True, check=False)
+        if applied.returncode:
+            error = (applied.stderr or applied.stdout).decode("utf-8", "replace").splitlines()
+            first = error[0] if error else "git apply failed"
+            raise FusionError(f"Could not apply the candidate ({first})")
+        files = [item["path"] for item in gitops.changed_files(ctx.root, candidate["base"], candidate["commit"])]
+        failed_checks = [{"name": result.get("name", ""), "cmd": result.get("cmd", "")}
+                         for result in (candidate.get("checks") or {}).get("results", [])
+                         if result.get("restored") is None and not result.get("passed")]
+    from .aq import struggle_signals
+    signals = struggle_signals(task, state, ctx.cfg)
+    _emit(ctx, [{"type": "taken_over", "task": task["id"],
+                 "data": {"cand": cand_id, "signals": signals,
+                          "failed_checks": failed_checks, "files": files}}])
+    return {"task": task["id"], "candidate": cand_id, "files": files, "failed_checks": failed_checks,
+            "signals": signals, "test": ctx.cfg.get("test"), "lint": ctx.cfg.get("lint")}
 
 
 def cmd_lead_session(ctx: Ctx, session_id: str | None, source: str | None) -> None:

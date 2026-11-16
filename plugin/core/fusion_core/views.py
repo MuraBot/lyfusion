@@ -14,7 +14,7 @@ from .util import CMD
 
 STATE_LABEL = {"exploring": "Exploring", "explored": "Explored", "planned": "Planned", "running": "Running",
             "blocked": "Blocked", "checking": "Checking", "in_review": "In review", "integrating": "Integrating",
-            "accepted": "Accepted", "cancelled": "Cancelled"}
+            "accepted": "Accepted", "cancelled": "Cancelled", "taken_over": "Taken over"}
 SESSION_LIMIT = 20
 
 LEAD_GUIDE = """lyfusion is on: the Codex sidekick writes this project's code; you (the lead) own the result: plan each task completely, review it against the user's whole request, and fix or report any defect you find that breaks that request.
@@ -36,7 +36,7 @@ Anything bigger than A (many files, mechanical refactors, slow tests) is delegat
 4. Accept: fusion-core accept   Merges, reruns checks, squashes to one commit, fast-forwards main. Chain it with the next task: accept && explore ….
    One small fix left? fusion-core accept --minor-fix "one sentence": the sidekick makes it; it is merged only if it touches files this task already changed, at most 20 lines, with green checks; otherwise you get a review pack.
 Design decisions every task must follow go in fusion/decisions.md (edit it directly); each delegation sends it in full and commits it.
-Abandon a task: fusion-core cancel."""
+Abandon a task: fusion-core cancel. Sidekick keeps failing at one point you can finish faster: fusion-core takeover."""
 
 
 def lead_guide(cfg: dict | None = None) -> str:

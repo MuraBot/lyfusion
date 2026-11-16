@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fusion_core import aq, validate
+from fusion_core.util import CMD
 
 
 def make_pack(proj, changes, *, scope=None, report=None, checks=None):
@@ -146,3 +147,33 @@ def test_import_only_and_renamed_files_are_folded(proj):
     assert "app/imports.py +1 -1 (imports only)" in pack
     assert "app/newname.py +0 -0 (renamed from app/oldname.py (100% similar))" in pack
     assert "```diff" not in pack
+
+
+def test_struggle_signals_and_round_limit_next_step(proj):
+    cfg = {"max_change_rounds": 3}
+    failed = {"name": "Plan check 1", "cmd": "python check.py", "passed": False, "restored": None}
+    task = {"id": "T1", "state": "in_review", "candidates": ["T1.c1", "T1.c2"],
+            "signals": [{"kind": "blocked"}, {"kind": "blocked"}], "change_rounds": 3,
+            "latest_report": {}}
+    state = {"candidates": {
+        "T1.c1": {"cand": "T1.c1", "checks": {"results": [failed]}},
+        "T1.c2": {"cand": "T1.c2", "checks": {"results": [failed]}},
+    }}
+    signals = aq.struggle_signals(task, state, cfg)
+    assert signals == [
+        "the same check failed on T1.c1 and T1.c2: Plan check 1 (python check.py)",
+        "the sidekick stopped 2 times",
+        "revision rounds reached the limit (3/3)",
+    ]
+    text = aq.next_step_text(task, {"results": [failed]}, state, cfg)
+    assert text.startswith("Next: ask the user whether to allow more revision rounds")
+    assert "revision rounds reached the limit (3/3)" in text
+    assert f"run {CMD} takeover" in text
+
+
+def test_no_struggle_keeps_the_existing_next_step(proj):
+    task = {"id": "T1", "state": "in_review", "signals": [], "change_rounds": 0,
+            "latest_report": {}}
+    assert aq.next_step_text(task, {"results": []}, {"candidates": {}}, {"max_change_rounds": 3}) == (
+        f"Next: {CMD} accept (or {CMD} revise - to request changes)"
+    )
