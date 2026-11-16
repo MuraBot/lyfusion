@@ -50,6 +50,17 @@ def test_usage_matches_design_and_is_short():
     assert len(LEAD_GUIDE.splitlines()) <= 24
 
 
+def test_minor_fix_guide_fits_every_handoff_mode():
+    from fusion_core.config import DEFAULT_CONFIG, DEFAULT_LOCAL
+    from fusion_core.views import lead_guide
+
+    assert '--minor-fix "one sentence"' in LEAD_GUIDE
+    for mode in ("clear", "write", "off"):
+        cfg = {**DEFAULT_CONFIG, "local": {**DEFAULT_LOCAL, "handoff_mode": mode}}
+        guide = lead_guide(cfg)
+        assert len(guide.splitlines()) <= 24
+
+
 def test_cli_public_command_set_and_version():
     p = subprocess.run([sys.executable, str(CORE / "fusion-core.py"), "--help"], check=False, capture_output=True)
     assert p.returncode == 0

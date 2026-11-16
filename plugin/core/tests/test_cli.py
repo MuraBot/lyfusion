@@ -28,6 +28,147 @@ def cli(proj, *args, input_text=None):
     )
 
 
+def start_minor_task(proj, followup, initial=None, *, no_auto_fix=False):
+    initial = initial or GREET_WITH_TASK_MARKER
+    proj.script([
+        {"write": {"app/greet.py": initial}, "report": report(status="done")},
+        followup,
+    ])
+    if no_auto_fix:
+        cfg = config.load(proj.root)
+        cfg["max_fix_attempts"] = 0
+        config.save_project(proj.root, cfg)
+    started = cli(proj, "delegate", "-", input_text=json.dumps({
+        "goal": "Update greeting", "brief": "Make a small change", "scope": ["app/**"]
+    }))
+    assert started.returncode == 0, started.stderr.decode("utf-8", "replace")
+
+
+GREET_WITH_TASK_MARKER = 'def hello(name):\n    return f"Hello, {name}"\n\n# task marker\n'
+
+
+def test_minor_fix_merges_and_prints_its_diff(proj):
+    start_minor_task(proj, {"write": {"app/greet.py": GREET_WITH_TASK_MARKER.replace("# task marker", "# fixed marker")},
+                            "report": report(status="done")})
+    accepted = cli(proj, "accept", "--minor-fix", "Update the marker")
+    assert accepted.returncode == 0, accepted.stderr.decode("utf-8", "replace")
+    assert "## Minor fix diff" in accepted.stdout.decode("utf-8")
+    assert "+# fixed marker" in accepted.stdout.decode("utf-8")
+    prompt = proj.calls()[1]["prompt"].replace("\r\n", "\n")
+    assert "Make exactly this fix: Update the marker" in prompt
+    assert "Change only these files:\n- app/greet.py" in prompt
+    assert "Change at most 20 lines total" in prompt
+    from fusion_core.views import ledger
+    assert "minor fix" in ledger(proj.state())
+    assert proj.git("rev-parse", "main") == proj.git("rev-parse", "HEAD")
+    assert "Task: T1" in proj.git("log", "-1", "--format=%B", "main")
+
+
+def test_minor_fix_can_start_from_a_failing_candidate(proj):
+    broken = GREET_WITH_TASK_MARKER.replace('return f"Hello, {name}"', 'return "broken"')
+    start_minor_task(proj, {"write": {"app/greet.py": GREET_WITH_TASK_MARKER.replace("# task marker", "# fixed")},
+                            "report": report(status="done")}, initial=broken, no_auto_fix=True)
+    state = proj.state()
+    assert not state["candidates"][state["tasks"]["T1"]["latest"]]["checks"]["passed"]
+    fixed = cli(proj, "accept", "--minor-fix", "Restore the greeting")
+    assert fixed.returncode == 0, fixed.stderr.decode("utf-8", "replace")
+    assert "## Minor fix diff" in fixed.stdout.decode("utf-8")
+    assert proj.git("rev-parse", "main") == proj.git("rev-parse", "HEAD", cwd=proj.root)
+
+
+def test_minor_fix_extra_file_is_rejected_and_counts_as_round(proj):
+    start_minor_task(proj, {"write": {"app/greet.py": GREET_WITH_TASK_MARKER,
+                                      "outside.py": "value = 1\n"}, "report": report(status="done")})
+    result = cli(proj, "accept", "--minor-fix", "Add an outside file")
+    stdout = result.stdout.decode("utf-8")
+    assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+    assert "# T1 Review" in stdout
+    assert "Minor fix not merged: extra files: outside.py" in stdout
+    assert proj.git("rev-parse", "main") == proj.git("rev-parse", "HEAD", cwd=proj.root)
+    conn = store.connect(proj.root)
+    try:
+        from fusion_core.state import replay
+        state = replay(store.read(conn))
+    finally:
+        conn.close()
+    assert state["tasks"]["T1"]["state"] == "in_review"
+    assert state["tasks"]["T1"]["change_rounds"] == 1
+
+
+def test_minor_fix_over_twenty_lines_is_rejected(proj):
+    long_update = GREET_WITH_TASK_MARKER + "".join(f"# added {i}\n" for i in range(21))
+    start_minor_task(proj, {"write": {"app/greet.py": long_update}, "report": report(status="done")})
+    result = cli(proj, "accept", "--minor-fix", "Add comments")
+    assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+    assert "changed 21 lines; limit is 20" in result.stdout.decode("utf-8")
+    assert proj.git("rev-parse", "main") == proj.git("rev-parse", "HEAD", cwd=proj.root)
+
+
+def test_minor_fix_failed_check_names_the_check(proj):
+    broken = GREET_WITH_TASK_MARKER.replace('return f"Hello, {name}"', 'return "broken"')
+    start_minor_task(proj, {"write": {"app/greet.py": broken}, "report": report(status="done")})
+    result = cli(proj, "accept", "--minor-fix", "Break the greeting")
+    assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+    assert "checks failed: 测试" in result.stdout.decode("utf-8")
+
+
+def test_minor_fix_without_a_candidate_is_rejected(proj):
+    start_minor_task(proj, {"report": report(status="done")})
+    result = cli(proj, "accept", "--minor-fix", "Make no edits")
+    assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+    assert "Minor fix not merged: minor-fix run produced no candidate" in result.stdout.decode("utf-8")
+    assert proj.state()["tasks"]["T1"]["change_rounds"] == 1
+
+
+def test_minor_fix_argument_validation(proj):
+    empty = cli(proj, "accept", "--minor-fix", "")
+    both = cli(proj, "accept", "--minor-fix", "x", "--waive", "y")
+    assert empty.returncode != 0 and "--minor-fix must be non-empty" in empty.stderr.decode("utf-8")
+    assert both.returncode != 0 and "--minor-fix cannot be combined with --waive" in both.stderr.decode("utf-8")
+
+
+def test_minor_fix_wait_continues_after_foreground_timeout(proj):
+    start_minor_task(proj, {"sleep": 1, "write": {"app/greet.py": GREET_WITH_TASK_MARKER.replace("# task marker", "# waited")},
+                            "report": report(status="done")})
+    cfg = config.load(proj.root)
+    cfg["wait_minutes"] = 0.002
+    config.save_project(proj.root, cfg)
+    pending = cli(proj, "accept", "--minor-fix", "Change the marker")
+    assert pending.returncode == 3, pending.stderr.decode("utf-8", "replace")
+    waited = cli(proj, "wait", "--task", "T1")
+    assert waited.returncode == 3, waited.stderr.decode("utf-8", "replace")
+    for _ in range(20):
+        waited = cli(proj, "wait", "--task", "T1")
+        if waited.returncode == 0:
+            break
+        assert waited.returncode == 3, waited.stderr.decode("utf-8", "replace")
+    assert waited.returncode == 0, waited.stderr.decode("utf-8", "replace")
+    assert "## Minor fix diff" in waited.stdout.decode("utf-8")
+    assert "+# waited" in waited.stdout.decode("utf-8")
+
+
+def test_delegate_and_wait_both_obey_wait_minutes(proj):
+    proj.script([{"sleep": 1, "write": {"app/greet.py": GREET_WITH_TASK_MARKER},
+                  "report": report(status="done")}])
+    cfg = config.load(proj.root)
+    cfg["wait_minutes"] = 0.002
+    config.save_project(proj.root, cfg)
+    delegated = cli(proj, "delegate", "-", input_text=json.dumps({
+        "goal": "Update greeting", "brief": "Make a small change", "scope": ["app/**"]
+    }))
+    assert delegated.returncode == 3, delegated.stderr.decode("utf-8", "replace")
+    first_wait = cli(proj, "wait", "--task", "T1")
+    assert first_wait.returncode == 3, first_wait.stderr.decode("utf-8", "replace")
+    assert "review pack" not in first_wait.stdout.decode("utf-8").lower()
+    for _ in range(20):
+        later_wait = cli(proj, "wait", "--task", "T1")
+        if later_wait.returncode == 0:
+            break
+        assert later_wait.returncode == 3, later_wait.stderr.decode("utf-8", "replace")
+    assert later_wait.returncode == 0, later_wait.stderr.decode("utf-8", "replace")
+    assert "## Checks" in later_wait.stdout.decode("utf-8")
+
+
 def test_explore_stdin_utf8_writes_artifacts(proj):
     proj.script([{"text": "代码在 app/greet.py。"}])
     raw = "任务原话：修改问候。\nQ1：入口在哪？\n".encode("utf-8-sig")

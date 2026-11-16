@@ -205,11 +205,27 @@ class Supervisor:
                 return 1
         for t in s["tasks"].values():
             cand = s["candidates"].get(t["latest"] or "")
+            minor = t.get("minor_fix") or {}
+            minor_run = s["runs"].get(minor.get("run") or "")
+            if (minor.get("pending") and minor_run and minor_run.get("status") == "ended"
+                    and t["state"] in ("blocked", "in_review")
+                    and (not cand or cand.get("run") != minor["run"])):
+                reasons = ["minor-fix run produced no candidate"]
+                if minor_run.get("result") != "ok" or (minor_run.get("report") or {}).get("status") != "done":
+                    reasons.append("minor-fix run did not end ok with report status done")
+                self.emit([{"type": "minor_fix_rejected", "task": t["id"],
+                            "data": {"previous": minor["previous"], "candidate": t.get("latest"),
+                                     "reasons": reasons, "round": t["change_rounds"] + 1}}])
+                return 1
             if t["state"] == "checking" and cand and not cand.get("checks"):
                 self.check_candidate(s, cfg, t, cand, None)
                 return 1
             if t["state"] == "in_review" and cand and cand.get("checks"):
                 chk = cand["checks"]
+                minor = t.get("minor_fix") or {}
+                if minor.get("pending") and cand.get("run") == minor.get("run"):
+                    self.finish_minor_fix(s, t, cand, minor)
+                    return 1
                 if chk.get("plan_version") != t["version"] or chk.get(
                     "check_hash"
                 ) != config_mod.check_hash(cfg):
@@ -355,6 +371,9 @@ class Supervisor:
                     m, aq.decisions_text(self.root),
                     f"## 助手 {st['model']} 的备注\n{note}" if note else "",
                 )
+            elif kind == "minor_fix":
+                minor = task.get("minor_fix") or {}
+                body = prompts.minor_fix_prompt(run.get("message") or "", minor.get("files", []))
             elif kind == "report":
                 body = prompts.report_prompt(
                     str(run.get("message") or ""), aq.decisions_text(self.root)
@@ -872,7 +891,7 @@ class Supervisor:
                 s2["candidates"][cand["cand"]],
                 summ["commands"],
                 report=rep,
-                auto_fix=(result == "ok"),
+                auto_fix=(result == "ok" and run["kind"] != "minor_fix"),
             )
 
     # ---------- 检查 ----------
@@ -975,6 +994,43 @@ class Supervisor:
         self.emit(events)
 
     # ---------- 验收和集成 ----------
+    def finish_minor_fix(self, s, task, candidate, minor) -> None:
+        previous = s["candidates"][minor["previous"]]
+        changed = gitops.changed_files(self.wt, previous["commit"], candidate["commit"])
+        reasons = []
+        extra = sorted({item["path"] for item in changed} - set(minor["files"]))
+        if extra:
+            reasons.append("extra files: " + ", ".join(extra))
+        raw = git("diff", "--numstat", previous["commit"], candidate["commit"], cwd=self.wt)
+        line_count = 0
+        for line in raw.splitlines():
+            added, deleted, _path = line.split("\t", 2)
+            if added == "-" or deleted == "-":
+                line_count = 21
+                break
+            line_count += int(added) + int(deleted)
+        if line_count > 20:
+            reasons.append(f"changed {line_count} lines; limit is 20")
+        check = candidate.get("checks") or {}
+        if not check.get("passed"):
+            failed = [item["name"] for item in check.get("results", [])
+                      if item.get("restored") is None and not item.get("passed")]
+            reasons.append("checks failed: " + (", ".join(failed) or "candidate checks"))
+        if check.get("violations"):
+            reasons.append("violations: " + ", ".join(
+                item.get("why", "violation") for item in check["violations"]
+            ))
+        run = s["runs"].get(candidate.get("run"), {})
+        if run.get("result") != "ok" or (run.get("report") or {}).get("status") != "done":
+            reasons.append("minor-fix run did not end ok with report status done")
+        if reasons:
+            self.emit([{"type": "minor_fix_rejected", "task": task["id"],
+                        "data": {"previous": minor["previous"], "candidate": candidate["cand"],
+                                 "reasons": reasons, "round": task["change_rounds"] + 1}}])
+            return
+        self.emit([{"type": "accept_requested", "task": task["id"],
+                    "data": {"cand": candidate["cand"], "waive": None}}])
+
     def integrate(self, s, cfg, task) -> None:
         tid = task["id"]
         rdir = self.root / "fusion" / "runs" / f"{tid}-accept"

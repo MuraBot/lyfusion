@@ -305,6 +305,9 @@ def review_pack(root: Path, task: dict, state: dict, round_no: int) -> str:
     report = task.get("latest_report") or {}
     brief_check = _report_brief_check(report)
     lines = [f"# {task['id']} Review (round {round_no})", f"Goal: {(task.get('plan') or {}).get('goal', '')}"]
+    minor_fix = task.get("minor_fix") or {}
+    if minor_fix.get("reasons"):
+        lines.insert(1, "Minor fix not merged: " + "; ".join(minor_fix["reasons"]))
 
     deviations = [item for item in brief_check or [] if item["status"] in ("differs", "not_done")]
     if deviations:

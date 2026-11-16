@@ -32,6 +32,7 @@ Choose a tier after a quick look at the code, not from the task wording alone:
    Write checks against outputs (command output, rendered text), not source wording: the sidekick will match wording literally.
 3. Revise: fusion-core revise - <<'EOF' feedback EOF   Free text; answer the sidekick's questions here too.
 4. Accept: fusion-core accept   Merges, reruns checks, squashes to one commit, fast-forwards main. Chain it with the next task: accept && explore ….
+   One small fix left? fusion-core accept --minor-fix "one sentence": the sidekick makes it; it is merged only if it touches files this task already changed, at most 20 lines, with green checks; otherwise you get a review pack.
 Design decisions every task must follow go in fusion/decisions.md (edit it directly); each delegation sends it in full and commits it.
 Abandon a task: fusion-core cancel.
 {handoff}"""
@@ -144,7 +145,7 @@ def ledger(state, task_id: str | None = None) -> str:
         lines.append(f"| {task['id']} | {task['state']} | {plan.get('goal', '')} | {task['fix_attempts']} | {task['change_rounds']} | {lead} | {lead_calls} | {assistant} | {'<br>'.join(settings)} |")
     lines += ["", "| 任务 | 运行 | 种类 | 结束状态 | 用时(分钟) | 命令 | 碎读 | 重复 | Codex 版本 |",
               "|---|---|---|---|---:|---:|---:|---:|---|"]
-    kinds = {"explore": "探索", "implement": "实现", "changes": "修改", "fix": "自动修", "report": "补报告"}
+    kinds = {"explore": "探索", "implement": "实现", "changes": "修改", "fix": "自动修", "report": "补报告", "minor_fix": "minor fix"}
     for run in state.get("runs", {}).values():
         if task_id and run.get("task") != task_id:
             continue

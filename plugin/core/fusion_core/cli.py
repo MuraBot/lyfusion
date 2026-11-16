@@ -151,12 +151,13 @@ def _wait(root: Path, task_id: str, *, explore: bool = False) -> dict:
                     )
             if explore and task["state"] in ("explored", "blocked"):
                 return state
+            minor_pending = bool((task.get("minor_fix") or {}).get("pending"))
             if not explore and task["state"] in (
                 "in_review",
                 "blocked",
                 "accepted",
                 "cancelled",
-            ):
+            ) and not (minor_pending and task["state"] == "in_review"):
                 return state
             for signal in new_signals:
                 if signal["kind"] == "stalled":
@@ -407,11 +408,26 @@ def _do_wait(args, root):
         if task is None:
             print("没有要等的")
             return
+    minor = task.get("minor_fix") or {}
+    if minor and not minor.get("pending") and task["state"] != "integrating":
+        if task["state"] == "accepted":
+            _print_accept_success(root, task)
+            _print_minor_fix_diff(root, task, state)
+        elif task.get("integration") and not task["integration"].get("ok"):
+            _report_accept(root, task)
+        elif minor.get("reasons"):
+            _print_minor_fix_review(root, task, state)
+        return
     run = state.get("runs", {}).get(task.get("active_run") or "")
     if task["state"] == "integrating":
         tid = task["id"]
         result = _wait(root, tid)
-        _report_accept(root, result["tasks"][tid])
+        accepted = result["tasks"][tid]
+        if accepted.get("minor_fix") and accepted["state"] == "accepted":
+            _print_accept_success(root, accepted)
+            _print_minor_fix_diff(root, accepted, result)
+        else:
+            _report_accept(root, accepted)
         return
     if not run or run.get("status") not in ("requested", "started"):
         status = views.STATE_CN.get(task["state"], task["state"])
@@ -422,6 +438,13 @@ def _do_wait(args, root):
     is_explore = run["kind"] == "explore"
     result = _wait(root, tid, explore=is_explore)
     task = result["tasks"][tid]
+    if task.get("minor_fix"):
+        if task["state"] == "accepted":
+            _print_accept_success(root, task)
+            _print_minor_fix_diff(root, task, result)
+        elif not task["minor_fix"].get("pending"):
+            _print_minor_fix_review(root, task, result)
+        return
     if is_explore:
         _write_explore(root, tid, result, None, continued=True)
         return
@@ -505,7 +528,7 @@ def _report_accept(root, task):
 def _do_accept(args, root):
     ctx = Ctx(root)
     try:
-        out = cmd_accept(ctx, args.task, args.waive)
+        out = cmd_accept(ctx, args.task, args.waive, args.minor_fix)
     finally:
         ctx.close()
     if out.get("commit"):
@@ -518,7 +541,38 @@ def _do_accept(args, root):
         return
     state = _wait(root, out["task"])
     task = state["tasks"][out["task"]]
+    if out.get("minor_fix"):
+        if task["state"] == "accepted":
+            _print_accept_success(root, task)
+            _print_minor_fix_diff(root, task, state)
+        elif task.get("integration") and not task["integration"].get("ok"):
+            _report_accept(root, task)
+        else:
+            _print_minor_fix_review(root, task, state)
+        return
     _report_accept(root, task)
+
+
+def _print_minor_fix_diff(root, task, state):
+    minor = task.get("minor_fix") or {}
+    previous = state["candidates"][minor["previous"]]
+    current = state["candidates"][task["latest"]]
+    print("## Minor fix diff")
+    print(git("diff", previous["commit"], current["commit"], cwd=root).rstrip())
+
+
+def _print_minor_fix_review(root, task, state):
+    round_no = task["change_rounds"] + 1
+    path, pack_path = _write_review(root, task, state, f"review-{round_no}.md", round_no)
+    check = (state.get("candidates", {}).get(task.get("latest")) or {}).get("checks") or {}
+    results = [row for row in check.get("results", []) if row.get("restored") is None]
+    summary = "\n".join((
+        f"结果: {path.relative_to(root).as_posix()}",
+        f"检查: {sum(bool(row.get('passed')) for row in results)}/{len(results)} 通过",
+        f"违规: {len(check.get('violations', []))} 条",
+        f"问题: {len((task.get('latest_report') or {}).get('questions', []))} 条;改动文件: {len(check.get('changed', []))} 个",
+    ))
+    _print_review(path, pack_path, summary, _review_text(root, path, task, state, round_no))
 
 
 def _preflight(root: Path) -> dict:
@@ -705,6 +759,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("accept")
     p.add_argument("--task")
     p.add_argument("--waive")
+    p.add_argument("--minor-fix")
     p = sub.add_parser("wait")
     p.add_argument("--task")
     p = sub.add_parser("cancel")

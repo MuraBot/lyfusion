@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from . import config as config_mod
-from . import store, validate, views
+from . import gitops, store, validate, views
 from .state import TERMINAL, active_task, replay
 from .util import FusionError, git
 
@@ -162,7 +162,12 @@ def cmd_revise(ctx: Ctx, task_id: str | None, text: str) -> dict:
     return {"task": task["id"], "run": rid, "round": task["change_rounds"] + 1, "decisions_note": note}
 
 
-def cmd_accept(ctx: Ctx, task_id: str | None = None, waive: str | None = None) -> dict:
+def cmd_accept(ctx: Ctx, task_id: str | None = None, waive: str | None = None,
+               minor_fix: str | None = None) -> dict:
+    if minor_fix is not None and waive is not None:
+        raise FusionError("--minor-fix cannot be combined with --waive")
+    if minor_fix is not None and (not isinstance(minor_fix, str) or not minor_fix.strip()):
+        raise FusionError("--minor-fix must be non-empty")
     state = replay(store.read(ctx.conn))
     task = current_task(state, task_id)
     if task is None:
@@ -177,6 +182,21 @@ def cmd_accept(ctx: Ctx, task_id: str | None = None, waive: str | None = None) -
         raise FusionError(f"{task['id']} 还没有候选可以验收")
     candidate = state["candidates"][task["latest"]]
     check = candidate.get("checks") or {}
+    if minor_fix is not None:
+        limit = ctx.cfg.get("max_change_rounds", 3)
+        if task["change_rounds"] >= limit:
+            raise FusionError(f"{task['id']} 已经提过 {limit} 轮修改意见。按约定先停下来问用户:继续改,还是取消。", code=2)
+        files = [item["path"] for item in gitops.changed_files(
+            ctx.root, candidate["base"], candidate["commit"]
+        )]
+        rid = f"r{state['next_run']}"
+        _emit(ctx, [
+            {"type": "minor_fix_requested", "task": task["id"],
+             "data": {"previous": task["latest"], "files": files, "run": rid}},
+            {"type": "run_requested", "task": task["id"],
+             "data": {"run": rid, "kind": "minor_fix", "message": minor_fix.strip()}},
+        ])
+        return {"task": task["id"], "candidate": task["latest"], "minor_fix": True}
     errors = []
     if not check.get("passed") and (not check.get("only_env") or not waive):
         errors.append("检查没有全部通过")

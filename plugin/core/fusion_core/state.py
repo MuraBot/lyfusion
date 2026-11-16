@@ -36,6 +36,7 @@ def _task_created(s, e, d, tid):
                         "fix_attempts": 0, "change_rounds": 0, "questions": [], "signals": [],
                         "branch": None, "base": None, "accepted_commit": None, "accept_cand": None,
                         "latest_report": None, "integration": None, "pending_revise": None,
+                        "minor_fix": None,
             "created": e["ts"], "created_seq": e["seq"], "closed": None, "closed_seq": None}
     s["next_task"] = max(s["next_task"], int(tid[1:]) + 1)
 
@@ -240,6 +241,20 @@ def _changes_requested(s, e, d, tid):
     t["change_rounds"] = d.get("round", t["change_rounds"] + 1)
 
 
+def _minor_fix_requested(s, e, d, tid):
+    _task(s, tid)["minor_fix"] = {
+        "previous": d["previous"], "files": d["files"], "run": d["run"], "pending": True,
+    }
+
+
+def _minor_fix_rejected(s, e, d, tid):
+    task = _task(s, tid)
+    task["minor_fix"] = {**(task.get("minor_fix") or {}), "pending": False,
+                         "reasons": d["reasons"], "previous": d["previous"], "candidate": d["candidate"]}
+    task["change_rounds"] = d["round"]
+    task["state"] = "in_review"
+
+
 def _accept_requested(s, e, d, tid):
     t = _task(s, tid)
     t["state"], t["accept_cand"], t["waive"] = "integrating", d.get("cand"), d.get("waive")
@@ -248,6 +263,8 @@ def _accept_requested(s, e, d, tid):
 def _integration_ran(s, e, d, tid):
     t = _task(s, tid)
     t["integration"] = d
+    if t.get("minor_fix"):
+        t["minor_fix"]["pending"] = False
     if not d.get("ok") and t["state"] == "integrating":
         t["state"], t["accept_cand"] = "in_review", None
 
@@ -305,6 +322,7 @@ HANDLERS = {
     "question_answered": _question_answered, "candidate_created": _candidate_created,
     "check_ran": _check_ran, "signal": _signal, "changes_requested": _changes_requested,
     "accept_requested": _accept_requested, "integration_ran": _integration_ran, "accepted": _accepted,
+    "minor_fix_requested": _minor_fix_requested, "minor_fix_rejected": _minor_fix_rejected,
     "cancelled": _cancelled, "cleaned": _cleaned, "usage": _usage,
     "lead_usage": _lead_usage, "no_changes": _no_changes,
     "engine_error": _engine_error,

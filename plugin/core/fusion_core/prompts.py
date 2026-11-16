@@ -144,6 +144,17 @@ def changes_prompt(text: str, decisions: str, model_note: str = "") -> str:
     )
 
 
+def minor_fix_prompt(text: str, files: list[str]) -> str:
+    allowed = "\n".join(f"- {path}" for path in files) or "- (no files)"
+    return (
+        "Make exactly this fix: " + text + "\n"
+        "Change only these files:\n" + allowed + "\n"
+        "Change at most 20 lines total (added plus deleted). Do not refactor or make any other edits.\n"
+        "Then finish with the usual report.\n"
+        + REPORT_REMINDER
+    )
+
+
 def report_prompt(previous_error: str, decisions: str) -> str:
     return (
         "Before returning the report, reread the brief and the work item's git diff item by item. Fill `brief_check` with one entry per decision, constraint and done criterion, using `met`, `differs` (explain why), or `not_done`; `where` must be `file:line` or empty.\n"
