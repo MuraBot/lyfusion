@@ -19,11 +19,12 @@ SESSION_LIMIT = 20
 
 LEAD_GUIDE = """lyfusion is on: the Codex sidekick writes this project's code; you (the lead) define each task completely and review the result.
 Run every command below in the foreground in Bash with timeout 600000; results print straight to the output. No run_in_background, Monitor, sleep or polling.
-If the sidekick is still working after 9 minutes the command returns early (exit code 3); run fusion-core wait to keep waiting. The sidekick is not affected. Messages the user sends while you wait are queued.
+If the sidekick is still working after 9 minutes the command returns early (exit code 3); implementation usually takes longer, so one or two waits are normal and exit code 3 is not an error. Run fusion-core wait to keep waiting. The sidekick is not affected. Messages the user sends while you wait are queued.
 Choose a tier after a quick look at the code, not from the task wording alone:
   A. Do it yourself: a small change in a known place (about 2 files, 30 lines), no slow tests; questions and architecture advice; serial root-cause debugging.
-  B. Delegate without exploring: you already know which files change. Start at step 2.
-  C. Full flow: location unclear, many files, mechanical refactors, expensive verification.
+  B. Delegate without exploring: you already know which files change, however large the change. Start at step 2.
+  C. Explore, then delegate: you do not yet know where the change goes.
+Anything bigger than A (many files, mechanical refactors, slow tests) is delegated with B or C.
 1. Explore: fusion-core explore - <<'EOF' … EOF
    The user's task verbatim, then at most 3 questions numbered Q1~Q3.
 2. Delegate: fusion-core delegate - <<'EOF' plan EOF   Reuses the exploration thread.
@@ -34,8 +35,7 @@ Choose a tier after a quick look at the code, not from the task wording alone:
 4. Accept: fusion-core accept   Merges, reruns checks, squashes to one commit, fast-forwards main. Chain it with the next task: accept && explore ….
    One small fix left? fusion-core accept --minor-fix "one sentence": the sidekick makes it; it is merged only if it touches files this task already changed, at most 20 lines, with green checks; otherwise you get a review pack.
 Design decisions every task must follow go in fusion/decisions.md (edit it directly); each delegation sends it in full and commits it.
-Abandon a task: fusion-core cancel.
-{handoff}"""
+Abandon a task: fusion-core cancel."""
 
 
 def lead_guide(cfg: dict | None = None) -> str:
@@ -46,19 +46,7 @@ def lead_guide(cfg: dict | None = None) -> str:
     if (not isinstance(wait_minutes, (int, float)) or isinstance(wait_minutes, bool)
             or not math.isfinite(wait_minutes) or wait_minutes < 0):
         wait_minutes = config_mod.DEFAULT_CONFIG["wait_minutes"]
-    handoff = config_mod.handoff_settings(cfg)
-    handoff_lines = ""
-    if handoff["mode"] != "off":
-        first = (f"Handoff: when accept says your context passed {handoff['tokens']} tokens, write a handoff "
-                 f"(at most 80 lines) to {handoff['dir']}/<YYYY-MM-DD>-<nn>.md: goal, done (commit ids, no code), "
-                 "constraints that hold, workstation state, next commands, pitfalls and methods.")
-        second = ("Then tell the user they can /clear when convenient. Do not clear the session yourself."
-                  if handoff["mode"] == "write" else
-                  'Then load the tool with ToolSearch "select:mcp__ccd_session_mgmt__clear_session" and call it '
-                  'with session_id "self". Where that tool does not exist (CLI), ask the user to run /clear.')
-        handoff_lines = f"{first}\n{second}"
     guide = LEAD_GUIDE.replace("9 minutes", f"{wait_minutes:g} minutes")
-    guide = guide.replace("\n{handoff}", f"\n{handoff_lines}" if handoff_lines else "")
     return guide.replace("fusion-core ", CMD + " ")
 
 
@@ -69,7 +57,7 @@ def session_context(root, cfg, state, source=None) -> str:
     note = model_notes(root, model)["lead"]
     context = lead_guide(cfg)
     if note:
-        context += f"\n\n## Model notes for the lead ({model})\n{note}"
+        context += f"\n\n## About your sidekick ({model})\n{note}"
     handoff = config_mod.handoff_settings(cfg)
     if source in ("clear", "compact") and handoff["mode"] != "off":
         directory = root / handoff["dir"]
@@ -178,24 +166,9 @@ def _lead_usage_display(state: dict, task_id: str) -> str:
     if not accept:
         return "Not recorded"
     accept_data = accept.get("data", {})
-    explores = []
-    for record in state.get("lead_usage_events", []):
-        if record.get("seq", 0) >= accept.get("seq", 0):
-            continue
-        data = record.get("data", {})
-        if data.get("at") != "explore" or "started_at" not in accept_data:
-            continue
-        if data.get("started_at") != accept_data["started_at"]:
-            continue
-        owner = record.get("task")
-        if owner is None:
-            owner = _explore_snapshot_task(state, record.get("seq", 0))
-        if owner == task_id:
-            explores.append(record)
-    explore = max(explores, key=lambda event: event.get("seq", 0), default=None)
-
-    if explore and "cost_usd" in accept_data and "cost_usd" in explore.get("data", {}):
-        delta = accept_data["cost_usd"] - explore["data"]["cost_usd"]
+    baseline = _lead_usage_baseline(state, task_id, accept)
+    if baseline is not None and "cost_usd" in accept_data:
+        delta = accept_data["cost_usd"] - baseline.get("cost_usd", 0.0)
         amount = f"-${abs(delta):.2f}" if delta < 0 else f"${delta:.2f}"
     else:
         amount = "-"
@@ -221,31 +194,41 @@ def _lead_calls_display(state: dict, task_id: str) -> str:
     if not accept:
         return "-"
     accept_data = accept.get("data", {})
-    explore = None
-    if "started_at" in accept_data:
-        explores = []
-        for record in state.get("lead_usage_events", []):
-            if record.get("seq", 0) >= accept.get("seq", 0):
-                continue
-            data = record.get("data", {})
-            if data.get("at") != "explore" or data.get("started_at") != accept_data["started_at"]:
-                continue
-            owner = record.get("task")
-            if owner is None:
-                owner = _explore_snapshot_task(state, record.get("seq", 0))
-            if owner == task_id:
-                explores.append(record)
-        explore = max(explores, key=lambda event: event.get("seq", 0), default=None)
-    if not explore:
+    baseline = _lead_usage_baseline(state, task_id, accept)
+    if baseline is None:
         return "-"
-    before = explore.get("data", {})
     values = []
     for key in ("tool_calls", "requests"):
-        if key in accept_data and key in before:
-            values.append(str(accept_data[key] - before[key]))
+        if key in accept_data:
+            values.append(str(accept_data[key] - baseline.get(key, 0)))
         else:
             values.append("-")
     return " / ".join(values)
+
+
+def _lead_usage_baseline(state: dict, task_id: str, accept: dict) -> dict | None:
+    accept_data = accept.get("data", {})
+    if "started_at" not in accept_data:
+        return None
+    earlier = [
+        record for record in state.get("lead_usage_events", [])
+        if record.get("seq", 0) < accept.get("seq", 0)
+        and record.get("data", {}).get("started_at") == accept_data["started_at"]
+    ]
+    same_task_explores = []
+    for record in earlier:
+        data = record.get("data", {})
+        if data.get("at") != "explore":
+            continue
+        owner = record.get("task")
+        if owner is None:
+            owner = _explore_snapshot_task(state, record.get("seq", 0))
+        if owner == task_id:
+            same_task_explores.append(record)
+    baseline = max(same_task_explores, key=lambda event: event.get("seq", 0), default=None)
+    if baseline is None:
+        baseline = max(earlier, key=lambda event: event.get("seq", 0), default=None)
+    return baseline.get("data", {}) if baseline else {}
 
 
 def _explore_snapshot_task(state: dict, seq: int) -> str | None:

@@ -9,6 +9,8 @@ from pathlib import Path
 from . import gitops, validate
 from .util import CMD, FusionError, any_match, git
 
+REVIEW_DIFF_BUDGET = 600
+
 
 def read_input(value: str | None, stdin) -> str:
     if not value:
@@ -183,6 +185,10 @@ def _engine_scan(root: Path, candidate: dict, check: dict, files: list[dict]) ->
                     (added if line[0] == "+" else removed).setdefault(parsed[0], []).append(parsed[1])
         for name in sorted(removed.keys() | added.keys()):
             old, new = removed.get(name, []), added.get(name, [])
+            for signature in old.copy():
+                if signature in new:
+                    old.remove(signature)
+                    new.remove(signature)
             if old and new:
                 for before, after in zip(old, new):
                     hits.append(f"{name}: {before} {chr(0x2192)} {after}")
@@ -401,21 +407,26 @@ def review_pack(root: Path, task: dict, state: dict, round_no: int) -> str:
         for fact in facts:
             fold = f" {fact['fold']}" if fact["fold"] else ""
             lines.append(f"- {fact['path']} +{fact['added']} -{fact['deleted']}{fact['suffix']}{fold}")
-        selected = ""
-        omitted_count = 0
-        if diff_files:
-            selected = _diff(root, candidate["base"], candidate["commit"], "-W", "--", *diff_files)
-            if len(selected.splitlines()) > 400:
-                plain = _diff(root, candidate["base"], candidate["commit"], "--", *diff_files)
-                if len(plain.splitlines()) <= 400:
-                    selected = plain
-                else:
-                    omitted_count = len(plain.splitlines())
-                    selected = ""
-        if selected:
-            lines.extend(["", "```diff", selected.rstrip(), "```"])
-        elif omitted_count:
-            lines.append(f"Diff omitted ({omitted_count} lines): git diff {candidate['base']} {candidate['commit']}")
+        fact_by_path = {fact["path"]: fact for fact in facts}
+        added_files = [path for path in diff_files if fact_by_path[path]["item"]["status"] == "A"]
+        ordered_files = added_files + [path for path in diff_files if path not in added_files]
+        remaining = REVIEW_DIFF_BUDGET
+        skipped = []
+        for path in ordered_files:
+            item = fact_by_path[path]["item"]
+            diff_args = ("-M", "--", item["old"], path) if item["status"] == "R" else ("--", path)
+            selected = _diff(root, candidate["base"], candidate["commit"], "-W", *diff_args)
+            if len(selected.splitlines()) > remaining:
+                selected = _diff(root, candidate["base"], candidate["commit"], *diff_args)
+            count = len(selected.splitlines())
+            if count > remaining:
+                skipped.append(f"Not attached: {path} (+{fact_by_path[path]['added']} -{fact_by_path[path]['deleted']}): "
+                               f"git diff {candidate['base']} {candidate['commit']} -- {path}")
+                continue
+            if selected:
+                lines.extend(["", "```diff", selected.rstrip(), "```"])
+                remaining -= count
+        lines.extend(skipped)
     elif failed:
         lines.append(f"Candidate was not created: {failed.get('detail', '')}")
         lines.append(f"Next: {CMD} revise - (describe the fix) or {CMD} cancel")

@@ -113,7 +113,24 @@ def test_lead_usage_cross_session_has_no_guessed_cost_delta(proj, monkeypatch, c
                        {"startedAt": 1763100000001, "cost": {"usd": 9.0}},
                        "accept", "--task", "T1") == 0
     capsys.readouterr()
-    assert "This task -" in views.ledger(proj.state(), "T1")
+    assert "This task $9.00" in views.ledger(proj.state(), "T1")
+
+
+def test_lead_usage_without_explore_uses_previous_session_snapshot_or_zero():
+    accept = {"task": "T1", "seq": 3, "data": {
+        "at": "accept", "started_at": 100, "tool_calls": 15, "requests": 8, "cost_usd": 4.0,
+    }}
+    previous = {"task": "T0", "seq": 2, "data": {
+        "at": "accept", "started_at": 100, "tool_calls": 12, "requests": 7, "cost_usd": 3.5,
+    }}
+    state = {"lead_usage": {"T1": accept}, "lead_usage_events": [previous, accept]}
+    assert views._lead_calls_display(state, "T1") == "3 / 1"
+    assert views._lead_usage_display(state, "T1") == "This task $0.50"
+
+    accept["seq"] = 1
+    state["lead_usage_events"] = [accept]
+    assert views._lead_calls_display(state, "T1") == "15 / 8"
+    assert views._lead_usage_display(state, "T1") == "This task $4.00"
 
 
 def test_lead_usage_tool_call_delta_and_invalid_counts(proj, monkeypatch, capsys):

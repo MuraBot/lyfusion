@@ -301,7 +301,7 @@ def test_old_test_failure_is_not_counted_or_shown_as_check(proj):
 
 def test_delegate_truncated_stdout_points_to_written_pack(proj):
     proj.script([{"write": {"app/new.py": "VALUE = 2\n"},
-                  "report": report(summary="S" * 20500)}])
+                  "report": report(summary="S" * 26500)}])
     plan = {"goal": "Add module", "brief": "Write app/new.py", "scope": ["app/**"]}
     result = cli(proj, "delegate", "-", input_text=json.dumps(plan))
     assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
@@ -319,7 +319,8 @@ def test_review_stdout_drops_diff_and_met_list_before_truncating(monkeypatch):
     monkeypatch.setattr(cli_module, "STDOUT_CHARS", 200)
     output = _review_stdout(text, pack_path="fusion/tasks/T1/review-1.md")
     assert len(output) <= 200
-    assert "```diff" not in output and "Brief check: met -" not in output
+    assert "```diff" not in output
+    assert "Brief check: met -" not in output
     assert output.endswith("Full pack: fusion/tasks/T1/review-1.md")
 
 def test_delegate_four_field_plan_and_resumes_explore(proj):
@@ -481,6 +482,7 @@ def test_review_pack_sections_scope_and_stdout(proj):
     assert "fusion/tasks/T1/review-1.md" in stdout
     assert "## Checks" in stdout and "## Sidekick" in stdout
     assert "```diff" in stdout and stdout.count("Next:") == 1
+    assert "Keep waiting" not in stdout
     assert "Diff omitted" not in text and "workstation path" not in text
     assert "Auto-fix attempts" not in text
 
@@ -498,8 +500,9 @@ def test_review_omits_violation_section_and_large_diff(proj):
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
     text = (proj.root / "fusion/tasks/T1/review-1.md").read_text(encoding="utf-8")
     assert "## Violations" not in text
-    assert "```diff" not in text and "app/new.py" in text
-    assert "Diff omitted (" in text and "git diff " in text
+    assert "```diff" in text and "app/new.py" in text
+    assert "Not attached: app/new.py" not in text
+    assert "Diff omitted" not in text
     assert "workstation path" not in text and "Auto-fix attempts" not in text
 
 

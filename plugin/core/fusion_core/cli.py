@@ -20,7 +20,7 @@ from .supervisor import Supervisor
 from .util import CMD, FormatTooNew, FusionError, clean_env, git
 
 USAGE = views.lead_guide()
-STDOUT_CHARS = 20000
+STDOUT_CHARS = 26000
 _WAIT_TIMEOUT = "__fusion_wait_timeout__"
 
 
@@ -248,7 +248,14 @@ def _review_stdout(text: str, limit: int | None = None, *, pack_path: str) -> st
         limit = STDOUT_CHARS
     if len(text) <= limit:
         return text
-    text = re.sub(r"```diff\n.*?\n```", "", text, flags=re.DOTALL)
+    blocks = list(re.finditer(r"```diff\n(.*?)\n```", text, flags=re.DOTALL))
+    for block in reversed(blocks):
+        if len(text) <= limit:
+            break
+        path_match = re.search(r"(?m)^diff --git a/.+ b/(.+)$", block.group(1))
+        path = path_match.group(1) if path_match else "unknown"
+        replacement = f"Not printed (in the full pack): {path}"
+        text = text[:block.start()] + replacement + text[block.end():]
     if len(text) > limit:
         text = re.sub(r"(?m)^Brief check: met - .*?(?:\n|$)", "", text)
     if len(text) <= limit:
@@ -448,7 +455,6 @@ def _do_wait(args, root):
         f"Checks: {sum(bool(row.get('passed')) for row in checks)}/{len(checks)} passed",
         f"Violations: {len(chk.get('violations', []))}",
         f"Questions: {len((task.get('latest_report') or {}).get('questions', []))}; changed files: {len(chk.get('changed', []))}",
-        "Keep waiting for this round to finish",
     ))
     _print_review(path, pack_path, summary, _review_text(root, path, task, result, task["change_rounds"] + 1))
 
@@ -493,8 +499,14 @@ def _maybe_print_handoff_reminder(root: Path, task_id: str) -> None:
                                  "data": {"tokens": tokens}}], "lead")
     finally:
         conn.close()
-    print(f"Lead context: {tokens} tokens (handoff threshold {handoff['tokens']}). "
-          "Write a handoff now; see the guide.")
+    prefix = f"Lead context: {tokens} tokens (handoff threshold {handoff['tokens']}). "
+    first = (f"Write a handoff (at most 80 lines) to {handoff['dir']}/<YYYY-MM-DD>-<nn>.md: goal, done (commit ids, no code), "
+             "constraints that hold, workstation state, next commands, pitfalls and methods.")
+    second = ("Then tell the user they can /clear when convenient. Do not clear the session yourself."
+              if handoff["mode"] == "write" else
+              'Then load the tool with ToolSearch "select:mcp__ccd_session_mgmt__clear_session" and call it '
+              'with session_id "self". Where that tool does not exist (CLI), ask the user to run /clear.')
+    print(prefix + first + " " + second)
 
 
 def _print_accept_success(root, task) -> None:

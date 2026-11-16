@@ -21,15 +21,19 @@ def _save_project(proj, **values):
 def test_guide_renders_handoff_modes_and_wait_setting(proj):
     cfg = config.load(proj.root)
     guide = views.lead_guide(cfg)
-    assert "tell the user they can /clear" in guide
+    assert "Handoff:" not in guide
     assert "clear_session" not in guide
-    assert "passed 200000 tokens" in guide
+    assert "implementation usually takes longer" in guide
+    assert "exit code 3 is not an error" in guide
+    assert "however large the change" in guide
+    assert "do not yet know where the change goes" in guide
+    assert "Anything bigger than A" in guide
     assert len(guide.splitlines()) <= 24
 
     cfg["local"]["handoff_mode"] = "clear"
     clear_guide = views.lead_guide(cfg)
-    assert "clear_session" in clear_guide
-    assert "ask the user to run /clear" in clear_guide
+    assert "clear_session" not in clear_guide
+    assert "Handoff:" not in clear_guide
     assert len(clear_guide.splitlines()) <= 24
 
     cfg["local"]["handoff_mode"] = "off"
@@ -107,6 +111,14 @@ def test_session_start_ignores_empty_or_missing_handoff_directory(proj):
     assert "read the latest handoff first" not in text
 
 
+def test_session_context_identifies_the_sidekick_and_stays_compact(proj):
+    cfg = config.load(proj.root)
+    context = views.session_context(proj.root, cfg, {}, source="startup")
+    assert "## About your sidekick (" in context
+    assert "Model notes for the lead" not in context
+    assert len(context.splitlines()) <= 30
+
+
 def test_accept_handoff_reminder_threshold_and_reset_sequence(proj, capsys):
     def snapshot(tokens):
         with store.transaction(proj.sup.conn):
@@ -120,11 +132,25 @@ def test_accept_handoff_reminder_threshold_and_reset_sequence(proj, capsys):
     cli._maybe_print_handoff_reminder(proj.root, "T1")
     assert capsys.readouterr().out == ""
     assert snapshot(120000) == ""
-    assert "Lead context: 210000 tokens" in snapshot(210000)
+    reminder = snapshot(210000)
+    assert "Lead context: 210000 tokens" in reminder
+    assert "Do not clear the session yourself." in reminder
     assert snapshot(260000) == ""
     assert "Lead context: 365000 tokens" in snapshot(365000)
     assert snapshot(50000) == ""
     assert "Lead context: 205000 tokens" in snapshot(205000)
+
+
+def test_accept_handoff_reminder_clear_mode_prints_clear_instructions(proj, capsys):
+    _save_local(proj, handoff_mode="clear")
+    with store.transaction(proj.sup.conn):
+        store.append(proj.sup.conn, [{
+            "type": "lead_usage", "task": "T1",
+            "data": {"at": "accept", "tokens": 210000},
+        }], "test")
+    cli._maybe_print_handoff_reminder(proj.root, "T1")
+    output = capsys.readouterr().out
+    assert "clear_session" in output
 
 
 def test_explore_prompt_requires_mechanical_draft_within_limit():

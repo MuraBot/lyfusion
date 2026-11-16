@@ -34,7 +34,7 @@ lyfusion is the Claude Code plugin `lyfusion-plugin`: Claude is the lead and Cod
 - Desktop `Select` and `Button` are not disabled controls; use dim text for unavailable choices and invalidate `ui.render` after shared panel state changes.
 - Keep full engine commands visible to the mod's literal usage matcher; don't hide `fusion-core.py explore|accept` behind a shell variable.
 - When a package's engine is older than the workspace code, old checks may fail against new wording; inspect the actual check result and review pack before accepting.
-- Review packs omit diffs over 400 lines; inspect targeted paths with `git diff BASE CANDIDATE -- PATH`.
+- Review packs attach per-file diffs within a 600-line total budget; skipped files are listed with a command to inspect each diff.
 - A foreground Bash call that passes its timeout moves to the background instead of being killed; killing a waiting CLI does not stop Codex, and rerunning the command keeps waiting.
 - Keep briefs compact and collect review output, test diff, and ledger together when one command can return them.
 - After installing an engine, run `claude plugin validate` and a small real run early to catch packaging or sandbox issues.

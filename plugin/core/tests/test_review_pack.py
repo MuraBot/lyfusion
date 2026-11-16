@@ -84,6 +84,19 @@ def test_engine_scan_reports_public_signatures_markers_and_scope(proj):
     assert "Out of scope: outside.txt" in pack
 
 
+def test_engine_scan_ignores_body_only_signature_text_and_keeps_parameter_changes(proj):
+    proj.write("app/api.py", "def update_stock(self, tool_id, quantity):\n    return quantity\n\n"
+               "def load_stock(stock_id):\n    return stock_id\n")
+    proj.commit("baseline signature")
+    _, _, pack = make_pack(proj, {
+        "app/api.py": "def update_stock(self, tool_id, quantity):\n    return quantity + 1\n\n"
+                      "def load_stock(stock_id, location=None):\n    return stock_id\n",
+    })
+    assert "update_stock:" not in pack
+    assert "load_stock: def load_stock(stock_id):" in pack
+    assert "def load_stock(stock_id, location=None):" in pack
+
+
 def test_mechanical_folding_and_function_context_diff(proj):
     proj.write("app/spacing.py", "  # spacing\nVALUE = 1\n")
     proj.write("app/logic.py", "def compute():\n    marker = 'far context'\n    first = 1\n    second = 2\n    third = 3\n    fourth = 4\n    target = 5\n    return target\n")
@@ -103,16 +116,22 @@ def test_review_diff_limit_and_stdout_full_pack_location(proj):
 
     _, _, small = make_pack(proj, {"app/small.py": "VALUE = 1\n"})
     assert "```diff" in small and "Diff omitted" not in small
-    huge = "".join(f"VALUE_{index} = {index}\n" for index in range(450))
-    task, _, large = make_pack(proj, {"app/large.py": huge})
-    assert "```diff" not in large
-    assert "Diff omitted (" in large
-    assert "git diff " in large
-    output = _review_stdout("## Sidekick\n" + "x" * 20500 + "\n```diff\nx\n```\n",
+    huge = "".join(f"VALUE_{index} = {index}\n" for index in range(700))
+    task, _, large = make_pack(proj, {
+        "app/z-large.py": huge,
+        "app/a-small.py": "VALUE = 1\n",
+    })
+    assert "app/a-small.py" in large and "```diff" in large
+    assert "Not attached: app/z-large.py (+700 -0): git diff " in large
+    assert "Diff omitted" not in large
+    text = ("## Sidekick\n" + "x" * 20500 + "\n```diff\ndiff --git a/first.py b/first.py\nx\n```\n"
+            + "```diff\ndiff --git a/last.py b/last.py\n" + "x\n" * 50 + "```\n")
+    output = _review_stdout(text, limit=len(text) - 30,
                             pack_path=f"fusion/tasks/{task['id']}/review-1.md")
-    assert len(output) <= 20000
-    assert output.endswith(f"Full pack: fusion/tasks/{task['id']}/review-1.md")
-    assert "```diff" not in output
+    assert len(output) <= len(text) - 30
+    assert "```diff\ndiff --git a/first.py b/first.py" in output
+    assert "```diff\ndiff --git a/last.py b/last.py" not in output
+    assert "Not printed (in the full pack): last.py" in output
 
 
 def test_import_only_and_renamed_files_are_folded(proj):
