@@ -19,10 +19,11 @@ def test_panel_emits_only_panel_fields_and_current_settings(proj, capsys):
     panel = json.loads(raw)
     assert panel == {
         "schema_version": 2, "project": True, "enabled": True,
-        "model": "gpt-6-luna", "models": ["gpt-6-luna", "gpt-6-astra", "custom-model"],
+        "model": "gpt-6-luna", "models": ["gpt-6.1-sol", "gpt-6-luna", "gpt-6-astra", "custom-model"],
         "effort": "high", "efforts": config.model_efforts("gpt-6-luna"), "fast": False,
-        "fast_models": ["gpt-6-luna", "gpt-6-astra"],
-        "model_names": {"gpt-6-luna": "GPT-6-Luna", "gpt-6-astra": "GPT-6-Astra"},
+        "fast_models": ["gpt-6.1-sol", "gpt-6-luna", "gpt-6-astra"],
+        "model_names": {"gpt-6.1-sol": "GPT-6.1-Sol", "gpt-6-luna": "GPT-6-Luna",
+                        "gpt-6-astra": "GPT-6-Astra", "custom-model": "custom-model"},
         "compact": 250000, "compacts": [250000, 262144, 400000, 600000, 800000],
         "context_ratio": 0.6, "switch_at": 150000,
         "handoff": {"mode": "write", "tokens": 200000, "dir": "fusion/handoffs", "modes": ["clear", "write", "off"]},

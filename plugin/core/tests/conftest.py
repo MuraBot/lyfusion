@@ -31,6 +31,20 @@ def isolated_codex_home(tmp_path, monkeypatch):
     codex_home = tmp_path / "codex-home"
     codex_home.mkdir()
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    models = []
+    for priority, (slug, info) in enumerate(config_mod.MODEL_INFO.items()):
+        models.append({
+            "slug": slug,
+            "display_name": info["name"],
+            "visibility": "list",
+            "priority": priority,
+            "supported_reasoning_levels": [{"effort": effort} for effort in info["efforts"]],
+            "additional_speed_tiers": ["fast"] if info["fast"] else [],
+            "max_context_window": info["max_compact"],
+        })
+    (codex_home / "models_cache.json").write_text(
+        json.dumps({"models": models}), encoding="utf-8"
+    )
 
 
 GREET = 'def hello(name):\n    return f"Hello, {name}"\n'

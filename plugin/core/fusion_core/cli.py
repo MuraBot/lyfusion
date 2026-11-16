@@ -835,10 +835,12 @@ def main(argv=None) -> int:
                 sidekick = local.get("sidekick", {})
                 model = sidekick.get("model", config_mod.DEFAULT_LOCAL["sidekick"]["model"])
                 model_settings = sidekick.get("models", {})
-                models = list(config_mod.KNOWN_MODELS)
+                models = config_mod.known_models()
                 if isinstance(model_settings, dict):
-                    models.extend(name for name in model_settings if isinstance(name, str))
-                models.append(model)
+                    models.extend(name for name in model_settings
+                                  if isinstance(name, str) and not config_mod.is_hidden_model(name))
+                if not config_mod.is_hidden_model(model):
+                    models.append(model)
                 models = list(dict.fromkeys(models))
                 current = config_mod.current_model_settings(sidekick)
                 compact_choices = config_mod.compact_choices(model, current["compact"])
@@ -853,8 +855,7 @@ def main(argv=None) -> int:
                     "efforts": config_mod.model_efforts(model),
                     "fast": current["fast"],
                     "fast_models": [name for name in models if config_mod.supports_fast(name)],
-                    "model_names": {name: config_mod.MODEL_INFO[name]["name"] for name in models
-                                    if name in config_mod.MODEL_INFO},
+                    "model_names": {name: config_mod.model_info(name)["name"] for name in models},
                     "compact": current["compact"],
                     "compacts": compact_choices,
                     "context_ratio": effective["context_ratio"],

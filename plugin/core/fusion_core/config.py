@@ -12,8 +12,10 @@ from .util import FormatTooNew, FusionError, git
 DEFAULT_COMPACT = 400000
 DEFAULT_CONTEXT_RATIO = 0.6
 HANDOFF_MODES = ["clear", "write", "off"]
-# 来源：Lily 本机 Codex 0.167 的模型缓存，经 lyfusion 会话转达(2026-11-14)；引擎不读 models_cache.json
+# Built-in fallback capabilities from Lily's Codex 0.167 model cache, relayed on 2026-11-14.
 MODEL_INFO = {
+    "gpt-6.1-sol": {"name": "GPT-6.1-Sol", "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+                    "fast": True, "max_compact": 872000},
     "gpt-6-luna": {"name": "GPT-6-Luna", "efforts": ["low", "medium", "high", "xhigh", "max"],
                    "fast": True, "max_compact": 872000},
     "gpt-6-astra": {"name": "GPT-6-Astra", "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
@@ -22,6 +24,103 @@ MODEL_INFO = {
 KNOWN_MODELS = list(MODEL_INFO)
 DEFAULT_EFFORTS = ["low", "medium", "high", "xhigh"]
 COMPACT_CHOICES = [262144, 400000, 600000, 800000]
+_MODEL_CACHE_STATE = None
+
+
+def codex_home() -> Path:
+    return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+
+
+def _models_from_state(entries: dict[str, dict], ordered: list[dict], warning: str | None) -> list[str]:
+    if warning is not None:
+        return list(MODEL_INFO)
+    cached = [entry["slug"] for entry in sorted(
+        ordered,
+        key=lambda entry: (entry.get("priority") if isinstance(entry.get("priority"), int)
+                           and not isinstance(entry.get("priority"), bool) else 0),
+    ) if entry.get("visibility") == "list"]
+    return cached + [model for model in MODEL_INFO if model not in entries]
+
+
+def _model_cache() -> tuple[dict[str, dict], list[dict], str | None]:
+    """Read Codex's model cache once per path and modification time."""
+    global _MODEL_CACHE_STATE, KNOWN_MODELS
+    path = codex_home() / "models_cache.json"
+    try:
+        mtime = path.stat().st_mtime_ns
+    except OSError as exc:
+        mtime = None
+        reason = "file not found" if isinstance(exc, FileNotFoundError) else str(exc)
+    else:
+        reason = None
+    state = _MODEL_CACHE_STATE
+    if state is not None and state[0] == path and state[1] == mtime:
+        return state[2], state[3], state[4]
+
+    entries: dict[str, dict] = {}
+    ordered: list[dict] = []
+    if reason is None:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            reason = str(exc)
+        else:
+            if not isinstance(data, dict):
+                reason = "top-level value is not an object"
+            elif not isinstance(data.get("models"), list):
+                reason = "models is not a list"
+            else:
+                for entry in data["models"]:
+                    if not isinstance(entry, dict) or not isinstance(entry.get("slug"), str):
+                        continue
+                    if entry["slug"] not in entries:
+                        entries[entry["slug"]] = entry
+                        ordered.append(entry)
+                if not entries:
+                    reason = "models has no entry with a string slug"
+
+    warning = (
+        f"Could not read Codex model cache ({path.as_posix()}): {reason}. "
+        "Using the built-in model table."
+        if reason is not None else None
+    )
+    if reason is not None:
+        entries, ordered = {}, []
+    _MODEL_CACHE_STATE = (path, mtime, entries, ordered, warning)
+    KNOWN_MODELS = _models_from_state(entries, ordered, warning)
+    return entries, ordered, warning
+
+
+def known_models() -> list[str]:
+    entries, ordered, warning = _model_cache()
+    return _models_from_state(entries, ordered, warning)
+
+
+def is_hidden_model(model: str) -> bool:
+    entries, _, warning = _model_cache()
+    return warning is None and model in entries and entries[model].get("visibility") != "list"
+
+
+def model_info(model: str) -> dict:
+    """Resolve each capability from Codex's cache, then the built-in defaults."""
+    entries, _, _ = _model_cache()
+    built_in = MODEL_INFO.get(model, {})
+    entry = entries.get(model, {})
+    name = entry.get("display_name")
+    levels = entry.get("supported_reasoning_levels")
+    efforts = ([level.get("effort") for level in levels
+                if isinstance(level, dict) and isinstance(level.get("effort"), str)]
+               if isinstance(levels, list) else None)
+    tiers = entry.get("additional_speed_tiers")
+    max_compact = entry.get("max_context_window")
+    return {
+        "name": name if isinstance(name, str) else built_in.get("name", model),
+        "efforts": efforts if efforts else built_in.get("efforts", DEFAULT_EFFORTS),
+        "fast": ("fast" in tiers if isinstance(tiers, list) and all(isinstance(x, str) for x in tiers)
+                 else built_in.get("fast", False)),
+        "max_compact": (max_compact if isinstance(max_compact, int) and not isinstance(max_compact, bool)
+                        and max_compact > 0 else built_in.get("max_compact")),
+    }
 
 DEFAULT_CONFIG = {
     "base_branch": None,          # 默认:init 时 lead 工作目录所在的分支
@@ -143,21 +242,23 @@ def current_model_settings(sidekick: dict) -> dict:
 
 
 def model_efforts(model: str) -> list[str]:
-    return MODEL_INFO.get(model, {}).get("efforts", DEFAULT_EFFORTS)
+    return model_info(model)["efforts"]
 
 
 def supports_fast(model: str) -> bool:
-    return bool(MODEL_INFO.get(model, {}).get("fast", False))
+    return bool(model_info(model)["fast"])
 
 
 def max_compact(model: str) -> int | None:
-    return MODEL_INFO.get(model, {}).get("max_compact")
+    return model_info(model)["max_compact"]
 
 
 def compact_choices(model: str, current: int) -> list[int]:
     limit = max_compact(model)
     choices = [value for value in COMPACT_CHOICES if limit is None or value <= limit]
-    return sorted(set(choices + [current]))
+    if limit is None or current <= limit:
+        choices.append(current)
+    return sorted(set(choices))
 
 
 def context_ratio(cfg: dict) -> float:
@@ -223,6 +324,9 @@ def _valid_ratio(value) -> bool:
 
 def configuration_warnings(cfg: dict) -> list[str]:
     warnings = []
+    cache_warning = _model_cache()[2]
+    if cache_warning is not None:
+        warnings.append(cache_warning)
     ratio = cfg.get("context_ratio", DEFAULT_CONTEXT_RATIO)
     if not _valid_ratio(ratio):
         warnings.append(

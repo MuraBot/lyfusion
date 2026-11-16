@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 import time
 from pathlib import Path
 
-from .config import current_model_settings
+from .config import codex_home, current_model_settings
 from .util import IS_WIN, FusionError, clean_env, run, spawn_detached
 
 SCHEMA = Path(__file__).with_name("report_schema.json")
@@ -20,7 +19,7 @@ def user_sandbox_settings() -> dict:
         import tomllib
     except ImportError:
         return {}
-    config_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    config_home = codex_home()
     try:
         with (config_home / "config.toml").open("rb") as stream:
             config = tomllib.load(stream)
