@@ -189,3 +189,9 @@
 - 修改 1 轮(偶发测试、设计文档里一行中文变 `?`、`wait` 的一句提示);自动修 3 次;Codex 输入 16.33M(缓存 15.91M)、输出 0.12M;用时:探索 7.1、实现 15.3、自动修 1.3 + 2.6、修改 3.7、自动修 2.2 分钟
 - 问题:`test_cancel_kills_running` 在引擎检查(`-n 6`)里偶发失败,accept 被拒,`--waive` 不放行没过的检查,只能多一轮修改(反馈第 27 条);已加清理重试
 - 额度:T10 验收后 5 小时 62%、每周 31%;lead 上下文 26.4 万 → 写交接 `v5/rc2-handoffs/2026-11-15-01.md`,用 `clear_session` 清空
+
+### 任务 1 的 mod 一半(lead 写,`register.tsx`)+ 中间包 5.0.0-rc.1.1
+- mod 数主代理的工具调用(`tool.call`)和模型请求(`turn.step`),跟快照一起交给引擎;快照改成在钩子自己的调度里 `await`(限时 8 秒,钩子预算 10 秒),失败第一次弹 toast,面板最后一行显示本会话的调用数、请求数、已记快照数和上次失败原因。`accept && explore` 连写时 explore 快照推到下一次模型请求再记(引擎把 explore 快照算给当时还开着的任务)。rc.1 一条都没记到的原因没查清,猜是钩子返回后再用 `$` 会失效(rc.1 是 `void` 出去的),装上后看面板就知道
+- `claude plugin validate` 拦下一处:`turn.step` 是流式事件,钩子必须是 `async function*` 加 `return yield* next(e)`
+- 顺手修:`v5/build_plugin.py` 打印 validate 输出时 GBK 编码报错(stdout、stderr 改 UTF-8)
+- 中间包版本 `5.0.0-rc.1.1`(semver 排在 rc.1 之后、rc.2 之前;不覆盖 rc.1 的回退包),不打标签:`v5/dist/lyfusion-plugin-5.0.0-rc.1.1.zip`

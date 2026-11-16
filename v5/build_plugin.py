@@ -40,6 +40,8 @@ def validate(claude: str) -> None:
 
 
 def main(argv=None):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # validate 的输出有 GBK 打不出的字符
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="跑 plugin validate,通过后把 plugin/ 打成 zip")
     parser.add_argument("--claude", default=os.environ.get(CLAUDE_ENV),
                         help=f"桌面端自带的 claude.exe;不给就读环境变量 {CLAUDE_ENV}")

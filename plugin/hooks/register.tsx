@@ -29,7 +29,19 @@ let fusionCommand = false // 这一轮里用户跑了 /fusion:命令的输出 le
 
 const EFFORT_LABEL: Record<string, string> = { low: '低', medium: '中', high: '高', xhigh: '超高', max: '最高', ultra: '极限' }
 // lead 跑这两条命令时各记一次用量快照:任务的 lead 花费 = 最后一次 accept − explore(同一个会话才算)
-const SNAPSHOT_AT = /fusion-core\.py["']?\s+(explore|accept)\b/
+const SNAPSHOT_AT = /fusion-core\.py["']?\s+(explore|accept)\b/g
+// Task 1 (rc.2): lead call counts for this session, main loop only (a subagent's events carry e.agentId).
+// They ride along in every usage snapshot; the engine diffs them like cost.
+type Counts = { toolCalls: number; requests: number }
+let toolCalls = 0
+let requests = 0
+let snapshots = 0 // snapshots the engine accepted in this session, shown in the panel
+let usageError: string | null = null // last snapshot failure, shown in the panel until one succeeds
+let usageWarned = false // toast once
+// `accept && explore` in one command: the explore snapshot waits for the next model request, when the
+// accepted task is closed and the new one exists (the engine credits an explore snapshot to the task open at
+// that moment, which would otherwise be the one being accepted)
+let pendingExplore: Counts | null = null
 
 // 下拉框里显示好读的模型名,存的值不变。优先用引擎给的显示名(model_names,和 Codex 自己的写法一样);
 // 引擎表里没有的模型照同样的写法:gpt-7-nova → GPT-7-Nova
@@ -51,10 +63,10 @@ function lastLine(text: string): string {
 
 // 引擎一律在会话的项目目录里跑:桌面端先在预备目录(~/.claude/spares/…)起好进程,之后才挂到项目,
 // 进程自己的工作目录靠不住
-async function core($: EngineInterface, args: string[], stdin?: string) {
+async function core($: EngineInterface, args: string[], stdin?: string, timeoutMs = 20_000) {
   const script = `${$.plugin.root}/core/fusion-core.py`
   const cwd = await $.session.root()
-  return $.process.run(['python', script, ...args], stdin === undefined ? { cwd, timeoutMs: 20_000 } : { cwd, timeoutMs: 20_000, stdin })
+  return $.process.run(['python', script, ...args], stdin === undefined ? { cwd, timeoutMs } : { cwd, timeoutMs, stdin })
 }
 
 async function exists($: EngineInterface, path: string): Promise<boolean> {
@@ -179,17 +191,34 @@ async function change($: EngineInterface, args: string[], done: Notice | null = 
   await refresh($)
 }
 
-// 原样交给引擎:cost 是会话累计值、rateLimits 是整个账号的,怎么求差由引擎在读台账时算
-async function recordLeadUsage($: EngineInterface, at: string, task: string | undefined): Promise<void> {
+// 原样交给引擎:cost 是会话累计值、rateLimits 是整个账号的,怎么求差由引擎在读台账时算.
+// Awaited inside the hook's own dispatch (rc.1 fired it after returning and no snapshot was ever recorded),
+// so it must finish well within the 10 s hook budget: the engine call gets 8 s.
+// Failures used to reach the debug log only; now the first one toasts and the panel shows the last one.
+async function recordLeadUsage($: EngineInterface, at: string, task: string | undefined, counts: Counts): Promise<void> {
+  let stage = 'session.usage()'
   try {
     const usage = await $.session.usage()
+    stage = 'fusion-core lead-usage'
     const args = ['lead-usage', '--at', at, ...(task ? ['--task', task] : []), '-']
-    const result = await core($, args, JSON.stringify(usage))
+    const result = await core($, args, JSON.stringify({ ...usage, ...counts }), 8_000)
     if (result.exitCode !== 0) {
-      $.ui.log(`lead-usage: ${failure(result).text}`, { to: 'debug' })
+      usageFailed($, `${at}, ${stage}: ${failure(result).text}`)
+      return
     }
+    snapshots += 1
+    usageError = null
   } catch (err) {
-    $.ui.log(`lead-usage: ${String(err)}`, { to: 'debug' })
+    usageFailed($, `${at}, ${stage}: ${String(err)}`)
+  }
+}
+
+function usageFailed($: EngineInterface, text: string): void {
+  usageError = text
+  $.ui.log(`lead-usage: ${text}`, { to: 'debug' })
+  if (!usageWarned) {
+    usageWarned = true
+    $.ui.toast(`Fusion: lead usage snapshot failed (${text})`)
   }
 }
 
@@ -252,14 +281,44 @@ export const register: Register = on => {
     return next({ ...e, context: [...(e.context ?? []), note] })
   }).catch(($, e, next) => next(e)) // mod 自己出错时照常放行,不拦消息和命令
 
-  // 任务 7:lead 跑 explore、accept 时记用量快照。不等它、不拦命令
-  on('tool.call', { tool: 'Bash' }, ($, e, next) => {
-    const at = SNAPSHOT_AT.exec(e.command)?.[1]
-    if (at) {
-      void recordLeadUsage($, at, /--task[ =](\S+)/.exec(e.command)?.[1])
+  // 任务 7 (rc.1) + task 1 (rc.2): count every lead tool call; before an explore or accept command runs,
+  // record a usage snapshot with the counts. An explore snapshot counts from before its own call, an accept
+  // snapshot up to and including its call, so a task's figure covers explore..accept. Never blocks the command
+  // beyond the snapshot itself.
+  on('tool.call', async ($, e, next) => {
+    if (e.agentId) {
+      return next(e)
+    }
+    const before: Counts = { toolCalls, requests }
+    toolCalls += 1
+    const command = e.tool === 'Bash' && typeof e.command === 'string' ? e.command : ''
+    const ats = [...command.matchAll(SNAPSHOT_AT)].map(m => m[1])
+    if (ats.includes('accept')) {
+      const task = ats.length === 1 ? /--task[ =]["']?(T\d+)/.exec(command)?.[1] : undefined
+      await recordLeadUsage($, 'accept', task, { toolCalls, requests })
+      if (ats.includes('explore')) {
+        pendingExplore = before
+      }
+    } else if (ats.includes('explore')) {
+      await recordLeadUsage($, 'explore', undefined, before)
     }
     return next(e)
   }).catch(($, e, next) => next(e)) // mod 自己出错时照常放行,不拦消息和命令
+
+  // Task 1 (rc.2): one model request of the lead (main loop only); also where a deferred explore snapshot lands.
+  // turn.step streams, so the hook is an async generator that passes the response through untouched.
+  // No .catch: a hook that fails is skipped and the request goes on as usual.
+  on('turn.step', async function* ($, e, next) {
+    if (!e.agentId) {
+      requests += 1
+      if (pendingExplore) {
+        const counts = pendingExplore
+        pendingExplore = null
+        await recordLeadUsage($, 'explore', undefined, counts)
+      }
+    }
+    return yield* next(e)
+  })
 
   on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
     if ((await rootChanged($)) || !requested) {
@@ -407,6 +466,10 @@ export const register: Register = on => {
             </Text>
           )
         ) : null}
+        <Text dimColor size="footnote">
+          Lead this session: {toolCalls} tool calls · {requests} requests · {snapshots} usage snapshots recorded
+        </Text>
+        {usageError ? <Text color="error">Lead usage snapshot failed: {usageError}</Text> : null}
       </Box>
     )
   })
