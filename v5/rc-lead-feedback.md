@@ -23,3 +23,21 @@
 | 16 | **干净模式在 Windows 上让助手一条命令都跑不了**:`--ignore-user-config` 把 Lily 配置里的 Windows 沙箱设置也去掉了,Codex 拒绝所有命令(`rejected: blocked by policy`),连只读的 `Get-Content`、`git grep` 都不行。助手照样交了探索包,内容凭上一轮会话的记忆写,没核对文件。preflight 的"干净模式参数"只查 `--help` 里有没有这些参数,查不出来。lead 用最小命令试出加 `-c windows.sandbox="unelevated"` 就好 | 任务 7 探索(r19) | 1 次探索白跑、T7 取消重来;排查约 10 次调用、2 次小的 Codex 调用 | 干净模式在 Windows 上带上 `windows.sandbox="unelevated"`(任务 7 改);审查包里助手运行有"命令被拒"时单独列出并提醒 lead;preflight 能否不花用量地查出来看任务 7 探索 | 高 |
 | 17 | `runs/<run>/args.json` 只记 `build_args` 的结果,不含 Codex 命令本身(`local.json` 的 `codex` 可以是带参数的列表)。lead 在 `codex` 里临时加了 `-c windows.sandbox="unelevated"`,看护会话只看 args.json,以为 r20 没带沙箱设置,推断成"只拦 git"(看护会话发现,lead 更正) | 任务 7 排查 | 看护会话一次误判、来回 2 条消息 | args.json 记完整的 argv(含 `codex` 前缀);rc.2 做(本次派工正在改 `codex.py`,不插队) | 低 |
 | 18 | 助手在 f-string 表达式里写了 `'不支持'`:Python 3.10、3.11 是语法错误(整个 `views` 导入失败),引擎声明支持 3.10,但测试和 lint 都在 3.12 上跑,都过了。助手还是爱把中文写成 `\uXXXX`(任务 6 也有) | 任务 7 第 1 轮审查 | lead 读 diff 发现;1 轮修改 | lead 把项目 lint 改成 `ruff check --target-version py310`(能查出这类语法);rc.2:WORK_RULES 写明“源码直接写中文,不写 `\uXXXX`”,或引擎检查加一条 | 中 |
+
+## rc.2
+
+> lead:Claude Opus 5.5(xhigh);用的引擎是装好的 rc.1 插件。轻重同上。
+
+| # | 现象 | 哪一步、哪个任务 | 多花了什么 | 建议 | 轻重 |
+|---|---|---|---|---|---|
+| 19 | mod 的 explore/accept 用量快照从来没记到过:`fusion.db` 里没有一条 `lead_usage` 事件。rc.2 会话里 mod 是加载了的(有面板的事件),发一条文字里带 `fusion-core.py accept --task T9` 的命令也没记到;看不到 debug 日志,原因没查清 | 任务 2(T9)开工 | 排查约 12 次调用;rc.1、rc.2 的 lead 用量全是"未记录" | 任务 1 一起修:失败不能只写 debug 日志,第一次失败弹提示 | 高 |
+| 20 | 后台命令结束的通知不带输出:每走一步要"发命令、结束本轮(桌面端还要 wrap_up)、醒来读结果",约 3~4 次请求 | 全程 | 每步多 2~3 次 | 任务 9:能放前台就放前台(Lily 定) | 中 |
+| 21 | 用 python 生成 JSON 计划再管道喂给 delegate:Windows 上 python 的 stdout 是 GBK,引擎按 UTF-8 解码失败,派工白发一次 | 任务 2 派工 | 2 次调用,整份计划重发一遍 | 任务 2 做完后直接写 Markdown heredoc;非要管道就加 `PYTHONIOENCODING=utf-8` | 低 |
+| 22 | brief 里写了"中文不要写成 `\uXXXX`",助手把测试里要的 `\ufeff` 也写成了看不见的原字符 | 任务 2 审查 | 验收后手改 2 次 | lint P7(和 P1 同一个脚本);brief 里写清"BOM、零宽字符写转义" | 低 |
+| 23 | 好的一面:brief 引用的错误信息原文写错了(少一个"的"),助手按"不变的行为"一节保留了原文字,并写进自定选择 | 任务 2 审查 | — | brief 固定写"不变的行为"一节 | — |
+| 24 | lead 排查时手动跑 `fusion-core hook session-start`,引擎往库里写了一条 session_id 为空的 `lead_session` | 任务 2 排查 | 库里多一条假事件 | 没有 session_id 时不记 | 低 |
+| 25 | 实测:前台 Bash 超过 timeout 会自动转到后台,不会被掐;强杀等待中的 CLI 后 Codex 照跑,重跑命令能接着等 | 任务 9 实测 | — | 前台运行没有风险,LEAD_GUIDE 和 CLAUDE.md 写明 | — |
+| 26 | 审查包超过 400 行不附 diff;lead 另拿 diff,输出 32KB 被存成文件,又 Read 一次 | T10 审查 | 2 次调用 | 任务 6 | 中 |
+| 27 | `accept --waive` 只放行违规,不放行没过的检查;偶发失败(`test_cancel_kills_running`)也要 revise 一轮让引擎重跑 | T10 验收 | 2 次调用 + 一轮(约 6 分钟) | accept 时没过的检查先自动重跑一次,还不过再拒 | 中 |
+| 28 | luna 往 design 文档写中文时丢了编码,命令表一行变成一串 `?` | T10 第 1 轮 | 修改意见里多一条 | lint C4:受管的文本文件里出现 3 个以上连续的 `?` 就报错 | 低 |
+| 29 | 等后台命令时,桌面端每轮结束都要 wrap_up,每次等待多 1~2 次请求 | 全程 | 每次等待 1~2 次 | 前台运行(任务 9) | 低 |

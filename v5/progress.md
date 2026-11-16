@@ -170,3 +170,22 @@
 - 2026-11-07:v5.0.0-aq.1 补回 v4 的助手说明;本地标签 `v5.0.0-aq.1`,zip `dist/lyfusion-plugin-5.0.0-aq.1.zip`
 - 2026-11-07:fusion-bench H2 插件版测试(C5,lead Opus 5.5 high 新会话,助手 luna high):**100 分**(v4 C2 是 96.97,助手 luna max);lead 22 次工具调用(Bash 18,另 4 次是桌面应用的任务列表和收尾);约 24 分钟;Codex 515 万输入/3.8 万输出,约 $0.09;每周额度 39%→40%。详见 `fusion-bench/results/summary-2026-11-03.md` 末尾。lead 的意见(探索可跳过要写明、decisions.md 要不要提交、审查包加工位路径、同一检查去重、默认禁止跑格式化器)留给下一版
 - 2026-11-07:v5.0.0-aq.2 按 H2 测试 lead 的意见改:探索写成每个任务都先做;引擎在 delegate、revise 时自动提交 `fusion/decisions.md`;审查包加候选和工位一行,同一条命令只跑一次、只列一行;助手说明禁止整项目跑格式化器。75 个测试、lint 通过,没有重跑真实 Codex。lead 的 Claude 用量(mod 的 `$.session.usage()`)放进 M3。见设计 §15。本地标签 `v5.0.0-aq.2`,zip `dist/lyfusion-plugin-5.0.0-aq.2.zip`
+
+## v5.0.0-rc.2(2026-11-15 ~)
+> 任务说明 `rc2-brief.md`;lead = Claude Opus 5.5 xhigh,助手 = gpt-6-luna high、Fast Mode 开;用的引擎是装好的 rc.1 插件。
+> 开始时额度:5 小时 27%、每周 27%(`get_usage`,2026-11-15 约 22:30)。
+> lead 调用数:任务 1 装上之前由 lead 自己数(explore 到 accept 之间的工具调用,并行的每个都算)。
+
+### 任务 2 计划接受 Markdown + 小项 8 的两条(accepted,`ea96ccf`;lead 小改 `e2e5ffb`;Fusion 里编号 T9)
+- 做了什么:`aq.parse_plan` 第一个字符不是 `{` 就按 Markdown(第一行 `# 目标`,可选 `## scope`、`## checks`,围栏代码块里不算标题);LEAD_GUIDE 第 2 条改成 Markdown 写法、推荐小标题加"不变的行为"、提醒检查标准写在产出上(P5);`watch_minutes` 注释写明缓存关系;新测试 10 条
+- lead 调用 10 次:探索、读探索包、派工、读审查包、验收各 1(这 5 次是下限);多出的 5 次 = 环境确认 1、python 管道把计划编成 GBK 派工失败 2(用 Markdown 派工后不会再有)、等待时结束本轮的 wrap_up 2(任务 9 前台运行能去掉)。验收后手改 2 次(BOM 原字符改转义)
+- 修改轮 0;自动修 0;Codex 输入 5.99M(缓存 5.63M)、输出 0.08M;用时:探索 8.7 分钟(8 条命令)、实现 9.4 分钟(Fast Mode 开)
+- 审查包附了完整 diff(含测试),读一次就够,没有第二次看 diff
+- 问题:mod 的 explore/accept 快照从没记到过(库里没有 `lead_usage` 事件),台账 lead 用量"未记录",任务 1 修;为此另花约 12 次调用排查,原因还没找到(反馈第 19 条)
+### 任务 9 前台运行 + 任务 1 的引擎一半(accepted,`50b9bb1`;Fusion 里编号 T10)
+- 做了什么:项目设置 `wait_minutes`(默认 9)等满先返回、退出码 3;新命令 `wait [--task T]`;探索包、审查包直接打印到 stdout(≤20000 字符,超了先去掉 diff);LEAD_GUIDE 改成前台跑;`lead-usage` 收 `toolCalls`/`requests`,台账加"Lead 调用(工具/请求)"列;没有 session_id 不记 `lead_session`;`conftest` 清理重试
+- 实测(任务 9 要求先测):前台 Bash 超过 timeout 会**自动转到后台**,不会被掐;用 Stop-Process 强杀等待中的 delegate,Codex 照跑,重跑同一条 delegate 能接着等,计划不会重复派
+- lead 调用约 13 次:下限 5;多出的 = 审查包没附 diff 又拿了 2 次(diff 超过 30KB,被存成文件又 Read 一次)、accept 被拒和那一轮修改 2、实测前台和强杀 2、查 mod 类型 2
+- 修改 1 轮(偶发测试、设计文档里一行中文变 `?`、`wait` 的一句提示);自动修 3 次;Codex 输入 16.33M(缓存 15.91M)、输出 0.12M;用时:探索 7.1、实现 15.3、自动修 1.3 + 2.6、修改 3.7、自动修 2.2 分钟
+- 问题:`test_cancel_kills_running` 在引擎检查(`-n 6`)里偶发失败,accept 被拒,`--waive` 不放行没过的检查,只能多一轮修改(反馈第 27 条);已加清理重试
+- 额度:T10 验收后 5 小时 62%、每周 31%;lead 上下文 26.4 万 → 写交接 `v5/rc2-handoffs/2026-11-15-01.md`,用 `clear_session` 清空
