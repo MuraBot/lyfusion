@@ -206,8 +206,8 @@ def _write_review(root, task, state, filename, round_no):
     text = aq.review_pack(root, task, state, round_no)
     path = root / "fusion" / "review.md"
     path.write_text(text, encoding="utf-8")
-    aq.save_history(root, task["id"], filename, text)
-    return path
+    history_path = aq.save_history(root, task["id"], filename, text)
+    return path, history_path.relative_to(root).as_posix()
 
 
 def _review_text(root, path, task, state, round_no):
@@ -252,26 +252,26 @@ def _limit_text(text: str, limit: int, suffix: str) -> str:
     return text[:max(0, limit - len(suffix))] + suffix
 
 
-def _review_stdout(text: str, task: dict, candidate: dict | None,
-                   limit: int | None = None) -> str:
+def _review_stdout(text: str, limit: int | None = None, *, pack_path: str) -> str:
     if limit is None:
         limit = STDOUT_CHARS
     if len(text) <= limit:
         return text
-    # 审查包中的候选提交提供完整的基准和候选提交号。
-    placeholder = "(diff 太长没有打印:看 fusion/review.md)"
-    if candidate:
-        base, commit = candidate.get("base"), candidate.get("commit")
-        if base and commit:
-            placeholder = f"(diff 太长没有打印:看 fusion/review.md,或 git diff {base} {commit})"
-    text = re.sub(r"```diff\n.*?\n```", placeholder, text, flags=re.DOTALL)
-    return _limit_text(text, limit, "(后面的在 fusion/review.md)")
+    text = re.sub(r"```diff\n.*?\n```", "", text, flags=re.DOTALL)
+    if len(text) > limit:
+        text = re.sub(r"(?m)^Brief check: met - .*?(?:\n|$)", "", text)
+    if len(text) <= limit:
+        return text
+    suffix = f"Full pack: {pack_path}"
+    if len(suffix) >= limit:
+        return suffix[-limit:]
+    return text[:max(0, limit - len(suffix) - 2)].rstrip() + "\n\n" + suffix
 
 
-def _print_review(path, summary: str, text: str, task: dict, state: dict) -> None:
+def _print_review(path, pack_path: str, summary: str, text: str) -> None:
     print(summary)
     print()
-    print(_review_stdout(text, task, state.get("candidates", {}).get(task.get("latest"))))
+    print(_review_stdout(text, pack_path=pack_path))
 
 
 def _do_explore(args, root):
@@ -282,10 +282,10 @@ def _do_explore(args, root):
         if not is_explore:
             task = state["tasks"][tid]
             round_no = task["change_rounds"] + 1
-            path = _write_review(root, task, state, f"review-{round_no}.md", round_no)
+            path, pack_path = _write_review(root, task, state, f"review-{round_no}.md", round_no)
             summary = (f"结果: {path.relative_to(root).as_posix()}\n检查与问题已写入审查包。\n"
                        "已有运行在进行,接着等它;这次的输入没有用")
-            _print_review(path, summary, _review_text(root, path, task, state, round_no), task, state)
+            _print_review(path, pack_path, summary, _review_text(root, path, task, state, round_no))
             return
         text = None
     else:
@@ -320,7 +320,7 @@ def _do_delegate(args, root):
             print(out["decisions_note"])
         state = _wait(root, tid)
     task = state["tasks"][tid]
-    path = _write_review(
+    path, pack_path = _write_review(
         root,
         task,
         state,
@@ -328,7 +328,7 @@ def _do_delegate(args, root):
         task["change_rounds"] + 1,
     )
     chk = (state["candidates"].get(task.get("latest")) or {}).get("checks") or {}
-    results = chk.get("results", [])
+    results = [result for result in chk.get("results", []) if result.get("restored") is None]
     passed = sum(bool(r.get("passed")) for r in results)
     violations = len(chk.get("violations", []))
     questions = len((task.get("latest_report") or {}).get("questions", []))
@@ -341,7 +341,7 @@ def _do_delegate(args, root):
     ]
     if existing:
         lines.append("已有运行在进行,接着等它;这次的输入没有用")
-    _print_review(path, "\n".join(lines), _review_text(root, path, task, state, task["change_rounds"] + 1), task, state)
+    _print_review(path, pack_path, "\n".join(lines), _review_text(root, path, task, state, task["change_rounds"] + 1))
 
 
 def _do_revise(args, root):
@@ -375,9 +375,9 @@ def _do_revise(args, root):
         state = _wait(root, tid)
     task = state["tasks"][tid]
     round_no = task["change_rounds"] + 1
-    path = _write_review(root, task, state, f"review-{round_no}.md", round_no)
+    path, pack_path = _write_review(root, task, state, f"review-{round_no}.md", round_no)
     chk = (state["candidates"].get(task.get("latest")) or {}).get("checks") or {}
-    results = chk.get("results", [])
+    results = [result for result in chk.get("results", []) if result.get("restored") is None]
     report = task.get("latest_report") or {}
     lines = [
         f"结果: {path.relative_to(root).as_posix()}",
@@ -387,7 +387,7 @@ def _do_revise(args, root):
     ]
     if existing and out.get("continue_wait"):
         lines.append("修改意见和正在做的这一轮相同,接着等它")
-    _print_review(path, "\n".join(lines), _review_text(root, path, task, state, round_no), task, state)
+    _print_review(path, pack_path, "\n".join(lines), _review_text(root, path, task, state, round_no))
 
 
 def _do_wait(args, root):
@@ -425,10 +425,10 @@ def _do_wait(args, root):
     if is_explore:
         _write_explore(root, tid, result, None, continued=True)
         return
-    path = _write_review(root, task, result, f"review-{task['change_rounds'] + 1}.md",
-                         task["change_rounds"] + 1)
+    path, pack_path = _write_review(root, task, result, f"review-{task['change_rounds'] + 1}.md",
+                                    task["change_rounds"] + 1)
     chk = (result["candidates"].get(task.get("latest")) or {}).get("checks") or {}
-    checks = chk.get("results", [])
+    checks = [row for row in chk.get("results", []) if row.get("restored") is None]
     summary = "\n".join((
         f"结果: {path.relative_to(root).as_posix()}",
         f"检查: {sum(bool(row.get('passed')) for row in checks)}/{len(checks)} 通过",
@@ -436,7 +436,7 @@ def _do_wait(args, root):
         f"问题: {len((task.get('latest_report') or {}).get('questions', []))} 条;改动文件: {len(chk.get('changed', []))} 个",
         "接着等完了这一轮",
     ))
-    _print_review(path, summary, _review_text(root, path, task, result, task["change_rounds"] + 1), task, result)
+    _print_review(path, pack_path, summary, _review_text(root, path, task, result, task["change_rounds"] + 1))
 
 
 def _maybe_print_handoff_reminder(root: Path, task_id: str) -> None:

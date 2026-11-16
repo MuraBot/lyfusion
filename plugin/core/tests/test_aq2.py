@@ -44,9 +44,9 @@ def test_review_lists_candidate_station_and_each_command_once(proj):
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
     text = (proj.root / "fusion/review.md").read_text(encoding="utf-8")
     assert text.count(f"`{test_cmd}`") == 1
-    assert text.count("旧测试跑新代码") == 1
-    station = (proj.root.parent / f"{proj.root.name}-fusion").as_posix()
-    assert f"工位 `{station}`(只看不改" in text and "完整 diff:`git diff " in text
+    assert "Old tests on new code" not in text
+    assert "workstation path" not in text
+    assert "Diff omitted" not in text
 
 
 def test_guide_and_rules_carry_lily_decisions():

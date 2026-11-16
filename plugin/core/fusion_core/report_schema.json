@@ -1,7 +1,7 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["status", "summary", "questions", "choices", "problems"],
+  "required": ["status", "summary", "questions", "choices", "problems", "brief_check"],
   "properties": {
     "status": { "type": "string", "enum": ["done", "blocked"] },
     "summary": { "type": "string" },
@@ -23,6 +23,20 @@
         "properties": { "what": { "type": "string" }, "why": { "type": "string" } }
       }
     },
-    "problems": { "type": "array", "items": { "type": "string" } }
+    "problems": { "type": "array", "items": { "type": "string" } },
+    "brief_check": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item", "status", "where", "why"],
+        "properties": {
+          "item": { "type": "string" },
+          "status": { "type": "string", "enum": ["met", "differs", "not_done"] },
+          "where": { "type": "string", "pattern": "^$|^.+:[0-9]+$" },
+          "why": { "type": "string" }
+        }
+      }
+    }
   }
 }

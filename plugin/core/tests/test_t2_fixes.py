@@ -117,10 +117,10 @@ def test_blocked_review_has_one_status_line_and_no_duplicate_summary(proj):
             "latest_report": {"status": "blocked", "summary": "需要回答", "questions": [], "choices": [], "problems": []},
             "runs": ["r1"], "fix_attempts": 0}
     text = review_pack(proj.root, task, {"candidates": {}}, 1)
-    section = text.split("## 助手的问题和自定的选择", 1)[1].split("## 改动", 1)[0]
-    assert section.count("状态:") == 1
-    assert "状态:停下:需要回答" in section
-    assert "摘要:" not in section
+    section = text.split("## Sidekick", 1)[1].split("## Changes", 1)[0]
+    assert section.count("Status:") == 1
+    assert "Status: blocked" in section
+    assert "Summary: 需要回答" in section
 
 
 def test_done_review_keeps_status_and_summary_lines(proj):
@@ -128,4 +128,4 @@ def test_done_review_keeps_status_and_summary_lines(proj):
             "latest_report": {"status": "done", "summary": "完成", "questions": [], "choices": [], "problems": []},
             "runs": ["r1"], "fix_attempts": 0}
     text = review_pack(proj.root, task, {"candidates": {}}, 1)
-    assert "状态:做完\n摘要:完成" in text
+    assert "Status: done\nSummary: 完成" in text

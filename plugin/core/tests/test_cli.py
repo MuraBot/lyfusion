@@ -93,8 +93,8 @@ def test_wait_limit_releases_lease_and_resumes_explore_and_delegate(proj):
     p = cli(proj, "wait", "--task", "T1")
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
     output = p.stdout.decode("utf-8")
-    assert "## 检查" in output and "## 助手的问题和自定的选择" in output
-    assert output.count("下一步:") == 1
+    assert "## Checks" in output and "## Sidekick" in output
+    assert output.count("Next:") == 1
 
 
 def test_wait_with_no_run_reports_status(proj):
@@ -122,19 +122,60 @@ def test_wait_picks_up_integration_without_active_run(proj):
     assert "提交:" in waited.stdout.decode("utf-8")
 
 
-def test_review_stdout_replaces_diff_and_truncates(monkeypatch):
+def test_old_test_failure_is_not_counted_or_shown_as_check(proj):
+    candidate_test = (
+        "import unittest\nfrom app.greet import hello\n\n\nclass T(unittest.TestCase):\n"
+        '    def test_hello(self):\n        self.assertEqual(hello("A"), "Hi, A")\n'
+    )
+    proj.script([{
+        "write": {
+            "app/greet.py": 'def hello(name):\n    return f"Hi, {name}"\n',
+            "tests/test_greet.py": candidate_test,
+        },
+        "report": report(),
+    }])
+    plan = {"goal": "Change greeting", "brief": "Update greeting behavior and test.",
+            "scope": ["app/greet.py", "tests/test_greet.py"]}
+    result = cli(proj, "delegate", "-", input_text=json.dumps(plan))
+    assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+    stdout = result.stdout.decode("utf-8")
+    assert "检查: 1/1 通过" in stdout
+    candidate = proj.state()["candidates"][proj.task()["latest"]]
+    assert candidate["checks"]["passed"]
+    old_test = next(row for row in candidate["checks"]["results"] if row.get("restored") is not None)
+    assert not old_test["passed"]
+    review = (proj.root / "fusion/review.md").read_text(encoding="utf-8")
+    checks = review.split("## Checks\n", 1)[1].split("\n## ", 1)[0]
+    assert "Old tests on new code" not in checks and "FAIL" not in checks
+    assert "Old test failed on new code: tests/test_greet.py::test_hello" in review
+    next_step = review.rsplit("Next: ", 1)[1]
+    assert f'{CMD} accept' in next_step and "--waive" not in next_step
+    accepted = cli(proj, "accept")
+    assert accepted.returncode == 0, accepted.stderr.decode("utf-8", "replace")
+
+
+def test_delegate_truncated_stdout_points_to_written_pack(proj):
+    proj.script([{"write": {"app/new.py": "VALUE = 2\n"},
+                  "report": report(summary="S" * 20500)}])
+    plan = {"goal": "Add module", "brief": "Write app/new.py", "scope": ["app/**"]}
+    result = cli(proj, "delegate", "-", input_text=json.dumps(plan))
+    assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+    output = result.stdout.decode("utf-8")
+    pack_path = next(line.removeprefix("Full pack: ") for line in output.splitlines()
+                     if line.startswith("Full pack: "))
+    assert (proj.root / pack_path).is_file()
+
+
+def test_review_stdout_drops_diff_and_met_list_before_truncating(monkeypatch):
     from fusion_core.cli import _review_stdout
 
-    text = "## 改动\n```diff\n" + "x\n" * 200 + "```\n下一步:命令\n"
-    candidate = {"base": "abcdef0123456789", "commit": "123456abcdef7890"}
+    text = ("## Sidekick\n" + "x" * 220 + "\nBrief check: met - met item\n"
+            + "```diff\n" + "diff line\n" * 250 + "```\n")
     monkeypatch.setattr(cli_module, "STDOUT_CHARS", 200)
-    output = _review_stdout(text, {"latest": "T1.c1"}, candidate)
-    assert "```diff" not in output and "diff 太长没有打印" in output
-    assert "git diff abcdef0123456789 123456abcdef7890" in output
-    monkeypatch.setattr(cli_module, "STDOUT_CHARS", 60)
-    output = _review_stdout(text, {"latest": "T1.c1"}, candidate)
-    assert len(output) <= 60 and output.endswith("(后面的在 fusion/review.md)")
-
+    output = _review_stdout(text, pack_path="fusion/tasks/T1/review-1.md")
+    assert len(output) <= 200
+    assert "```diff" not in output and "Brief check: met -" not in output
+    assert output.endswith("Full pack: fusion/tasks/T1/review-1.md")
 
 def test_delegate_four_field_plan_and_resumes_explore(proj):
     (proj.root / "fusion" / "decisions.md").write_text(
@@ -277,33 +318,25 @@ def test_accept_refuses_forbidden_command_without_waive(proj):
     assert p.returncode == 1 and "违规" in p.stderr.decode("utf-8")
 
 
-def test_review_has_four_sections_and_scope_marking(proj):
-    proj.script(
-        [
-            {
-                "write": {"app/new.py": "VALUE = 2\n", "outside.txt": "bad\n"},
-                "report": report(status="done", choices=[{"what": "value 2", "why": "和旧值对齐"}]),
-            }
-        ]
-    )
-    p = cli(
-        proj,
-        "delegate",
-        "-",
-        input_text=json.dumps(
-            {"goal": "加模块", "brief": "改代码", "scope": ["app/**"]}
-        ),
-    )
+def test_review_pack_sections_scope_and_stdout(proj):
+    proj.script([{
+        "write": {"app/new.py": "VALUE = 2\n", "outside.txt": "bad\n"},
+        "report": report(status="done", choices=[{"what": "value 2", "why": "matches the existing value"}]),
+    }])
+    p = cli(proj, "delegate", "-", input_text=json.dumps(
+        {"goal": "add module", "brief": "change code", "scope": ["app/**"]}
+    ))
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
     text = (proj.root / "fusion/review.md").read_text(encoding="utf-8")
     headings = [line for line in text.splitlines() if line.startswith("## ")]
-    assert headings == ["## 检查", "## 助手的问题和自定的选择", "## 改动"]
-    assert "outside.txt" in text and "范围外" in text
-    assert "自定选择:value 2(理由:和旧值对齐)" in text
+    assert headings == ["## Checks", "## Engine scan", "## Sidekick", "## Changes"]
+    assert "outside.txt" in text and "Out of scope: outside.txt" in text
+    assert "Choice: value 2 (why: matches the existing value)" in text
     stdout = p.stdout.decode("utf-8")
-    assert "## 检查" in stdout and "## 助手的问题和自定的选择" in stdout
-    assert "```diff" in stdout and stdout.count("下一步:") == 1
-
+    assert "## Checks" in stdout and "## Sidekick" in stdout
+    assert "```diff" in stdout and stdout.count("Next:") == 1
+    assert "Diff omitted" not in text and "workstation path" not in text
+    assert "Auto-fix attempts" not in text
 
 def test_review_omits_violation_section_and_large_diff(proj):
     huge = "".join(f"LINE_{i} = {i}\n" for i in range(450))
@@ -320,6 +353,8 @@ def test_review_omits_violation_section_and_large_diff(proj):
     text = (proj.root / "fusion/review.md").read_text(encoding="utf-8")
     assert "## 违规" not in text
     assert "```diff" not in text and "app/new.py" in text
+    assert "Diff omitted (" in text and "git diff " in text
+    assert "workstation path" not in text and "Auto-fix attempts" not in text
 
 
 def test_existing_exploration_is_resumed_and_new_input_ignored(proj):
@@ -384,7 +419,7 @@ def test_delegate_returns_review_when_autofixes_fail(proj):
     p = cli(proj, "delegate", "-", input_text=json.dumps(plan, ensure_ascii=False))
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
     review = (proj.root / "fusion/review.md").read_text(encoding="utf-8")
-    assert "未通过" in review
+    assert "FAIL (exit 1)" in review
 
 
 def test_review_numstat_marks_out_of_scope_test_path(proj):
@@ -403,7 +438,7 @@ def test_review_numstat_marks_out_of_scope_test_path(proj):
     p = cli(proj, "delegate", "-", input_text=json.dumps(plan, ensure_ascii=False))
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
     review = (proj.root / "fusion/review.md").read_text(encoding="utf-8")
-    assert "- tests/new_test.py +1 -0 (范围外)" in review
+    assert "- tests/new_test.py +1 -0 (out of scope)" in review
     assert "files changed" not in review
 
 
@@ -444,8 +479,8 @@ def test_blocked_review_uses_summary_and_next_step(proj):
         "fix_attempts": 0,
     }
     review = review_pack(proj.root, task, {"candidates": {}}, 1)
-    assert "状态:停下:需要 lead 回答" in review
-    assert review.rstrip().endswith(f"下一步: {CMD} revise -(回答助手的问题)")
+    assert "Status: blocked" in review and "Summary: 需要 lead 回答" in review
+    assert review.rstrip().endswith(f"Next: {CMD} revise - (answer the sidekick's questions)")
 
 
 def test_accept_conflict_error_gives_revise_action(proj):

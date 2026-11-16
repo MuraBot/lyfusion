@@ -119,9 +119,6 @@ def pipeline(root: Path, cfg: dict, state: dict, task: dict, candidate: dict, wo
             gitops.clean(worktree)
         old["restored"] = restored
         results.append(old)
-        if not old["passed"] and not old["env_error"]:
-            violations.append({"kind": "old_tests", "why": "派工前的测试在新代码上失败(测试可能被改弱了)",
-                               "where": ", ".join(restored), "detail": old["tail"][-600:]})
 
     scope = task["plan"].get("scope") or []
     out_of_scope = [path for path in paths if scope and not any_match(path, scope)

@@ -27,7 +27,7 @@ def model_notes(root, model: str) -> dict[str, str]:
                 result[section].append(line)
     return {key: "\n".join(value) for key, value in result.items()}
 
-REPORT_REMINDER = "最终回复只输出 JSON 报告:status、summary、questions、choices、problems。status 为 done 或 blocked。"
+REPORT_REMINDER = "Return only the final JSON report with status, summary, questions, choices, problems and brief_check; status is done or blocked."
 # 续用同一个会话时(自动修、修改意见、补报告)只重申的短规则;完整的做法在 WORK_RULES,派工时发一次
 FIXED_RULES = """固定规则:
 - 一口气做完本次任务。
@@ -76,6 +76,7 @@ WORK_RULES += """
 
 ## Brief conventions
 - The brief gives constraints, edge cases, done criteria, behaviour that must not change and exact test assertions. Follow its decisions; treat anything marked as a guess as a suggestion: with contrary evidence you may deviate, record it in choices with a reason.
+- Before the final report, reread the brief and your work item's `git diff` item by item, then fill `brief_check` with one entry per decision, constraint and done criterion. Use `met`, `differs` (and explain why), or `not_done`; `where` must be `file:line` or empty.
 - If the brief gives stop conditions, stop when one is met (status blocked).
 
 ## 测试跑法
@@ -145,6 +146,7 @@ def changes_prompt(text: str, decisions: str, model_note: str = "") -> str:
 
 def report_prompt(previous_error: str, decisions: str) -> str:
     return (
+        "Before returning the report, reread the brief and the work item's git diff item by item. Fill `brief_check` with one entry per decision, constraint and done criterion, using `met`, `differs` (explain why), or `not_done`; `where` must be `file:line` or empty.\n"
         "## 补交最终报告\n上次运行未返回有效报告。不要再改代码。\n"
         + previous_error
         + "\n\n## fusion/decisions.md 全文\n"

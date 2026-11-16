@@ -72,8 +72,9 @@ def test_explore_replaces_its_previous_artifact(proj):
     assert proj.read("fusion/explore.md") == f"# {result['task']} 第 1 轮:助手还在做,结果出来后覆盖这个文件\n"
 
 
-def test_guide_keeps_workstation_read_path_without_old_status_tools(proj):
-    assert "Read the files under the workstation path" in LEAD_GUIDE
+def test_guide_omits_workstation_path_without_old_status_tools(proj):
+    assert "workstation path" not in LEAD_GUIDE
+    assert "Abandon a task: fusion-core cancel." in LEAD_GUIDE
     assert "fusion-core ledger" not in LEAD_GUIDE
     assert "fusion-core status" not in LEAD_GUIDE
 
@@ -92,7 +93,7 @@ def test_candidate_commit_failure_blocks_with_reason_and_can_resume(proj):
     event = next(e for e in proj.events("signal", "T1") if e["data"]["kind"] == "candidate_failed")
     assert "git add" in event["data"]["detail"]
     pack = aq.review_pack(proj.root, proj.task(), proj.state(), 1)
-    assert "候选没建成" in pack and "revise" in pack and "cancel" in pack
+    assert "Candidate was not created" in pack and "revise" in pack and "cancel" in pack
     shutil.rmtree(nested / ".git")
     proj.do(commands.cmd_revise, "T1", "继续完成任务")
     proj.drain()
@@ -122,8 +123,8 @@ def test_review_pack_marks_blocking_questions_and_omits_large_test_diff(proj):
     state = {"candidates": {"T1.c1": {"commit": commit, "base": base, "checks": {"passed": True, "results": []}}},
              "runs": {}, "stations": {}}
     text = aq.review_pack(proj.root, task, state, 1)
-    assert "(阻塞)问题:need input" in text
-    assert "测试文件的 diff 没附" in text
+    assert "- [blocking] Question: need input" in text
+    assert "## Changed test expectations" in text
     assert "tests/test_large.py" in text
     assert "+VALUE = 2" in text
     assert "# 404" not in text
@@ -134,11 +135,11 @@ def test_review_pack_uses_engine_checks_for_named_cancellation_failure(proj):
     task = {"id": "T1", "state": "in_review", "latest": "T1.c1", "runs": [], "signals": [],
             "fix_attempts": 0, "plan": {"goal": "check"},
             "latest_report": {"status": "done", "summary": "", "questions": [], "choices": [],
-                              "problems": ["`test_cancel_kills_running` 失败,断言被取消的进程仍存活"]}}
+                              "problems": ["The test `test_cancel_kills_running` failed because the cancelled process remained alive."]}}
     state = {"candidates": {"T1.c1": {"base": base, "commit": base, "checks": {"passed": True, "results": []}}},
              "runs": {}, "stations": {}}
     text = aq.review_pack(proj.root, task, state, 1)
-    assert "助手说有测试没过,引擎在沙箱外跑的检查是通过的,以引擎检查为准" in text
+    assert "The sidekick reported a test failure, but the engine checks passed; trust the engine checks." in text
 
 
 def test_latest_candidate_failure_hides_previous_candidate_diff(proj):
@@ -152,26 +153,33 @@ def test_latest_candidate_failure_hides_previous_candidate_diff(proj):
     state = {"candidates": {"T1.c1": {"commit": commit, "base": base, "run": "r1", "checks": {}}},
              "runs": {"r1": {"dir": None}, "r2": {"dir": None}}, "stations": {}}
     text = aq.review_pack(proj.root, task, state, 2)
-    assert "候选没建成" in text and "git add failed" in text
+    assert "Candidate was not created: git add failed" in text
     assert "FIRST_ROUND" not in text
 
 
 def test_old_test_failure_log_is_safe_when_run_dir_is_missing(proj):
     base = proj.git("rev-parse", "HEAD")
+    proj.write("tests/old_test.py", "def test_old():\n    assert True\n")
+    proj.commit("change test for old-test result")
+    commit = proj.git("rev-parse", "HEAD")
     task = {"id": "T1", "state": "in_review", "latest": "T1.c1", "runs": ["r1"], "signals": [],
             "fix_attempts": 0, "plan": {"goal": "logs"}, "latest_report": {"status": "done", "summary": "", "questions": [], "choices": [], "problems": []}}
-    state = {"candidates": {"T1.c1": {"commit": base, "base": base, "run": "r1", "checks": {
-        "passed": False, "results": [{"name": "旧测试跑新代码", "cmd": "pytest", "passed": False, "exit": 1}]
+    state = {"candidates": {"T1.c1": {"commit": commit, "base": base, "run": "r1", "checks": {
+        "passed": False, "results": [{"name": "旧测试跑新代码", "cmd": "pytest", "passed": False, "exit": 1, "restored": True}]
     }}}, "runs": {"r1": {"dir": None}}, "stations": {}}
-    assert "FAILED tests/old_test.py" not in aq.review_pack(proj.root, task, state, 1)
+    initial = aq.review_pack(proj.root, task, state, 1)
+    checks = initial.split("## Checks\n", 1)[1].split("\n## ", 1)[0]
+    assert "Old tests on new code" not in checks
+    assert "Old test failed on new code:" not in initial
     run_dir = proj.root / "fusion/runs/r1"
     log = run_dir / "checks/old-tests.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     log.write_text("FAILED tests/old_test.py::test_old - AssertionError\n" + "\n".join(f"tail {i}" for i in range(22)), encoding="utf-8")
     state["runs"]["r1"]["dir"] = str(run_dir)
     text = aq.review_pack(proj.root, task, state, 1)
-    assert "FAILED tests/old_test.py::test_old" in text
-    assert "tail 21" in text and "tail 0" not in text
+    assert "Old tests on new code" not in text
+    assert "Old test failed on new code: tests/old_test.py::test_old" in text
+    assert "FAILED tests/old_test.py::test_old" not in text
 
 
 def test_revision_replaces_review_placeholder_before_run(proj):

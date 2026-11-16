@@ -115,22 +115,52 @@ def test_fix_succeeds(proj):
     assert proj.state()["candidates"]["T1.c2"]["checks"]["passed"]
 
 
-def test_weakened_test_is_violation(proj):
+def test_old_test_failure_is_information_and_does_not_block_accept(proj):
+    proj.write("app/farewell.py", FAREWELL)
+    proj.write("tests/test_farewell.py", TEST_FAREWELL)
+    proj.commit("add baseline farewell")
+    setup_task(proj, checks=[])
+    step = {
+        "write": {
+            "app/farewell.py": BROKEN,
+            "tests/test_farewell.py": (
+                "from app.farewell import bye\n\n"
+                "def test_bye():\n    assert bye(\"A\") == \"oops\"\n"
+            ),
+        },
+        "commands": [{"command": "python -m unittest", "exit": 0}],
+        "report": report(),
+    }
+    proj.script([step])
+    proj.do(C.cmd_delegate, plan_farewell(checks=[]), "T1")
+    proj.drain()
+    task = proj.task()
+    check = proj.state()["candidates"][task["latest"]]["checks"]
+    assert check["passed"]
+    assert not any(item["kind"] == "old_tests" for item in check["violations"])
+    assert not any(signal["kind"] == "violation" for signal in task["signals"])
+    from fusion_core.aq import review_pack
+    pack = review_pack(proj.root, task, proj.state(), 1)
+    assert "## Changed test expectations" in pack
+    assert "Old test failed on new code: tests/test_farewell.py::test_bye" in pack
+    assert "tests/test_farewell.py::test_bye" in pack
+    assert 'assert bye("A") == "oops"' in pack
+    proj.do(C.cmd_accept, "T1")
+    proj.drain()
+    assert proj.task()["state"] == "accepted"
+
+
+def test_missing_brief_check_does_not_fail_run(proj):
     setup_task(proj)
-    weak = dict(GOOD)
-    weak["write"] = dict(GOOD["write"])
-    weak["write"]["tests/test_greet.py"] = "import unittest\n"
-    weak["write"]["app/greet.py"] = 'def hello(name):\n    return "x"\n'
-    weak["report"] = report()
-    proj.script([weak])
+    proj.script([{
+        "write": {"app/farewell.py": FAREWELL, "tests/test_farewell.py": TEST_FAREWELL},
+        "report": {"status": "done", "summary": "Completed", "questions": [], "choices": [], "problems": []},
+    }])
     proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
-    t = proj.task()
-    chk = proj.state()["candidates"][t["latest"]]["checks"]
-    assert any(v["kind"] == "old_tests" for v in chk["violations"])
-    assert any(s["kind"] == "violation" for s in t["signals"])
-    with pytest.raises(FusionError, match="违规"):
-        proj.do(C.cmd_accept, "T1")
+    assert proj.task()["state"] == "in_review"
+    check = proj.state()["candidates"][proj.task()["latest"]]["checks"]
+    assert check["passed"]
 
 
 def test_forbidden_command(proj):

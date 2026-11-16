@@ -6,7 +6,7 @@ import re
 from .util import FusionError
 
 PLAN_FIELDS = ("goal", "brief", "checks", "scope")
-REPORT_FIELDS = ("status", "summary", "questions", "choices", "problems")
+REPORT_FIELDS = ("status", "summary", "questions", "choices", "problems", "brief_check")
 
 
 def plan(raw: dict) -> dict:
@@ -48,7 +48,8 @@ def report(raw) -> tuple[dict, list[str]]:
     problems = []
     if not isinstance(raw, dict):
         msg = "报告不是 JSON 对象"
-        return {"status": "blocked", "summary": "", "questions": [], "choices": [], "problems": [msg]}, [msg]
+        return {"status": "blocked", "summary": "", "questions": [], "choices": [],
+                "problems": [msg], "brief_check": None}, [msg]
     out = {key: raw.get(key) for key in REPORT_FIELDS}
     if out["status"] not in ("done", "blocked"):
         problems.append("status 要是 done 或 blocked")
@@ -66,4 +67,18 @@ def report(raw) -> tuple[dict, list[str]]:
     for question in out["questions"]:
         if not isinstance(question, dict) or not question.get("text"):
             problems.append("questions 里每条要有 text")
+    brief_check = raw.get("brief_check")
+    if isinstance(brief_check, list) and all(
+        isinstance(item, dict)
+        and set(item) == {"item", "status", "where", "why"}
+        and isinstance(item["item"], str)
+        and item["status"] in ("met", "differs", "not_done")
+        and isinstance(item["where"], str)
+        and (item["where"] == "" or re.fullmatch(r".+:\d+", item["where"]))
+        and isinstance(item["why"], str)
+        for item in brief_check
+    ):
+        out["brief_check"] = brief_check
+    else:
+        out["brief_check"] = None
     return out, problems
