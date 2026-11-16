@@ -223,3 +223,7 @@
 - 引擎读 `$CODEX_HOME/models_cache.json`(只读、不另存;同一进程按 mtime 缓存),能力按 缓存 → 内置表 → 保守默认 取;`visibility` 不是 `list` 的不进面板列表;面板按 `priority` 排;读不到或格式不对就用内置表并在面板、status、preflight 给 warning;内置表加 gpt-6.1-sol;测试用 conftest 把 `CODEX_HOME` 指到临时目录，不读真的
 - 助手在沙箱里读不到用户目录，探索没拿到文件结构;lead 自己用 2 次调用看了字段(只打印键名和相关字段)再写 brief
 - 修改 0 轮;decisions 第 5、10 条跟着改
+### T16 任务 3 lint 规则(accepted,`debe0ab`;C 档)
+- `lint/check.py`(只用标准库)接在 ruff 后面:P7 看不见的字符、C1 真实用户目录(用户名运行时取 `USERNAME`/`USER`)、T3 mod 的非注释代码里 `$.clock` 和 `.claude` 路径、C4 连续 3 个以上 `?`;C3 用 `fusion/config.json` 的 `forbidden`(只看新增行，正则写成 `n[o]qa` 这样，免得自己触发自己);P1、C2 按任务 18 不做
+- C4 现有唯一命中是测试输入 `"???"`,改成 `"?" * 3`,不加豁免注释;`lint/*.md` 的状态栏 lead 自己改(中文文档，避免丢编码)
+- 修改 0 轮;lead 调用 4 次工具 / 3 次请求，到了下限

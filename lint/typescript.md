@@ -6,4 +6,4 @@
 |---|---|---|---|---|
 | T1 | `atom({ plugin, key })` 的 plugin、key 没写成字符串字面量，整个 mod 不加载，也不报错 | rc.1 任务 6(反馈第 14 条),Lily 上传了两次才查出来 | `claude plugin validate` | 已生效 |
 | T2 | mod 调引擎时没传项目目录，在桌面端的预备目录里跑 | rc.1 任务 7(toast "不在 git 仓库里") | 写成规则太窄;记在 `register.tsx` 的注释和 `design/v5.0.0-rc.md` | 只能提示 |
-| T3 | mod 用定时器发起回合、读 `~/.claude` | Lily 的规则(政策),rc.1 没出现 | 自写检查：在 `plugin/hooks/` 的非注释行里搜 `$.clock` 和 `.claude` 路径(注释里本来就提到 `~/.claude`,不能算) | 待实现 |
+| T3 | mod 用定时器发起回合、读 `~/.claude` | Lily 的规则(政策),rc.1 没出现 | 自写检查：在 `plugin/hooks/` 的非注释行里搜 `$.clock` 和 `.claude` 路径(注释里本来就提到 `~/.claude`,不能算) | 已生效(`lint/check.py`,rc.2 T16) |
