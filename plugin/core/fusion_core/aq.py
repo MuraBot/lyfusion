@@ -481,18 +481,23 @@ def next_step_text(task: dict, check: dict, state: dict | None = None,
         cfg = config_mod.DEFAULT_CONFIG
     signals = struggle_signals(task, state, cfg)
     report = task.get("latest_report") or {}
-    if any(signal.startswith("revision rounds reached the limit") for signal in signals):
+    blocked = task.get("state") == "blocked" or report.get("status") == "blocked"
+    failed = any(not result.get("passed") and result.get("restored") is None
+                 for result in check.get("results", []))
+    at_limit = any(signal.startswith("revision rounds reached the limit") for signal in signals)
+    if at_limit and not (blocked or failed or check.get("violations")):
+        # A green candidate at the round limit can still be accepted; only revise is used up
+        signals = [signal for signal in signals if not signal.startswith("revision rounds reached the limit")]
+        first = f"Next: {CMD} accept (revision rounds are used up)"
+    elif at_limit:
         first = (f"Next: ask the user whether to allow more revision rounds (max_change_rounds in fusion/config.json), "
                  f"or {CMD} takeover, or {CMD} cancel")
-    elif task.get("state") == "blocked" or report.get("status") == "blocked":
+    elif blocked:
         first = f"Next: {CMD} revise - (answer the sidekick's questions)"
+    elif failed or check.get("violations"):
+        first = f"Next: {CMD} revise - (or, after review, {CMD} accept --waive \"reason\")"
     else:
-        failed = any(not result.get("passed") and result.get("restored") is None
-                     for result in check.get("results", []))
-        if failed or check.get("violations"):
-            first = f"Next: {CMD} revise - (or, after review, {CMD} accept --waive \"reason\")"
-        else:
-            first = f"Next: {CMD} accept (or {CMD} revise - to request changes)"
+        first = f"Next: {CMD} accept (or {CMD} revise - to request changes)"
     if signals:
         return (first + "\n" + f"Sidekick is struggling ({'; '.join(signals)}). If finishing it yourself is cheaper, "
                 f"run {CMD} takeover; the engine never does this on its own.")

@@ -8,7 +8,7 @@ import time
 import pytest
 from conftest import report
 from fusion_core import commands as C
-from fusion_core.util import FusionError
+from fusion_core.util import CMD, FusionError
 
 PY = f'"{sys.executable}"'
 FAREWELL = 'def bye(name):\n    return f"Bye, {name}"\n'
@@ -369,8 +369,9 @@ def test_change_rounds_limit(proj):
     assert "round 1" in proj.calls()[1]["prompt"]
     from fusion_core.aq import review_pack
     text = review_pack(proj.root, proj.task(), proj.state(), 4)
-    assert text.splitlines()[-2].startswith("Next: ask the user whether to allow more revision rounds")
-    assert "revision rounds reached the limit (3/3)" in text.splitlines()[-1]
+    # The candidate is green: it can still be accepted, so the round limit is not a struggle signal
+    assert text.splitlines()[-1] == f"Next: {CMD} accept (revision rounds are used up)"
+    assert "takeover" not in text
 
 
 def test_takeover_applies_latest_candidate_and_cleans_sidekick(proj):

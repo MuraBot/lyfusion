@@ -324,3 +324,6 @@
 ## v5.0.0-rc.7(2026-11-16,计划体检采纳项 + lead 对整个需求负责 + lead 接手)
 > 依据 `v5/rc7-brief.md`。lead = Claude Opus 5.5 high;助手 gpt-6-luna high、Fast 开;引擎 = 装好的 rc.6。
 - 任务 2 使用说明(A 档,lead 自己改):第一句改成 "you (the lead) own the result: plan each task completely, review it against the user's whole request, and fix or report any defect you find that breaks that request";写计划那行补"附近的不变量、助手看不到的事实、本任务特有的坑",新起一行写"完成条件不和已知环境限制冲突、夹具给现有测试位置不贴代码、不重复 decisions.md";检查那句加"证明结果是真的";"比 A 大"那行加"大的机械任务拆成几个各自全绿、各自验收的任务"。说明 19 → 20 行;设计文档 `v5.0.0-aq.md` 的副本同步;`test_parts` 的断言跟着改
+- 任务 1 沙箱噪音(T20,B 档,`ef40c55`;修改 0 轮):引擎启动 Codex 时设 `FUSION_SANDBOX=1`,写入型运行另把 TEMP/TMP/TMPDIR 指到工位里自带 `.gitignore`(`*`)的 `.fusion-tmp`;`clean_env` 去掉继承来的 `FUSION_SANDBOX`(引擎自己的检查永远照常跑);`test_cancel_kills_running` 在沙箱里确实杀不掉进程时等它自己结束再 skip;固定提示改成"沙箱里 skip 是预期的，不写进 problems";decisions 第 8 条删 `--basetemp`。真实验证：下一个任务 T21 用仓库引擎派，助手报告只写"2 expected sandbox skips",不再出现 `test_cancel_kills_running`
+- 任务 3 lead 接手(T21,B 档,`5193dd9`;修改 0 轮;用仓库引擎派，顺带验证任务 1):三种吃力信号、审查包"下一步"多一行、`takeover`、终态 `taken_over`、轮数上限的错误改成三条路;在真实 lead 目录(autocrlf、CRLF)试过 `git apply --check` 能用。lead 验收后自己补了一处：轮数到上限但候选全绿时，下一步仍是 accept(写"revision rounds are used up"),不算吃力信号(原来会叫 lead 去问用户)
+- 任务 4 里"T18 的 lead 调用数没记到":其实记到了(seq 417,22 次工具 / 17 次请求、$2.16);当时没探索的任务算不出基准,rc.3 的 T19 已修，现在台账能显示

@@ -169,6 +169,8 @@ def test_struggle_signals_and_round_limit_next_step(proj):
     assert text.startswith("Next: ask the user whether to allow more revision rounds")
     assert "revision rounds reached the limit (3/3)" in text
     assert f"run {CMD} takeover" in text
+    green = {**task, "signals": [], "candidates": ["T1.c2"]}
+    assert aq.next_step_text(green, {"results": []}, state, cfg) == f"Next: {CMD} accept (revision rounds are used up)"
 
 
 def test_no_struggle_keeps_the_existing_next_step(proj):
