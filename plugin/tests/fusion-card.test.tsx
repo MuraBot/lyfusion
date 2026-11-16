@@ -45,7 +45,7 @@ function panelJson(version: string): string {
 type On = Parameters<TestBody>[1]
 
 // A project that uses Fusion, an engine of `version`; returns the engine commands run and the toasts shown
-function fakeEngine(on: On, version = '5.0.0-rc.6') {
+function fakeEngine(on: On, version = '5.0.0-rc.7') {
   const calls: string[][] = []
   const toasts: string[] = []
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -133,12 +133,12 @@ test('a custom context limit is checked against the model maximum', async ($, on
 })
 
 test('a newer engine on disk: one line, one toast, no setting changed', async ($, on) => {
-  const engine = fakeEngine(on, '5.0.0-rc.7')
+  const engine = fakeEngine(on, '5.0.0-rc.8')
   await $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
 
   const line = await ui.find({ type: 'Text', text: /lyfusion was updated/ })
-  expect(line?.text).toBe('lyfusion was updated (5.0.0-rc.6 → 5.0.0-rc.7). Start a new session to load it.')
+  expect(line?.text).toBe('lyfusion was updated (5.0.0-rc.7 → 5.0.0-rc.8). Start a new session to load it.')
   expect(await ui.find({ type: 'Client' })).toBeUndefined()
   expect(engine.toasts.filter(text => text.includes('Start a new session'))).toHaveLength(1)
 

@@ -22,7 +22,7 @@ import type { ElementTable, EngineInterface, Register, RenderChildren, RenderEle
 import type { Notice, Panel, Stale } from '../types'
 
 // The version this module was built as: the same string as plugin.json and fusion_core.VERSION (tests/test_shape.py checks)
-const MOD_VERSION = '5.0.0-rc.6'
+const MOD_VERSION = '5.0.0-rc.7'
 const PANE = 'fusion'
 
 const panel = atom({ plugin: 'lyfusion-plugin', key: 'panel' } as const, null)

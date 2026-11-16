@@ -1,4 +1,4 @@
-# lyfusion-plugin(v5.0.0-rc.6)
+# lyfusion-plugin(v5.0.0-rc.7)
 
 An agent collaboration plugin for Claude Code. Lily's personal project, not an official Anthropic product. Claude acts as lead and Codex CLI as assistant. The lead uses four blocking commands: `explore`, `delegate`, `revise`, and `accept`; a local Python engine manages task state and checks.
 
@@ -31,4 +31,4 @@ The lead runs the four workflow commands in the foreground. Each command waits f
 
 Run `cd core && python -m pytest -q tests -n 6` (install pytest and pytest-xdist from `core/requirements-dev.txt` for development; the plugin itself uses only the standard library). Tests use a fake Codex and never call the real Codex. Mod tests (`tests/fusion-card.test.tsx`, a faked engine) run with `claude plugin test plugin`; they are not packaged. Still inspect the card in both dark and light desktop themes after changes.
 
-To package, run `python ../v5/build_plugin.py --claude <claude.exe bundled with the desktop app>` (run `plugin validate` first; do not package if validation fails). This creates `../v5/dist/lyfusion-plugin-5.0.0-rc.6.zip`. The hook outputs nothing in projects where Fusion has not been enabled.
+To package, run `python ../v5/build_plugin.py --claude <claude.exe bundled with the desktop app>` (run `plugin validate` first; do not package if validation fails). This creates `../v5/dist/lyfusion-plugin-5.0.0-rc.7.zip`. The hook outputs nothing in projects where Fusion has not been enabled.
