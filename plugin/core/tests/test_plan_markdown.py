@@ -17,7 +17,7 @@ def test_markdown_plan_equals_json_plan():
 
 
 def test_markdown_without_reserved_sections_and_crlf():
-    assert aq.parse_plan("﻿\r\n# 目标一句\r\n正文第一行\r\n\r\n正文第二行\r\n") == as_json({"goal": "目标一句", "brief": "正文第一行\n\n正文第二行"})
+    assert aq.parse_plan("\ufeff\r\n# 目标一句\r\n正文第一行\r\n\r\n正文第二行\r\n") == as_json({"goal": "目标一句", "brief": "正文第一行\n\n正文第二行"})
 
 
 def test_reserved_section_in_middle_and_fence():
