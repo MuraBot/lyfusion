@@ -152,7 +152,7 @@ def test_hooks_inject_within_limits(proj):
     text = hooks.run("session-start", {"cwd": str(proj.root), "session_id": "s1", "source": "compact"})
     assert text.count("\n") + 1 <= 30
     assert len(views.LEAD_GUIDE.splitlines()) <= 24
-    assert "define each task completely" in text
+    assert "own the result" in text
     assert proj.state()["lead_sessions"][-1] == {**proj.state()["lead_sessions"][-1], "session_id": "s1"}
     before = len(proj.state()["lead_sessions"])
     hooks.run("session-start", {"cwd": str(proj.root), "source": "fusion-panel"})

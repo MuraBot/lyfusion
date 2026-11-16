@@ -320,3 +320,7 @@
 - 改法:每行的灰底拆成左右两半(各占 50%),每半是一张不缩放的长图(`slice`),被自己的框裁掉多余部分:左半留左边两个圆角，右半留右边两个。内置浏览器里试了 120、451(半边是小数像素)、700 px 三种宽度：两端圆角都对，中间看不出缝。"Recommended"/"Unavailable" 小标签不到 300 px,不用改
 - mod 测试改成数两半、并断言灰底图不再用 `width="100%"`;CLAUDE.md 的桌面端画法坑加了这条
 - 版本 `5.0.0-rc.6`(rc.5 已上传，按规矩升号);Lily 定推送这一版(只推 rc.6 标签;rc.2、rc.4、rc.5 标签留在本地);概念图不推
+
+## v5.0.0-rc.7(2026-11-16,计划体检采纳项 + lead 对整个需求负责 + lead 接手)
+> 依据 `v5/rc7-brief.md`。lead = Claude Opus 5.5 high;助手 gpt-6-luna high、Fast 开;引擎 = 装好的 rc.6。
+- 任务 2 使用说明(A 档,lead 自己改):第一句改成 "you (the lead) own the result: plan each task completely, review it against the user's whole request, and fix or report any defect you find that breaks that request";写计划那行补"附近的不变量、助手看不到的事实、本任务特有的坑",新起一行写"完成条件不和已知环境限制冲突、夹具给现有测试位置不贴代码、不重复 decisions.md";检查那句加"证明结果是真的";"比 A 大"那行加"大的机械任务拆成几个各自全绿、各自验收的任务"。说明 19 → 20 行;设计文档 `v5.0.0-aq.md` 的副本同步;`test_parts` 的断言跟着改
