@@ -227,3 +227,8 @@
 - `lint/check.py`(只用标准库)接在 ruff 后面:P7 看不见的字符、C1 真实用户目录(用户名运行时取 `USERNAME`/`USER`)、T3 mod 的非注释代码里 `$.clock` 和 `.claude` 路径、C4 连续 3 个以上 `?`;C3 用 `fusion/config.json` 的 `forbidden`(只看新增行，正则写成 `n[o]qa` 这样，免得自己触发自己);P1、C2 按任务 18 不做
 - C4 现有唯一命中是测试输入 `三个连续问号`,改成 `"?" * 3`,不加豁免注释;`lint/*.md` 的状态栏 lead 自己改(中文文档，避免丢编码)
 - 修改 0 轮;lead 调用 4 次工具 / 3 次请求，到了下限
+### T17 任务 15 lyfusion 的 CLAUDE.md(accepted,`1b03056`;B 档，助手自己读代码)
+- 英文速查卡(状态机、命令、退出码、审查包、设置三层、mod 钩子和已探明的接口、开发命令、坑、"Claude usage boundaries (Claude 的使用边界)");lead 验收后改了 2 处(退出码 3 写全、补前台超时和强杀的坑)并补了 Lily 的协作规则;rc2-brief 末尾的规则摘要改成指向 CLAUDE.md
+- 自动修 1 次:lead 写在 progress 里的连续 3 个问号触发了 C4,助手把那句改写了(范围外，意思没变)
+### 任务 18 的 mod 一半(lead 写,`3a18541`)
+- `register.tsx`、`types/index.d.ts` 的注释和面板文字改成英文(思考强度标签 Low/Medium/High/Extra high/Max/Ultra)
