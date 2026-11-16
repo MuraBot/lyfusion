@@ -7,6 +7,8 @@ import subprocess
 import sys
 
 from conftest import CORE, report
+from fusion_core import cli as cli_module
+from fusion_core import config, store
 from fusion_core.util import CMD
 
 
@@ -53,6 +55,85 @@ def test_explore_stdin_utf8_writes_artifacts(proj):
     assert (proj.root / "fusion/explore.md").read_text(encoding="utf-8") == artifact
     assert p.stdout.decode("utf-8").splitlines()[0] == "结果: fusion/explore.md"
     assert "计划用 Markdown" in p.stdout.decode("utf-8")
+    stdout = p.stdout.decode("utf-8")
+    assert "## 助手回答" in stdout and "代码在 app/greet.py。" in stdout
+    assert stdout.count("下一步:") == 1
+
+
+def test_wait_limit_releases_lease_and_resumes_explore_and_delegate(proj):
+    cfg = config.load(proj.root)
+    cfg["wait_minutes"] = 0.02
+    config.save_project(proj.root, {key: value for key, value in cfg.items() if key != "local"})
+    proj.script([{"sleep": 1.2, "text": "延迟后的探索结论"},
+                 {"sleep": 1.2, "write": {"app/new.py": "VALUE = 2\n"},
+                  "report": report(summary="延迟实现完成")}])
+    p = cli(proj, "explore", "-", input_text="任务原话")
+    assert p.returncode == 3
+    output = p.stdout.decode("utf-8")
+    assert "助手还在做" in output and 'fusion-core.py" wait' in output
+    assert "下一步:" not in output
+    conn = store.connect(proj.root)
+    try:
+        assert store.take_lease(conn, "test-holder")
+        store.release_lease(conn, "test-holder")
+    finally:
+        conn.close()
+    assert proj.task()["state"] == "exploring"
+    p = cli(proj, "wait")
+    assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
+    output = p.stdout.decode("utf-8")
+    assert "延迟后的探索结论" in output and "## 助手回答" in output
+    assert (proj.root / "fusion/explore.md").exists()
+    assert output.count("下一步:") == 1
+
+    plan = {"goal": "加模块", "brief": "改代码", "scope": ["app/**"]}
+    p = cli(proj, "delegate", "-", input_text=json.dumps(plan, ensure_ascii=False))
+    assert p.returncode == 3
+    assert "助手还在做" in p.stdout.decode("utf-8")
+    p = cli(proj, "wait", "--task", "T1")
+    assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
+    output = p.stdout.decode("utf-8")
+    assert "## 检查" in output and "## 助手的问题和自定的选择" in output
+    assert output.count("下一步:") == 1
+
+
+def test_wait_with_no_run_reports_status(proj):
+    p = cli(proj, "wait")
+    assert p.returncode == 0
+    assert "没有要等的" in p.stdout.decode("utf-8")
+
+
+def test_wait_picks_up_integration_without_active_run(proj):
+    from fusion_core.commands import Ctx, cmd_accept
+
+    proj.script([{"write": {"app/new.py": "VALUE = 2\n"}, "report": report()}])
+    plan = {"goal": "加模块", "brief": "改代码", "scope": ["app/**"]}
+    delegated = cli(proj, "delegate", "-", input_text=json.dumps(plan, ensure_ascii=False))
+    assert delegated.returncode == 0, delegated.stderr.decode("utf-8", "replace")
+    ctx = Ctx(proj.root)
+    try:
+        cmd_accept(ctx)
+    finally:
+        ctx.close()
+    task = proj.state()["tasks"]["T1"]
+    assert task["state"] == "integrating" and task["active_run"] is None
+    waited = cli(proj, "wait")
+    assert waited.returncode == 0, waited.stderr.decode("utf-8", "replace")
+    assert "提交:" in waited.stdout.decode("utf-8")
+
+
+def test_review_stdout_replaces_diff_and_truncates(monkeypatch):
+    from fusion_core.cli import _review_stdout
+
+    text = "## 改动\n```diff\n" + "x\n" * 200 + "```\n下一步:命令\n"
+    candidate = {"base": "abcdef0123456789", "commit": "123456abcdef7890"}
+    monkeypatch.setattr(cli_module, "STDOUT_CHARS", 200)
+    output = _review_stdout(text, {"latest": "T1.c1"}, candidate)
+    assert "```diff" not in output and "diff 太长没有打印" in output
+    assert "git diff abcdef0123456789 123456abcdef7890" in output
+    monkeypatch.setattr(cli_module, "STDOUT_CHARS", 60)
+    output = _review_stdout(text, {"latest": "T1.c1"}, candidate)
+    assert len(output) <= 60 and output.endswith("(后面的在 fusion/review.md)")
 
 
 def test_delegate_four_field_plan_and_resumes_explore(proj):
@@ -219,6 +300,9 @@ def test_review_has_four_sections_and_scope_marking(proj):
     assert headings == ["## 检查", "## 助手的问题和自定的选择", "## 改动"]
     assert "outside.txt" in text and "范围外" in text
     assert "自定选择:value 2(理由:和旧值对齐)" in text
+    stdout = p.stdout.decode("utf-8")
+    assert "## 检查" in stdout and "## 助手的问题和自定的选择" in stdout
+    assert "```diff" in stdout and stdout.count("下一步:") == 1
 
 
 def test_review_omits_violation_section_and_large_diff(proj):

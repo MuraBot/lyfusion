@@ -54,5 +54,9 @@ def test_guide_and_rules_carry_lily_decisions():
     assert "自动提交" in LEAD_GUIDE
     assert '"# 一句话目标"' in LEAD_GUIDE
     assert "检查标准写在产出上" in LEAD_GUIDE
+    assert "用 run_in_background 运行" not in LEAD_GUIDE
+    assert "timeout 设 600000" in LEAD_GUIDE
+    assert "fusion-core wait" in LEAD_GUIDE
+    assert "排队" in LEAD_GUIDE
     assert len(LEAD_GUIDE.splitlines()) <= 20
     assert "不要对整个项目或没改的文件跑格式化器" in WORK_RULES

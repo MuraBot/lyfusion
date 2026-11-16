@@ -9,6 +9,7 @@ import re
 import sqlite3
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import SCHEMA, VERSION, aq, store, views
@@ -19,6 +20,8 @@ from .supervisor import Supervisor
 from .util import CMD, FormatTooNew, FusionError, clean_env, git
 
 USAGE = views.lead_guide()
+STDOUT_CHARS = 20000
+_WAIT_TIMEOUT = "__fusion_wait_timeout__"
 
 
 def _lead_usage_data(raw: dict) -> dict:
@@ -37,6 +40,10 @@ def _lead_usage_data(raw: dict) -> dict:
             )
             if valid:
                 data[target] = value
+    for source, target in (("toolCalls", "tool_calls"), ("requests", "requests")):
+        value = raw.get(source)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            data[target] = value
     limits = raw.get("rateLimits")
     if isinstance(limits, list):
         for kind, prefix in (("five_hour", "five_hour"), ("seven_day", "seven_day")):
@@ -82,10 +89,35 @@ def _input(args):
     return aq.read_input(args.source, sys.stdin)
 
 
-def _wait(root: Path, task_id: str, *, explore: bool = False) -> dict:
-    """Wait without a fixed timeout; only durable terminal failure signals stop it."""
-    sup = Supervisor(root, poll=0.2)
+def _valid_wait_minutes(value) -> float:
+    if (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value) and value >= 0):
+        return float(value)
+    return float(config_mod.DEFAULT_CONFIG["wait_minutes"])
+
+
+def _run_elapsed_minutes(run) -> float:
+    started = run.get("started")
+    if not isinstance(started, str):
+        return 0.0
     try:
+        parsed = datetime.fromisoformat(started.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - parsed).total_seconds() / 60)
+    except ValueError:
+        return 0.0
+
+
+def _wait(root: Path, task_id: str, *, explore: bool = False) -> dict:
+    """等任务完成;超过前台上限时释放租约并让 Codex 继续运行。"""
+    sup = Supervisor(root, poll=0.2)
+    wait_started = time.monotonic()
+    try:
+        project_config = config_mod._read(
+            config_mod.fusion_dir(root) / "config.json", config_mod.DEFAULT_CONFIG
+        )
+        wait_minutes = _valid_wait_minutes(project_config.get("wait_minutes", 9))
         initial = sup.state()["tasks"].get(task_id)
         if initial is None:
             raise FusionError(f"任务 {task_id} 不存在")
@@ -97,6 +129,18 @@ def _wait(root: Path, task_id: str, *, explore: bool = False) -> dict:
             task = state["tasks"].get(task_id)
             if task is None:
                 raise FusionError(f"任务 {task_id} 不存在")
+            active_run = state.get("runs", {}).get(task.get("active_run") or "")
+            elapsed_wait = (time.monotonic() - wait_started) / 60
+            if (wait_minutes > 0 and elapsed_wait >= wait_minutes
+                    and task.get("state") in ("exploring", "running", "integrating")):
+                current_run = active_run or state.get("runs", {}).get((task.get("runs") or [None])[-1]) or {}
+                run_id = current_run.get("id", "-")
+                print(
+                    f"助手还在做({task_id} · {run_id},这次等了 {elapsed_wait:.1f} 分钟,"
+                    f"这一轮共 {_run_elapsed_minutes(current_run):.1f} 分钟)。助手不受影响。"
+                )
+                print(f"接着等: {CMD} wait --task {task_id}")
+                raise FusionError(_WAIT_TIMEOUT, code=3)
             new_signals = task.get("signals", [])[signal_count:]
             signal_count = len(task.get("signals", []))
             for signal in new_signals:
@@ -166,6 +210,13 @@ def _write_review(root, task, state, filename, round_no):
     return path
 
 
+def _review_text(root, path, task, state, round_no):
+    if path.exists():
+        return path.read_text(encoding="utf-8")
+    checks = (state.get("candidates", {}).get(task.get("latest")) or {}).get("checks") or {}
+    return f"{aq.next_step_text(task, checks)}\n"
+
+
 def _write_explore(root, tid, state, original: str | None, continued: bool = False):
     task = state["tasks"][tid]
     run = next(
@@ -190,7 +241,37 @@ def _write_explore(root, tid, state, original: str | None, continued: bool = Fal
     )
     if continued:
         print("已有运行在进行,接着等它;这次的输入没有用")
+    print()
+    print(_limit_text(artifact, STDOUT_CHARS, "(后面的在 fusion/explore.md)"))
     print(f"下一步: {CMD} delegate -(计划用 Markdown,heredoc 传)")
+
+
+def _limit_text(text: str, limit: int, suffix: str) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:max(0, limit - len(suffix))] + suffix
+
+
+def _review_stdout(text: str, task: dict, candidate: dict | None,
+                   limit: int | None = None) -> str:
+    if limit is None:
+        limit = STDOUT_CHARS
+    if len(text) <= limit:
+        return text
+    # 审查包中的候选提交提供完整的基准和候选提交号。
+    placeholder = "(diff 太长没有打印:看 fusion/review.md)"
+    if candidate:
+        base, commit = candidate.get("base"), candidate.get("commit")
+        if base and commit:
+            placeholder = f"(diff 太长没有打印:看 fusion/review.md,或 git diff {base} {commit})"
+    text = re.sub(r"```diff\n.*?\n```", placeholder, text, flags=re.DOTALL)
+    return _limit_text(text, limit, "(后面的在 fusion/review.md)")
+
+
+def _print_review(path, summary: str, text: str, task: dict, state: dict) -> None:
+    print(summary)
+    print()
+    print(_review_stdout(text, task, state.get("candidates", {}).get(task.get("latest"))))
 
 
 def _do_explore(args, root):
@@ -202,12 +283,9 @@ def _do_explore(args, root):
             task = state["tasks"][tid]
             round_no = task["change_rounds"] + 1
             path = _write_review(root, task, state, f"review-{round_no}.md", round_no)
-            chk = (state["candidates"].get(task.get("latest")) or {}).get(
-                "checks"
-            ) or {}
-            print(
-                f"结果: {path.relative_to(root).as_posix()}\n检查与问题已写入审查包。\n已有运行在进行,接着等它;这次的输入没有用\n{aq.next_step_text(task, chk)}"
-            )
+            summary = (f"结果: {path.relative_to(root).as_posix()}\n检查与问题已写入审查包。\n"
+                       "已有运行在进行,接着等它;这次的输入没有用")
+            _print_review(path, summary, _review_text(root, path, task, state, round_no), task, state)
             return
         text = None
     else:
@@ -263,8 +341,7 @@ def _do_delegate(args, root):
     ]
     if existing:
         lines.append("已有运行在进行,接着等它;这次的输入没有用")
-    lines.append(aq.next_step_text(task, chk))
-    print("\n".join(lines))
+    _print_review(path, "\n".join(lines), _review_text(root, path, task, state, task["change_rounds"] + 1), task, state)
 
 
 def _do_revise(args, root):
@@ -310,8 +387,71 @@ def _do_revise(args, root):
     ]
     if existing and out.get("continue_wait"):
         lines.append("修改意见和正在做的这一轮相同,接着等它")
-    lines.append(aq.next_step_text(task, chk))
-    print("\n".join(lines))
+    _print_review(path, "\n".join(lines), _review_text(root, path, task, state, round_no), task, state)
+
+
+def _do_wait(args, root):
+    conn = store.connect(root)
+    try:
+        state = replay(store.read(conn))
+    finally:
+        conn.close()
+    if args.task:
+        task = state["tasks"].get(args.task)
+    else:
+        task = next((item for item in reversed(list(state["tasks"].values()))
+                     if item.get("state") == "integrating"
+                     or (item.get("state") in ("exploring", "running") and item.get("active_run"))), None)
+    if task is None:
+        task = next(reversed(list(state["tasks"].values())), None)
+        if task is None:
+            print("没有要等的")
+            return
+    run = state.get("runs", {}).get(task.get("active_run") or "")
+    if task["state"] == "integrating":
+        tid = task["id"]
+        result = _wait(root, tid)
+        _report_accept(root, result["tasks"][tid])
+        return
+    if not run or run.get("status") not in ("requested", "started"):
+        status = views.STATE_CN.get(task["state"], task["state"])
+        result = "explore.md" if task["state"] == "explored" else "review.md"
+        print(f"没有要等的:{task['id']} · {status};结果在 fusion/{result}")
+        return
+    tid = task["id"]
+    is_explore = run["kind"] == "explore"
+    result = _wait(root, tid, explore=is_explore)
+    task = result["tasks"][tid]
+    if is_explore:
+        _write_explore(root, tid, result, None, continued=True)
+        return
+    path = _write_review(root, task, result, f"review-{task['change_rounds'] + 1}.md",
+                         task["change_rounds"] + 1)
+    chk = (result["candidates"].get(task.get("latest")) or {}).get("checks") or {}
+    checks = chk.get("results", [])
+    summary = "\n".join((
+        f"结果: {path.relative_to(root).as_posix()}",
+        f"检查: {sum(bool(row.get('passed')) for row in checks)}/{len(checks)} 通过",
+        f"违规: {len(chk.get('violations', []))} 条",
+        f"问题: {len((task.get('latest_report') or {}).get('questions', []))} 条;改动文件: {len(chk.get('changed', []))} 个",
+        "接着等完了这一轮",
+    ))
+    _print_review(path, summary, _review_text(root, path, task, result, task["change_rounds"] + 1), task, result)
+
+
+def _report_accept(root, task):
+    if task["state"] != "accepted":
+        detail = (task.get("integration") or {}).get("detail", task["state"])
+        if "未提交" in detail:
+            message = f"lead 工作目录有没提交的改动,快进会冲突:先提交或撤销,再运行 {CMD} accept"
+        elif "冲突" in detail:
+            message = f"合并冲突,已退回审查:用 {CMD} revise 让助手在最新的主分支上解决"
+        else:
+            message = f"集成失败:{detail}"
+        raise FusionError(message, code=2)
+    print(
+        f"提交: {task['accepted_commit']}\n快进分支: {config_mod.load(root)['base_branch']}\n下一步: {CMD} status"
+    )
 
 
 def _do_accept(args, root):
@@ -327,20 +467,7 @@ def _do_accept(args, root):
         return
     state = _wait(root, out["task"])
     task = state["tasks"][out["task"]]
-    if task["state"] != "accepted":
-        detail = (task.get("integration") or {}).get("detail", task["state"])
-        if "未提交" in detail:
-            message = f"lead 工作目录有没提交的改动,快进会冲突:先提交或撤销,再运行 {CMD} accept"
-        elif "冲突" in detail:
-            message = (
-                f"合并冲突,已退回审查:用 {CMD} revise 让助手在最新的主分支上解决"
-            )
-        else:
-            message = f"集成失败:{detail}"
-        raise FusionError(message, code=2)
-    print(
-        f"提交: {task['accepted_commit']}\n快进分支: {config_mod.load(root)['base_branch']}\n下一步: {CMD} status"
-    )
+    _report_accept(root, task)
 
 
 def _preflight(root: Path) -> dict:
@@ -527,6 +654,8 @@ def main(argv=None) -> int:
     p = sub.add_parser("accept")
     p.add_argument("--task")
     p.add_argument("--waive")
+    p = sub.add_parser("wait")
+    p.add_argument("--task")
     p = sub.add_parser("cancel")
     p.add_argument("--task")
     sub.add_parser("status")
@@ -561,6 +690,8 @@ def main(argv=None) -> int:
             _do_revise(args, root)
         elif args.cmd == "accept":
             _do_accept(args, root)
+        elif args.cmd == "wait":
+            _do_wait(args, root)
         elif args.cmd == "cancel":
             ctx = Ctx(root)
             try:
@@ -746,7 +877,8 @@ def main(argv=None) -> int:
                 ctx.close()
         return 0
     except FusionError as exc:
-        print(str(exc), file=sys.stderr)
+        if str(exc) != _WAIT_TIMEOUT:
+            print(str(exc), file=sys.stderr)
         return getattr(exc, "code", 1)
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         print(f"输入格式错误:{exc}", file=sys.stderr)

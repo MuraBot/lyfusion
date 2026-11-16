@@ -199,6 +199,8 @@ def cmd_cancel(ctx: Ctx, task_id: str | None = None, reason: str | None = None) 
 
 
 def cmd_lead_session(ctx: Ctx, session_id: str | None, source: str | None) -> None:
+    if not session_id:
+        return
     state = ctx.state()
     previous = state["lead_sessions"][-1] if state["lead_sessions"] else None
     if previous and previous["session_id"] == session_id and previous["source"] == source:

@@ -113,6 +113,26 @@ def test_lead_usage_cross_session_has_no_guessed_cost_delta(proj, monkeypatch, c
     assert "本任务 -" in views.ledger(proj.state(), "T1")
 
 
+def test_lead_usage_tool_call_delta_and_invalid_counts(proj, monkeypatch, capsys):
+    session = 1763100000000
+    assert _lead_usage(proj, monkeypatch, capsys,
+                       {"startedAt": session, "toolCalls": 3, "requests": 2}, "explore") == 0
+    capsys.readouterr()
+    conn = store.connect(proj.root)
+    try:
+        _append_task(conn, "T1")
+    finally:
+        conn.close()
+    accepted = {"startedAt": session, "toolCalls": 10, "requests": 5}
+    assert _lead_usage(proj, monkeypatch, capsys, accepted, "accept", "--task", "T1") == 0
+    capsys.readouterr()
+    assert "7 / 3" in views.ledger(proj.state(), "T1")
+    accepted.update(toolCalls=-1, requests=True)
+    assert _lead_usage(proj, monkeypatch, capsys, accepted, "accept", "--task", "T1") == 0
+    capsys.readouterr()
+    assert "- / -" in views.ledger(proj.state(), "T1")
+
+
 def test_lead_usage_default_task_and_invalid_input_leave_no_event(proj, monkeypatch, capsys):
     conn = store.connect(proj.root)
     try:

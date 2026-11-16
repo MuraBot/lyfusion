@@ -35,6 +35,7 @@ DEFAULT_CONFIG = {
     "stall_minutes": 20,          # 多久没有新事件算"长时间无进展"
     # 运行超过多久叫醒 lead;0 关闭。也让 lead 的提示缓存(约 1 小时)不过期,保持在 50 以内。
     "watch_minutes": 40,
+    "wait_minutes": 9,           # 等待命令最多等多久先返回(分钟);0 = 一直等。Claude Code 前台 Bash 最长 10 分钟
     "watch_small_reads": 15,       # 碎读达到多少次叫醒 lead;0 关闭
     "watch_repeats": 5,            # 重复命令达到多少次叫醒 lead;0 关闭
     "small_read_lines": 80,        # 单条读命令输出不超过多少行算碎读

@@ -154,6 +154,9 @@ def test_hooks_inject_within_limits(proj):
     assert len(views.LEAD_GUIDE.splitlines()) <= 20
     assert "只做 4 件事" in text
     assert proj.state()["lead_sessions"][-1] == {**proj.state()["lead_sessions"][-1], "session_id": "s1"}
+    before = len(proj.state()["lead_sessions"])
+    hooks.run("session-start", {"cwd": str(proj.root), "source": "fusion-panel"})
+    assert len(proj.state()["lead_sessions"]) == before
     assert hooks.run("prompt", {"cwd": str(proj.root)}) is None
     assert hooks.run("pre-edit", {"cwd": str(proj.root), "tool_input": {}}) is None
 

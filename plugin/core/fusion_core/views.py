@@ -15,8 +15,8 @@ STATE_CN = {"exploring": "探索中", "explored": "探索完成", "planned": "�
 SESSION_LIMIT = 20
 
 LEAD_GUIDE = """lyfusion 已开:这个项目的代码活交给 Codex 助手做,你(lead)只做 4 件事。
-每条命令都在 Bash 里用 run_in_background 运行。命令自己等到有结果才结束,结束时会叫醒你:
-不要开 Monitor、不要 sleep、不要轮询。醒来后直接读结果文件。
+每条命令都在 Bash 前台跑,timeout 设 600000;结果(探索包、审查包)直接打印在输出里,不用再读文件。不要 run_in_background、Monitor、sleep、轮询。
+等满 9 分钟助手还没做完,命令先返回(退出码 3),再跑 fusion-core wait 接着等,助手不受影响。前台等待时用户发的消息会排队。
 1. 探索(每个任务都先做,不要自己通读代码):fusion-core explore - <<'EOF' …… EOF
    写用户的任务原话(一字不改)和你想知道的,最多 3 条,编号 Q1~Q3。结果:fusion/explore.md
 2. 派工:fusion-core delegate - <<'EOF' 计划 EOF   续用探索的会话。结果:fusion/review.md
@@ -24,7 +24,7 @@ LEAD_GUIDE = """lyfusion 已开:这个项目的代码活交给 Codex 助手做,�
    也接受原来的 JSON(第一个字符是 {)。brief 推荐小标题:目标、决定、不变的行为、猜测(未证实)、不要做的事、已知的坑、停下的条件。
    检查标准写在产出上(命令输出、渲染出的文字),不写在源码文字上:助手会照字面去凑。
 3. 修改:fusion-core revise - <<'EOF' 修改意见 EOF   自由文字,助手的问题也在这里回答。结果:fusion/review.md
-4. 验收:fusion-core accept   合并、重跑检查、压成 1 个提交、快进主分支。
+4. 验收:fusion-core accept   合并、重跑检查、压成 1 个提交、快进主分支。可以和下一个任务的 explore 用 && 连成一条命令。
 跨任务都要守的设计决定写进 fusion/decisions.md(普通文件,直接编辑),引擎每次派工把全文带给助手,并自动提交它。
 审查包不够看时,用 Read 看审查包里工位路径下的文件(你自己目录里的还是旧代码)。看进度 fusion-core status;看用量 fusion-core ledger;放弃任务 fusion-core cancel。"""
 
@@ -78,8 +78,8 @@ def status(root, cfg, state, target: str | None = None) -> str:
 
 
 def ledger(state, task_id: str | None = None) -> str:
-    lines = ["| 任务 | 状态 | 目标 | 修复 | 修改轮 | Lead(验收时) | 助手输入/缓存/输出 (M) | 助手模型 / effort / fast |",
-             "|---|---|---|---:|---:|---:|---:|---|"]
+    lines = ["| 任务 | 状态 | 目标 | 修复 | 修改轮 | Lead(验收时) | Lead 调用(工具/请求) | 助手输入/缓存/输出 (M) | 助手模型 / effort / fast |",
+             "|---|---|---|---:|---:|---:|---:|---:|---|"]
     for task in state["tasks"].values():
         if task_id and task["id"] != task_id:
             continue
@@ -87,6 +87,7 @@ def ledger(state, task_id: str | None = None) -> str:
         usage = state.get("usage", {}).get(task["id"], {})
         # 引擎不读 Claude 的记录;lead 的用量由 lead 自己用用量工具看,没有数据就写明
         lead = _lead_usage_display(state, task["id"])
+        lead_calls = _lead_calls_display(state, task["id"])
         assistant = _usage_triplet(usage.get("sidekick", {}))
         settings = []
         seen = set()
@@ -99,7 +100,7 @@ def ledger(state, task_id: str | None = None) -> str:
             if item not in seen:
                 settings.append(" / ".join(item))
                 seen.add(item)
-        lines.append(f"| {task['id']} | {task['state']} | {plan.get('goal', '')} | {task['fix_attempts']} | {task['change_rounds']} | {lead} | {assistant} | {'<br>'.join(settings)} |")
+        lines.append(f"| {task['id']} | {task['state']} | {plan.get('goal', '')} | {task['fix_attempts']} | {task['change_rounds']} | {lead} | {lead_calls} | {assistant} | {'<br>'.join(settings)} |")
     lines += ["", "| 任务 | 运行 | 种类 | 结束状态 | 用时(分钟) | 命令 | 碎读 | 重复 | Codex 版本 |",
               "|---|---|---|---|---:|---:|---:|---:|---|"]
     kinds = {"explore": "探索", "implement": "实现", "changes": "修改", "fix": "自动修", "report": "补报告"}
@@ -166,6 +167,38 @@ def _lead_usage_display(state: dict, task_id: str) -> str:
         parts.append(f"验收时 {context[0]}")
         parts.extend(context[1:])
     return " · ".join(parts)
+
+
+def _lead_calls_display(state: dict, task_id: str) -> str:
+    accept = state.get("lead_usage", {}).get(task_id)
+    if not accept:
+        return "-"
+    accept_data = accept.get("data", {})
+    explore = None
+    if "started_at" in accept_data:
+        explores = []
+        for record in state.get("lead_usage_events", []):
+            if record.get("seq", 0) >= accept.get("seq", 0):
+                continue
+            data = record.get("data", {})
+            if data.get("at") != "explore" or data.get("started_at") != accept_data["started_at"]:
+                continue
+            owner = record.get("task")
+            if owner is None:
+                owner = _explore_snapshot_task(state, record.get("seq", 0))
+            if owner == task_id:
+                explores.append(record)
+        explore = max(explores, key=lambda event: event.get("seq", 0), default=None)
+    if not explore:
+        return "-"
+    before = explore.get("data", {})
+    values = []
+    for key in ("tool_calls", "requests"):
+        if key in accept_data and key in before:
+            values.append(str(accept_data[key] - before[key]))
+        else:
+            values.append("-")
+    return " / ".join(values)
 
 
 def _explore_snapshot_task(state: dict, seq: int) -> str | None:

@@ -4,10 +4,12 @@
 """
 from __future__ import annotations
 
+import errno
 import json
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -152,5 +154,26 @@ def _rm(path: Path):
         import os
         import stat
         os.chmod(p, stat.S_IWRITE)
-        func(p)
+
+        def retryable(error):
+            return (isinstance(error, PermissionError)
+                    or error.errno == errno.ENOTEMPTY
+                    or getattr(error, "winerror", None) == 145)
+
+        try:
+            func(p)
+        except OSError as error:
+            if not retryable(error):
+                raise
+            deadline = time.monotonic() + 5
+            while True:
+                time.sleep(0.2)
+                try:
+                    func(p)
+                    return
+                except OSError as error:
+                    if not retryable(error):
+                        raise
+                    if time.monotonic() >= deadline:
+                        raise
     shutil.rmtree(path, onerror=onerr)
