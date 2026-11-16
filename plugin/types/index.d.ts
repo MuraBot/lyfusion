@@ -1,5 +1,5 @@
-// lyfusion Fusion 栏 mod 的状态类型(rc.1 任务 6、7)
-// Panel 是 `fusion-core config panel` 打印的那一行 JSON;字段由引擎定,这里只照抄
+// State types for the lyfusion Fusion bar mod (rc.1 tasks 6 and 7)
+// Panel is the one-line JSON printed by `fusion-core config panel`; the engine defines the fields, this only mirrors them
 export type Panel = {
   schema_version: number
   project: true
@@ -9,8 +9,8 @@ export type Panel = {
   effort: string
   efforts: string[]
   fast: boolean
-  fast_models?: string[] // 支持 Fast Mode 的模型(rc.1 起引擎给;旧引擎没有)
-  model_names?: Record<string, string> // 模型的显示名,例如 gpt-6-luna → GPT-6-Luna
+  fast_models?: string[] // models that support Fast Mode (sent since rc.1; older engines omit it)
+  model_names?: Record<string, string> // display names, e.g. gpt-6-luna → GPT-6-Luna
   compact: number
   compacts: number[]
   context_ratio: number
@@ -20,12 +20,12 @@ export type Panel = {
   handoff?: { mode: string; tokens: number; modes: string[]; dir: string }
 }
 
-// 面板里最后一条提示:引擎命令失败的原因,或者打开 Fusion 后的说明
+// The panel's last notice: why an engine command failed, or the note after turning Fusion on
 export type Notice = { kind: 'error' | 'info'; text: string }
 
 declare module 'claude-code' {
   interface PluginState {
-    // leadKnows:这个会话的 lead 现在以为 Fusion 是开(true)还是关(false);null = 还不知道
+    // leadKnows: whether this session's lead currently believes Fusion is on (true) or off (false); null = not known yet
     'lyfusion-plugin': { panel: Panel | null; isOpen: boolean; notice: Notice | null; leadKnows: boolean | null }
   }
 }
