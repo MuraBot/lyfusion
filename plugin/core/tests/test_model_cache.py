@@ -79,6 +79,21 @@ def test_compact_choices_respect_cached_max_context(proj):
     assert config.compact_choices("gpt-6.1-sol", 400000) == [262144, 400000]
 
 
+def test_configuration_warns_for_stored_context_above_model_max(proj):
+    write_cache([model_entry("gpt-6.1-sol", 1, max_context_window=872000)])
+    cfg = config.load(proj.root)
+    cfg["local"]["sidekick"]["model"] = "gpt-6.1-sol"
+    settings = cfg["local"]["sidekick"]["models"].setdefault("gpt-6.1-sol", {})
+    settings["compact"] = 900000
+    warning = "Context limit 900000 is above gpt-6.1-sol's maximum 872000; " \
+              "choose a lower value in the Fusion panel or with config compact"
+    assert config.configuration_warnings(cfg)[-1] == warning
+    assert config.compact_choices("gpt-6.1-sol", 900000) == [262144, 400000, 600000, 800000]
+
+    settings["compact"] = 400000
+    assert warning not in config.configuration_warnings(cfg)
+
+
 @pytest.mark.parametrize("payload", [None, "not json", {"models": "x"}, {"models": [{"name": "no slug"}]}])
 def test_unusable_cache_warns_and_falls_back_without_writing(proj, capsys, payload):
     path = cache_path()

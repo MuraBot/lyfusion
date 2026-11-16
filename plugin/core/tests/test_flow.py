@@ -106,6 +106,26 @@ def test_blocked_without_question_auto_continues_once(proj):
     assert "You reported blocked but listed no blocking question." in proj.calls()[1]["prompt"]
 
 
+def test_minor_fix_resets_auto_continue_count_in_replayed_state():
+    from fusion_core.state import replay
+
+    events = [
+        {"seq": 1, "type": "task_created", "task": "T1", "ts": "1", "data": {}},
+        {"seq": 2, "type": "run_requested", "task": "T1", "ts": "2",
+         "data": {"run": "r1", "kind": "implement"}},
+        {"seq": 3, "type": "run_ended", "task": "T1", "ts": "3",
+         "data": {"run": "r1", "result": "blocked"}},
+        {"seq": 4, "type": "run_requested", "task": "T1", "ts": "4",
+         "data": {"run": "r2", "kind": "continue"}},
+        {"seq": 5, "type": "run_requested", "task": "T1", "ts": "5",
+         "data": {"run": "r3", "kind": "minor_fix"}},
+    ]
+    assert replay(events[:-1])["tasks"]["T1"]["auto_continue_count"] == 1
+    task = replay(events)["tasks"]["T1"]
+    assert task["runs"] == ["r1", "r2", "r3"]
+    assert task["auto_continue_count"] == 0
+
+
 def test_blocked_without_question_auto_continue_stops_at_limit(proj):
     setup_task(proj)
     proj.script([{"report": report("still blocked", status="blocked")} for _ in range(3)])

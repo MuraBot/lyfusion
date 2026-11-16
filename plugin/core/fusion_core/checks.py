@@ -11,14 +11,14 @@ ENV_ERROR = re.compile(r"(?i)certificate verify failed|CERTIFICATE_VERIFY_FAILED
                        r"SSL: |ECONNRESET|ETIMEDOUT|ECONNREFUSED|Could not resolve host|"
                        r"Temporary failure in name resolution|getaddrinfo|Connection timed out")
 BUILTIN_RULES = [
-    (r"(?i)GIT_SSL_NO_VERIFY|http\.sslVerify\s*=?\s*false|sslVerify\s+false", "Git certificate verification is disabled", "cmd diff"),
-    (r"(?i)NODE_TLS_REJECT_UNAUTHORIZED\s*=?\s*['\"]?0", "Node certificate verification is disabled", "cmd diff"),
-    (r"(?i)strict-ssl\s*[= ]\s*false", "npm certificate verification is disabled", "cmd diff"),
+    (r"(?i)GIT_SSL_NO_VERIF[Y]|http\.sslVerify\s*=?\s*false|sslVerify\s+false", "Git certificate verification is disabled", "cmd diff"),
+    (r"(?i)NODE_TLS_REJECT_UNAUTHORIZE[D]\s*=?\s*['\"]?0", "Node certificate verification is disabled", "cmd diff"),
+    (r"(?i)strict-ss[l]\s*[= ]\s*false", "npm certificate verification is disabled", "cmd diff"),
     (r"(?i)--trusted-host\b", "pip skips certificate verification", "cmd"),
     (r"(?i)\bcurl\b[^\n]*\s(-k|--insecure)\b", "curl skips certificate verification", "cmd"),
-    (r"(?i)\bverify\s*=\s*False\b", "Code disables certificate verification", "cmd diff"),
-    (r"(?i)rejectUnauthorized\s*:\s*false", "Code disables certificate verification", "diff"),
-    (r"(?i)--no-verify\b", "Git hooks are skipped", "cmd"),
+    (r"(?i)\bverif[y]\s*=\s*False\b", "Code disables certificate verification", "cmd diff"),
+    (r"(?i)rejectUnauthorize[d]\s*:\s*false", "Code disables certificate verification", "diff"),
+    (r"(?i)--no-verif[y]\b", "Git hooks are skipped", "cmd"),
     (r"\bgit\s+(push|commit|rebase|merge|switch|checkout\s+-b|branch\s+-[dD]|reset\s+--hard)\b",
      "The assistant ran a Git write command", "cmd"),
 ]

@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 from fusion_core import gitops
-from fusion_core.checks import scan_forbidden
+from fusion_core.checks import BUILTIN_RULES, scan_forbidden
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CHECK_PATH = REPO_ROOT / "lint" / "check.py"
@@ -150,3 +150,34 @@ def test_c3_forbidden_rule_scans_only_added_lines(tmp_path):
     assert len(violations) == 1
     assert violations[0]["kind"] == "forbidden"
     assert violations[0]["why"] == "New comment that bypasses a check (lint C3)"
+
+
+def test_builtin_rules_do_not_match_their_source_and_keep_examples():
+    checks_path = REPO_ROOT / "plugin" / "core" / "fusion_core" / "checks.py"
+    cfg = {"forbidden": []}
+    source = [("plugin/core/fusion_core/checks.py", line)
+              for line in checks_path.read_text(encoding="utf-8").splitlines()]
+    assert scan_forbidden(cfg, [], source) == []
+
+    examples = [
+        ("git -c http.sslVerify=false clone x", None),
+        ("NODE_TLS_REJECT_UNAUTHORIZED=0", None),
+        ("npm config set strict-ssl false", None),
+        ("pip install --trusted-host x y", None),
+        ("curl -k https://x", None),
+        (None, "requests.get(u, verify=False)"),
+        (None, "{rejectUnauthorized: false}"),
+        ("git commit --no-verify", None),
+        ("git push", None),
+    ]
+    for (pattern, why, where), (command, diff) in zip(BUILTIN_RULES, examples, strict=True):
+        hits = scan_forbidden(
+            cfg,
+            [{"command": command}] if command is not None else [],
+            [("example.py", diff)] if diff is not None else [],
+        )
+        matching = [hit for hit in hits if hit["why"] == why]
+        assert len(matching) == 1
+        assert matching[0]["where"] == ("command" if command is not None else "example.py")
+        assert ("cmd" if command is not None else "diff") in where
+    assert scan_forbidden(cfg, [], [("example.py", "requests.get(u, verify=True)")]) == []

@@ -352,6 +352,15 @@ def configuration_warnings(cfg: dict) -> list[str]:
                 warnings.append(
                     f"fusion/local.json has an invalid sidekick.models.{model}.compact; using {DEFAULT_COMPACT}"
                 )
+    model = sidekick.get("model", DEFAULT_LOCAL["sidekick"]["model"])
+    model_settings = models.get(model) if isinstance(models, dict) else None
+    compact = model_settings.get("compact") if isinstance(model_settings, dict) else None
+    limit = max_compact(model)
+    if _valid_compact(compact) and limit is not None and compact > limit:
+        warnings.append(
+            f"Context limit {compact} is above {model}'s maximum {limit}; "
+            "choose a lower value in the Fusion panel or with config compact"
+        )
     return warnings
 
 

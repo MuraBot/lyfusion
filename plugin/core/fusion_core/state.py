@@ -86,7 +86,7 @@ def _run_requested(s, e, d, tid):
                 task["auto_continue_count"] = task.get("auto_continue_count", 0) + 1
             elif d["kind"] not in ("report",):
                 task["fix_attempts"] = 0
-                if d["kind"] in ("implement", "changes"):
+                if d["kind"] in ("implement", "changes", "minor_fix"):
                     task["auto_continue_count"] = 0
 
 
