@@ -71,9 +71,12 @@ def test_cli_public_command_set_and_version():
     found = set(match.group(1).split(","))
     found.discard("hook")  # Plugin-internal SessionStart bridge.
     assert found == names
-    assert VERSION == "5.0.0-rc.3"
+    assert VERSION == "5.0.0-rc.4"
     meta = json.loads((PLUGIN / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))
     assert meta["version"] == VERSION
+    # The Fusion bar compares the engine's version with the one it was built as (rc.4)
+    mod = (PLUGIN / "hooks/register.tsx").read_text(encoding="utf-8")
+    assert f"const MOD_VERSION = '{VERSION}'" in mod
 
 
 def test_fusion_command_exposes_only_settings():

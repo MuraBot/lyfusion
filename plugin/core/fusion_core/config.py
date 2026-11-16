@@ -21,7 +21,11 @@ MODEL_INFO = {
     "gpt-6-astra": {"name": "GPT-6-Astra", "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
                     "fast": True, "max_compact": 872000},
 }
-KNOWN_MODELS = list(MODEL_INFO)
+# Lily's sidekick policy (2026-11-16): models never offered as the sidekick, and per-model effort floors with the
+# recommended effort. GPT-6-Luna below high is too weak to work as a sidekick.
+EXCLUDED_MODELS = {"gpt-6-astra"}
+EFFORT_POLICY = {"gpt-6-luna": {"min": "high", "recommended": "high"}}
+KNOWN_MODELS = [model for model in MODEL_INFO if model not in EXCLUDED_MODELS]
 DEFAULT_EFFORTS = ["low", "medium", "high", "xhigh"]
 COMPACT_CHOICES = [262144, 400000, 600000, 800000]
 _MODEL_CACHE_STATE = None
@@ -33,13 +37,14 @@ def codex_home() -> Path:
 
 def _models_from_state(entries: dict[str, dict], ordered: list[dict], warning: str | None) -> list[str]:
     if warning is not None:
-        return list(MODEL_INFO)
+        return [model for model in MODEL_INFO if model not in EXCLUDED_MODELS]
     cached = [entry["slug"] for entry in sorted(
         ordered,
         key=lambda entry: (entry.get("priority") if isinstance(entry.get("priority"), int)
                            and not isinstance(entry.get("priority"), bool) else 0),
     ) if entry.get("visibility") == "list"]
-    return cached + [model for model in MODEL_INFO if model not in entries]
+    models = cached + [model for model in MODEL_INFO if model not in entries]
+    return [model for model in models if model not in EXCLUDED_MODELS]
 
 
 def _model_cache() -> tuple[dict[str, dict], list[dict], str | None]:
@@ -234,15 +239,26 @@ def current_model_settings(sidekick: dict) -> dict:
     compact = settings.get("compact", DEFAULT_COMPACT)
     if not _valid_compact(compact):
         compact = DEFAULT_COMPACT
+    effort = settings.get("effort")
+    if model in EFFORT_POLICY and effort not in model_efforts(model):
+        # Unset, or below the floor (stored before the policy): the sidekick runs at the recommended effort
+        effort = recommended_effort(model) or model_efforts(model)[0]
     return {
-        "effort": settings.get("effort"),
+        "effort": effort,
         "fast": bool(settings.get("fast", False)) and supports_fast(model),
         "compact": compact,
     }
 
 
 def model_efforts(model: str) -> list[str]:
-    return model_info(model)["efforts"]
+    efforts = model_info(model)["efforts"]
+    floor = EFFORT_POLICY.get(model, {}).get("min")
+    return efforts[efforts.index(floor):] if floor in efforts else efforts
+
+
+def recommended_effort(model: str) -> str | None:
+    effort = EFFORT_POLICY.get(model, {}).get("recommended")
+    return effort if effort in model_efforts(model) else None
 
 
 def supports_fast(model: str) -> bool:

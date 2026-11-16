@@ -6,3 +6,6 @@ plugin/core/tests/_pytest_tmp/
 v5/probe-project/
 v5/smoke-real/
 v5/dist/
+
+# 概念图只留在本地，不进 git(Lily 2026-11-16)
+design/fusion-panel-concepts/*.png

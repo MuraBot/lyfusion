@@ -18,13 +18,14 @@ def test_panel_emits_only_panel_fields_and_current_settings(proj, capsys):
     assert len(raw.splitlines()) == 1
     panel = json.loads(raw)
     assert panel == {
-        "schema_version": 2, "project": True, "enabled": True,
-        "model": "gpt-6-luna", "models": ["gpt-6.1-sol", "gpt-6-luna", "gpt-6-astra", "custom-model"],
-        "effort": "high", "efforts": config.model_efforts("gpt-6-luna"), "fast": False,
-        "fast_models": ["gpt-6.1-sol", "gpt-6-luna", "gpt-6-astra"],
-        "model_names": {"gpt-6.1-sol": "GPT-6.1-Sol", "gpt-6-luna": "GPT-6-Luna",
-                        "gpt-6-astra": "GPT-6-Astra", "custom-model": "custom-model"},
+        "schema_version": 2, "version": cli.VERSION, "project": True, "enabled": True,
+        "model": "gpt-6-luna", "models": ["gpt-6.1-sol", "gpt-6-luna", "custom-model"],
+        "unavailable": ["custom-model"],
+        "effort": "high", "efforts": ["high", "xhigh", "max"], "recommended_effort": "high", "fast": False,
+        "fast_models": ["gpt-6.1-sol", "gpt-6-luna"],
+        "model_names": {"gpt-6.1-sol": "GPT-6.1-Sol", "gpt-6-luna": "GPT-6-Luna", "custom-model": "custom-model"},
         "compact": 250000, "compacts": [250000, 262144, 400000, 600000, 800000],
+        "max_compact": config.max_compact("gpt-6-luna"),
         "context_ratio": 0.6, "switch_at": 150000,
         "handoff": {"mode": "write", "tokens": 200000, "dir": "fusion/handoffs", "modes": ["clear", "write", "off"]},
         "warnings": [],
@@ -35,7 +36,7 @@ def test_panel_emits_only_panel_fields_and_current_settings(proj, capsys):
 def test_panel_reports_project_not_initialized(proj, capsys):
     (proj.root / "fusion" / "config.json").unlink()
     assert cli.main(["--project", str(proj.root), "config", "panel"]) == 0
-    assert capsys.readouterr().out == '{"schema_version": 2, "project": false}\n'
+    assert json.loads(capsys.readouterr().out) == {"schema_version": 2, "version": cli.VERSION, "project": False}
 
 
 def test_config_enabled_only_changes_switch_and_initializes_on_artifacts(proj, capsys):
@@ -185,3 +186,22 @@ def test_lead_usage_rejects_unknown_at_value(proj, monkeypatch, capsys):
     assert cli.main(["--project", str(proj.root), "lead-usage", "--at", "revise", "-"]) == 1
     assert "must be explore or accept" in capsys.readouterr().err
 
+
+
+def test_panel_policy_hides_astra_and_raises_a_low_luna_effort(proj, capsys):
+    local = config.load(proj.root)["local"]
+    local["sidekick"]["models"]["gpt-6-luna"]["effort"] = "medium"  # stored before the policy
+    config.save_local(proj.root, local)
+
+    assert cli.main(["--project", str(proj.root), "config", "panel"]) == 0
+    panel = json.loads(capsys.readouterr().out)
+    assert "gpt-6-astra" not in panel["models"]
+    assert panel["effort"] == "high" and panel["efforts"][0] == "high"
+
+    # Chosen earlier through /fusion: still listed, as unavailable
+    assert cli.main(["--project", str(proj.root), "config", "model", "gpt-6-astra"]) == 0
+    capsys.readouterr()
+    assert cli.main(["--project", str(proj.root), "config", "panel"]) == 0
+    panel = json.loads(capsys.readouterr().out)
+    assert panel["model"] == "gpt-6-astra" and panel["unavailable"] == ["gpt-6-astra"]
+    assert panel["recommended_effort"] is None

@@ -43,7 +43,8 @@ def test_panel_uses_cache_priority_capabilities_and_visibility(proj, capsys):
 
     assert main(["--project", str(proj.root), "config", "panel"]) == 0
     panel = json.loads(capsys.readouterr().out)
-    assert panel["models"][:3] == ["gpt-6.1-sol", "gpt-6-luna", "gpt-6-astra"]
+    assert panel["models"][:2] == ["gpt-6.1-sol", "gpt-6-luna"]
+    assert "gpt-6-astra" not in panel["models"]  # never offered as the sidekick (Lily, 2026-11-16)
     assert "gpt-reserve" not in panel["models"]
     assert panel["model_names"]["gpt-6.1-sol"] == "GPT-6.1-Sol"
     assert {"gpt-6.1-sol", "gpt-6-luna"}.issubset(panel["fast_models"])

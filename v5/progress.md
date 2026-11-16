@@ -278,3 +278,20 @@
 - Codex:输入 3.96M(缓存 3.81M)、输出 0.03M;luna high、Fast 开
 - 全量测试 219 个通过,lint 通过;包 `v5/dist/lyfusion-plugin-5.0.0-rc.3.zip`(过了 2.1.325 的 `claude plugin validate`);本地标签 `v5.0.0-rc.3`,没推送
 - 没做(留给下一版):助手在 Windows 沙箱里跑 pytest 写系统临时目录会报 PermissionError(C5、C6、T19 都有,每次都进"和 brief 不同"),可以考虑引擎给 Codex 设项目内、git 忽略的 TEMP
+
+## v5.0.0-rc.4(2026-11-16,Fusion 卡片 + 版本不一致提示)
+> "lyfusion 会话"派的任务:按概念图方案 1 重做 Fusion 面板,并修"上传新包后面板还是旧的"。前端 lead 自己写(不派给 luna);引擎改动小,也是 lead 直接改(A 档),这次没有 Fusion 任务、没用 Codex。
+- 预览:用热加载的临时 mod(`lyfusion-preview`,放在 dev-mods,用完删)出了 5 版,Lily 每版截图反馈。定下来的样子:
+  - 卡片放在桌面端的 **widget 小窗**(`placement: 'widget'`,透明背景),铺满小窗、跟着小窗大小变;不带自己的边框(Plain);行距 `xs`
+  - 开关只有开关图:Svg 画开关,上面盖一个不画东西的 Client(`hooks/hit.tsx`)收点击;没有旁边的按钮,"Fusion" 下面没有小字
+  - Sidekick、Reasoning effort、Context limit 做成和桌面端模型选择器一样的行(右边 `›`),点开在同一张卡里原地换成列表(顶行 `‹ 标题` 返回);每个列表顶部一行短说明,位置统一,说明里不写 Codex;每行是一个 Client(`hooks/row.tsx`),悬停变灰、选中打勾
+  - Context limit 列表:原有档位 + 一直在下面的自定义输入框(单位 k,超过模型上限报错)
+  - Fast mode 开关(不支持时写 Not supported)、Lead handoff 分段按钮 Clear/Write/Off、底部一行本会话 lead 调用数和请求数;界面文字全英文、颜色用主题色名(开关图只能写死颜色)
+  - 其他界面(终端等)还是原来那种 Select 面板
+- Lily 的 sidekick 规定(引擎里做,`/fusion` 也遵守):不提供 gpt-6-astra;gpt-6-luna 的 effort 最低 high,High 带灰字 "Recommended"(luna 的 low/medium 性能不够做 sidekick);存着更低的值时按 high 用
+- 版本不一致:`config panel` 带上引擎版本,mod 和自己的 `MOD_VERSION` 比;不一致时卡片只显示 "lyfusion was updated (旧 → 新). Start a new session to load it.",弹一次提示,不用旧逻辑改任何设置(lead 用量也不记)
+  - 只从 rc.4 起有效:rc.3 及更早的会话里的 mod 没有这个检查,上传 rc.4 后旧会话不会显示这句
+  - 不开新会话能不能换上新 mod(查了 2.1.325 的 mod 文档,没实测):上传的插件跑的是桌面端自己保存的那份,`/reload-plugins` 会重读那个位置,所以上传新包后在旧会话里打 `/reload-plugins` **可以试**;userConfig 改设置只会用同一份代码重跑,换不了版本。没把这件事做死在 mod 里
+- mod 测试:新加 `plugin/tests/fusion-card.test.tsx`(假引擎,`claude plugin test plugin`,4 个通过,不打进包);引擎全量测试 220 个通过,lint 通过;`claude plugin validate` 通过
+- 版本 `5.0.0-rc.4`(五处:多了 `hooks/register.tsx` 的 `MOD_VERSION` + decisions 第 6 条);包 `v5/dist/lyfusion-plugin-5.0.0-rc.4.zip`;本地标签 `v5.0.0-rc.4`,没推送
+- 等 Lily:上传 rc.4 包、新开会话,截深色和浅色的卡片图;旧会话里试一下 `/reload-plugins`

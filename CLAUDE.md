@@ -13,17 +13,18 @@ lyfusion is the Claude Code plugin `lyfusion-plugin`: Claude is the lead and Cod
 
 ## Fusion bar mod
 
-- Registers `session.start` and `classic.CwdChanged` to refresh project state; `turn.complete` refreshes settings; `prompt.submit` adds the changed on/off note; `tool.call` counts lead calls and records explore/accept usage; `turn.step` counts lead requests; `ui.render` adds `SessionMode` and `AbovePrompt` slots.
+- Registers `session.start` and `classic.CwdChanged` to refresh project state; `turn.complete` refreshes settings; `prompt.submit` adds the changed on/off note; `tool.call` counts lead calls and records explore/accept usage; `turn.step` counts lead requests; `ui.render` draws the `SessionMode` button and the `Pane` `fusion` (the Fusion card: a desktop widget pane, `placement: 'widget'`, transparent; other surfaces get a panel of Selects); `ui.message` takes the clicks the card's Clients post (`hooks/row.tsx` rows, `hooks/hit.tsx` over each switch picture). The card compares the engine's `version` in `config panel` with `MOD_VERSION`; on a mismatch it shows one line, toasts once and changes nothing.
 - Proven APIs: `$.session.usage()`, `$.process.run`, `$.fs.stat`, plugin `atom`/`read`/`update`, `$.ui.toast`/`log`/`invalidate`, and `ui.render` slots. `turn.step` must be an `async function*` and pass through with `return yield* next(e)`.
 - Usage snapshots match only a literal `fusion-core.py explore` or `fusion-core.py accept` in the Bash command. Write the full engine path; shell variables and aliases are not recognized.
 - A mod loads only in sessions started after the plugin is uploaded. Packaging runs `claude plugin validate` before creating the archive.
+- Mod tests: `claude plugin test plugin` (`plugin/tests/`, a faked engine; not packaged).
 
 ## Developing
 
 - Tests: `cd plugin/core && python -m pytest -q tests -n 6 --basetemp=tests/_pytest_tmp`.
 - Lint: run the `lint` command in `fusion/config.json`.
 - Package: `python v5/build_plugin.py --claude <path to the newest claude.exe>`; this runs `claude plugin validate` first.
-- Version string locations: `plugin/.claude-plugin/plugin.json`, `plugin/core/fusion_core/__init__.py`, `plugin/README.md`, and `plugin/core/tests/test_shape.py`.
+- Version string locations: `plugin/.claude-plugin/plugin.json`, `plugin/core/fusion_core/__init__.py`, `plugin/README.md`, `plugin/core/tests/test_shape.py`, and `MOD_VERSION` in `plugin/hooks/register.tsx`.
 - Text models read is English; process documentation Lily reads stays Chinese.
 
 ## Pitfalls and methods

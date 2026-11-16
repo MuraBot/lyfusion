@@ -25,7 +25,7 @@ def test_effort_and_fast_are_isolated_by_model(proj, capsys):
         assert main(["--project", str(proj.root), "config", *args]) == 0
         return json.loads(capsys.readouterr().out)
 
-    command("effort", "low")
+    command("effort", "xhigh")
     command("fast", "on")
     command("model", "gpt-6-astra")
     command("fast", "on")
@@ -35,11 +35,11 @@ def test_effort_and_fast_are_isolated_by_model(proj, capsys):
     assert "haiku-5.5 does not support Fast Mode" in capsys.readouterr().err
     assert (proj.root / "fusion" / "local.json").read_bytes() == before
     changed = json.loads(before)
-    assert changed["sidekick"]["models"]["gpt-6-luna"] == {"effort": "low", "fast": True}
+    assert changed["sidekick"]["models"]["gpt-6-luna"] == {"effort": "xhigh", "fast": True}
     assert changed["sidekick"]["models"]["gpt-6-astra"] == {"fast": True}
     switched = command("model", "gpt-6-luna")
     assert config.current_model_settings(switched["local"]["sidekick"]) == {
-        "effort": "low", "fast": True, "compact": config.DEFAULT_COMPACT,
+        "effort": "xhigh", "fast": True, "compact": config.DEFAULT_COMPACT,
     }
 
 
@@ -323,13 +323,16 @@ def test_station_reuses_worktree_when_new_scope_is_in_a_different_area(proj):
 
 
 def test_model_capabilities_and_effort_validation(proj, capsys):
-    assert config.model_efforts("gpt-6-luna") == ["low", "medium", "high", "xhigh", "max"]
+    # Lily's sidekick policy: GPT-6-Luna starts at high, and high is the recommended effort
+    assert config.model_efforts("gpt-6-luna") == ["high", "xhigh", "max"]
+    assert config.recommended_effort("gpt-6-luna") == "high"
+    assert config.recommended_effort("gpt-6.1-sol") is None
     assert config.model_efforts("gpt-6-astra")[-1] == "ultra"
     assert config.model_efforts("unknown") == config.DEFAULT_EFFORTS
     assert not config.supports_fast("unknown") and config.max_compact("unknown") is None
     assert config.current_model_settings({"model": "unknown", "models": {"unknown": {"fast": True}}})["fast"] is False
 
-    for model, effort, expected in (("gpt-6-luna", "max", 0), ("gpt-6-luna", "ultra", 1),
+    for model, effort, expected in (("gpt-6-luna", "max", 0), ("gpt-6-luna", "ultra", 1), ("gpt-6-luna", "medium", 1),
                                     ("gpt-6-astra", "ultra", 0), ("unknown", "max", 1)):
         assert main(["--project", str(proj.root), "config", "model", model]) == 0
         capsys.readouterr()

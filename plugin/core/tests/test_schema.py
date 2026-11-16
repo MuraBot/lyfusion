@@ -94,7 +94,7 @@ def test_aq2_files_read_without_rewrite_then_write_adds_version(tmp_path):
     assert (root / "fusion" / "config.json").read_bytes() == config_before
     assert (root / "fusion" / "local.json").read_bytes() == local_before
 
-    result = cli(root, "config", "effort", "low")
+    result = cli(root, "config", "effort", "max")
     assert result.returncode == 0, result.stderr
     assert json.loads((root / "fusion" / "local.json").read_text(encoding="utf-8"))["schema_version"] == 2
     result = cli(root, "config", "set", '{"config":{"test":"echo changed"}}')

@@ -831,7 +831,7 @@ def main(argv=None) -> int:
                 print("Fusion is disabled (data is retained; run on to enable it again).")
         elif args.cmd == "config":
             if args.action == "panel" and not config_mod.is_fusion_project(root):
-                print(json.dumps({"schema_version": SCHEMA, "project": False}, ensure_ascii=False))
+                print(json.dumps({"schema_version": SCHEMA, "version": VERSION, "project": False}, ensure_ascii=False))
                 return 0
             if args.action == "enabled":
                 if args.json not in ("on", "off"):
@@ -848,6 +848,7 @@ def main(argv=None) -> int:
                 model = sidekick.get("model", config_mod.DEFAULT_LOCAL["sidekick"]["model"])
                 model_settings = sidekick.get("models", {})
                 models = config_mod.known_models()
+                listed = set(models)
                 if isinstance(model_settings, dict):
                     models.extend(name for name in model_settings
                                   if isinstance(name, str) and not config_mod.is_hidden_model(name))
@@ -859,17 +860,21 @@ def main(argv=None) -> int:
                 effective = config_mod.effective_settings(cfg)
                 panel = {
                     "schema_version": SCHEMA,
+                    "version": VERSION,  # the Fusion bar mod compares it with its own build to spot a stale session
                     "project": True,
                     "enabled": bool(local.get("enabled", False)),
                     "model": model,
                     "models": models,
+                    "unavailable": [name for name in models if name not in listed],  # not in Codex's model list
                     "effort": current["effort"],
                     "efforts": config_mod.model_efforts(model),
+                    "recommended_effort": config_mod.recommended_effort(model),
                     "fast": current["fast"],
                     "fast_models": [name for name in models if config_mod.supports_fast(name)],
                     "model_names": {name: config_mod.model_info(name)["name"] for name in models},
                     "compact": current["compact"],
                     "compacts": compact_choices,
+                    "max_compact": config_mod.max_compact(model),
                     "context_ratio": effective["context_ratio"],
                     "switch_at": effective["switch_at"],
                     "handoff": config_mod.handoff_settings(cfg) | {"modes": config_mod.HANDOFF_MODES},
