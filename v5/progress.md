@@ -206,3 +206,7 @@
 - 修改 1 轮(旧测试那项还列在 Checks 里、Full pack 路径自己拼);lead 用 sed 看了 2 次新代码(审查包没附 diff)
 - 额度:T12 验收后 5 小时 80%、每周 34%;lead 上下文 18.5 万 → 写交接 02
 
+### T13 任务 13 `accept --minor-fix`(accepted,`cf36fc7`;B 档，没有探索,accept 流程用 T12 探索包的 Q3)
+- 助手在同一线程照一句话改;supervisor 判护栏(只改本任务改过的文件、≤20 行、检查全绿、没违规、报告 done),过了自己发 `accept_requested`,没过留在审查、算一轮修改;合并后打印 `## Minor fix diff`;LEAD_GUIDE 第 4 步加一行
+- 修改 1 轮:`wait` 命令被加了 `keep_waiting=True`,等于关掉 9 分钟先返回(为了让慢测试过);改回来并加回归测试
+- 台账第一次有 lead 调用数:10 次工具 / 9 次请求(从 T12 accept 到 T13 accept),本任务 lead $0.74
