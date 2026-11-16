@@ -195,3 +195,14 @@
 - `claude plugin validate` 拦下一处:`turn.step` 是流式事件,钩子必须是 `async function*` 加 `return yield* next(e)`
 - 顺手修:`v5/build_plugin.py` 打印 validate 输出时 GBK 编码报错(stdout、stderr 改 UTF-8)
 - 中间包版本 `5.0.0-rc.1.1`(semver 排在 rc.1 之后、rc.2 之前;不覆盖 rc.1 的回退包),不打标签:`v5/dist/lyfusion-plugin-5.0.0-rc.1.1.zip`
+- 验证(第 2 段开工):装好的引擎是 5.0.0-rc.1.1,`--help` 有 `wait`;探索包直接打到 stdout;mod 的 accept 快照能记到(T12),explore 快照没记到是 lead 用了 `$E` 变量写路径(反馈第 30 条)。开始时额度 5 小时 72%、每周 33%
+
+### T11 任务 10、11、12、14 + 17 的 LEAD_GUIDE 部分(accepted,`34fa1d1`;C 档)
+- 英文 LEAD_GUIDE(A/B/C 三档、brief 短清单、交接档位行)、`handoff_mode`/`handoff_tokens`(local.json)、`handoff_dir`(config.json,本仓库设成 `v5/rc2-handoffs`)、SessionStart 在 clear/compact 后指向最新交接、accept 过阈值提醒写交接、探索包末尾"Draft (mechanical only)";面板下拉框 lead 写(`10ae5e5`)
+- 修改 0 轮;accept 要 `--waive`(旧测试断言是 brief 要改的旧措辞,装的还是旧引擎);问题:等待时长读数多 480 分钟(反馈第 31 条)
+### T12 任务 6 + 17 的审查包部分(accepted,`2acd5ac`;C 档)
+- 报告加 `brief_check`(助手在同一轮里自查,不加额外的 Codex 运行);审查包改英文,"和 brief 不同"放最前、引擎扫描(scope 外文件、公共签名、TODO)、测试断言原文、`-W` 函数上下文 diff、机械改动折叠;"旧测试跑新代码"不再算违规;删工位路径行、"自动修复 0 次";stdout 超长时指向任务目录里那份
+- lead 定:低风险时不只给摘要,diff 放得下就照附(小 diff 便宜,大 diff 本来就不算低风险)
+- 修改 1 轮(旧测试那项还列在 Checks 里、Full pack 路径自己拼);lead 用 sed 看了 2 次新代码(审查包没附 diff)
+- 额度:T12 验收后 5 小时 80%、每周 34%;lead 上下文 18.5 万 → 写交接 02
+
