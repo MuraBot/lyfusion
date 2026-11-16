@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 from .config import current_model_settings
@@ -107,8 +108,8 @@ def launch(cfg: dict, station: dict, run_dir: Path, prompt: str, sandbox: str, r
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
     args = build_args(cfg, station, run_dir, sandbox, resume_thread, schema, ephemeral)
-    (run_dir / "args.json").write_text(json.dumps(args, ensure_ascii=False, indent=1), encoding="utf-8")
     cmd = find_codex(cfg) + args
+    (run_dir / "args.json").write_text(json.dumps(cmd, ensure_ascii=False, indent=1), encoding="utf-8")
     env = clean_env(cfg["local"].get("env"))
     return spawn_detached(cmd, cwd=str(station["worktree"]), env=env, stdin_path=run_dir / "prompt.txt",
                           stdout_path=run_dir / "events.jsonl", stderr_path=run_dir / "stderr.log")
@@ -127,9 +128,27 @@ def read_events(run_dir: Path) -> list[dict]:
             try:
                 out.append(json.loads(line))
             except json.JSONDecodeError:
-                pass  # 半行:进程还在写
+                pass  # A partial line may still be written by the process.
+    stamp_path = run_dir / "event-stamps.jsonl"
+    stamps = []
+    if stamp_path.exists():
+        with stamp_path.open(encoding="utf-8") as stream:
+            for line in stream:
+                try:
+                    stamps.append(float(line.strip()))
+                except ValueError:
+                    continue
+    if len(stamps) > len(out):
+        stamps = stamps[:len(out)]
+    if len(stamps) < len(out):
+        with stamp_path.open("a", encoding="utf-8") as stream:
+            for _ in range(len(out) - len(stamps)):
+                stamp = time.time()
+                stamps.append(stamp)
+                stream.write(f"{stamp:.6f}\n")
+    for event, stamp in zip(out, stamps):
+        event["_fusion_read_at"] = stamp
     return out
-
 
 def thread_id(events: list[dict]) -> str | None:
     for e in events:

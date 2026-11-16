@@ -12,7 +12,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import SCHEMA, VERSION, aq, store, views
+from . import SCHEMA, VERSION, aq, codex, runstats, store, views
 from . import config as config_mod
 from .commands import Ctx, cmd_accept, cmd_cancel, cmd_delegate, cmd_explore, cmd_revise
 from .state import active_task, replay
@@ -103,8 +103,10 @@ def _run_elapsed_minutes(run) -> float:
     try:
         parsed = datetime.fromisoformat(started.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return max(0.0, (datetime.now(timezone.utc) - parsed).total_seconds() / 60)
+            now = datetime.now()
+        else:
+            now = datetime.now(timezone.utc)
+        return max(0.0, (now - parsed).total_seconds() / 60)
     except ValueError:
         return 0.0
 
@@ -135,11 +137,17 @@ def _wait(root: Path, task_id: str, *, explore: bool = False) -> dict:
                     and task.get("state") in ("exploring", "running", "integrating")):
                 current_run = active_run or state.get("runs", {}).get((task.get("runs") or [None])[-1]) or {}
                 run_id = current_run.get("id", "-")
+                stats = runstats.summarize(
+                    codex.read_events(Path(current_run["dir"])), project_config
+                ) if current_run.get("dir") else {"commands": 0, "small_reads": 0, "repeats": 0, "recent": []}
+                last = re.sub(r"^(?:\[[^]]+\])*", "", stats["recent"][-1].split("(", 1)[0]) if stats["recent"] else "-"
                 print(
-                    f"助手还在做({task_id} · {run_id},这次等了 {elapsed_wait:.1f} 分钟,"
-                    f"这一轮共 {_run_elapsed_minutes(current_run):.1f} 分钟)。助手不受影响。"
+                    f"Sidekick still working ({task_id} / {run_id}): waited {elapsed_wait:.1f} min this time, "
+                    f"{_run_elapsed_minutes(current_run):.1f} min this run; {stats['commands']} commands, "
+                    f"{stats['small_reads']} small reads, {stats['repeats']} repeats; last command: {last[:120]}. "
+                    "The sidekick is not affected."
                 )
-                print(f"接着等: {CMD} wait --task {task_id}")
+                print(f"Keep waiting: {CMD} wait --task {task_id}")
                 raise FusionError(_WAIT_TIMEOUT, code=3)
             new_signals = task.get("signals", [])[signal_count:]
             signal_count = len(task.get("signals", []))
@@ -163,21 +171,6 @@ def _wait(root: Path, task_id: str, *, explore: bool = False) -> dict:
                 if signal["kind"] == "stalled":
                     raise FusionError(
                         f"{signal['detail']}\n请再运行同一条命令继续等,或运行 {CMD} cancel --task {task_id}",
-                        code=2,
-                    )
-                if signal["kind"] == "watch":
-                    run = state.get("runs", {}).get(signal.get("run")) or {}
-                    if run.get("kind") == "changes":
-                        continue_text = f"用同样的修改意见再运行一次 {CMD} revise -"
-                    elif run.get("kind") == "explore":
-                        continue_text = f"继续等: {CMD} explore -"
-                    else:
-                        continue_text = f"继续等: {CMD} delegate -"
-                    raise FusionError(
-                        f"{signal['detail']}\n{continue_text}\n"
-                        f"改方向: {CMD} revise - <<'EOF'\n修改意见\nEOF\n"
-                        "(停下这一轮,同一会话里按意见接着做,算一轮修改)\n"
-                        f"放弃: {CMD} cancel --task {task_id}",
                         code=2,
                     )
             time.sleep(0.2)
@@ -205,10 +198,8 @@ def _existing_run(root: Path, kinds: tuple[str, ...]):
 
 def _write_review(root, task, state, filename, round_no):
     text = aq.review_pack(root, task, state, round_no)
-    path = root / "fusion" / "review.md"
-    path.write_text(text, encoding="utf-8")
     history_path = aq.save_history(root, task["id"], filename, text)
-    return path, history_path.relative_to(root).as_posix()
+    return history_path, history_path.relative_to(root).as_posix()
 
 
 def _review_text(root, path, task, state, round_no):
@@ -234,17 +225,16 @@ def _write_explore(root, tid, state, original: str | None, continued: bool = Fal
     station = state["runs"][run].get("station")
     session = (state["stations"].get(station) or {}).get("thread") or "(未绑定)"
     artifact = f"任务编号:{tid}\n助手会话编号:{session}\n\n# 探索结果\n\n## lead 的原文\n{original.rstrip()}\n\n## 助手回答\n{answer.rstrip()}\n"
-    path = root / "fusion" / "explore.md"
-    path.write_text(artifact, encoding="utf-8")
-    aq.save_history(root, tid, "explore.md", artifact)
+    path = aq.save_history(root, tid, "explore.md", artifact)
+    relative_path = path.relative_to(root).as_posix()
     print(
-        f"结果: fusion/explore.md\n任务: {tid}\n会话: {session}\n探索包: {len(artifact.splitlines())} 行"
+        f"Result: {relative_path}\nTask: {tid}\nSession: {session}\nExplore pack: {len(artifact.splitlines())} lines"
     )
     if continued:
-        print("已有运行在进行,接着等它;这次的输入没有用")
+        print("A run was already in progress; this input was not used.")
     print()
-    print(_limit_text(artifact, STDOUT_CHARS, "(后面的在 fusion/explore.md)"))
-    print(f"下一步: {CMD} delegate -(计划用 Markdown,heredoc 传)")
+    print(_limit_text(artifact, STDOUT_CHARS, f"(Full result: {relative_path})"))
+    print(f"Next: {CMD} delegate - (plan as Markdown via heredoc)")
 
 
 def _limit_text(text: str, limit: int, suffix: str) -> str:
@@ -276,7 +266,7 @@ def _print_review(path, pack_path: str, summary: str, text: str) -> None:
 
 
 def _do_explore(args, root):
-    existing = _existing_run(root, ("explore", "implement", "changes", "fix", "report"))
+    existing = _existing_run(root, ("explore", "implement", "changes", "fix", "report", "continue"))
     if existing:
         tid, is_explore, _kind = existing
         state = _wait(root, tid, explore=is_explore)
@@ -302,7 +292,7 @@ def _do_explore(args, root):
 
 
 def _do_delegate(args, root):
-    existing = _existing_run(root, ("explore", "implement", "changes", "fix", "report"))
+    existing = _existing_run(root, ("explore", "implement", "changes", "fix", "report", "continue"))
     if existing:
         tid, is_explore, _kind = existing
         state = _wait(root, tid, explore=is_explore)
@@ -346,7 +336,7 @@ def _do_delegate(args, root):
 
 
 def _do_revise(args, root):
-    existing = _existing_run(root, ("explore", "implement", "changes", "fix", "report"))
+    existing = _existing_run(root, ("explore", "implement", "changes", "fix", "report", "continue"))
     if existing:
         tid, is_explore, kind = existing
         if is_explore:
@@ -431,8 +421,9 @@ def _do_wait(args, root):
         return
     if not run or run.get("status") not in ("requested", "started"):
         status = views.STATE_CN.get(task["state"], task["state"])
-        result = "explore.md" if task["state"] == "explored" else "review.md"
-        print(f"没有要等的:{task['id']} · {status};结果在 fusion/{result}")
+        result = (f"fusion/tasks/{task['id']}/explore.md" if task["state"] == "explored"
+                  else f"fusion/tasks/{task['id']}/review-{task['change_rounds'] + 1}.md")
+        print(f"No run to wait for ({task['id']}): {status}; result: {result}")
         return
     tid = task["id"]
     is_explore = run["kind"] == "explore"

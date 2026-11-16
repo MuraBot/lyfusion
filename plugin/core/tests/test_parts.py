@@ -83,7 +83,7 @@ def test_station_rotates_on_model_change_with_handoff(proj):
 
 def test_resume_failure_retires_station(proj):
     setup_task(proj)
-    q = {"text": "要不要中文?"}
+    q = {"text": "要不要中文?", "blocking": True}
     proj.script([{"report": report(status="blocked", questions=[q])}, {"resume_fails": True}, GOOD])
     proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
@@ -182,7 +182,7 @@ def test_hook_process_outputs_json(proj):
 
 def test_questions_visible_in_ledger(proj):
     setup_task(proj)
-    q = {"text": "要不要中文?"}
+    q = {"text": "要不要中文?", "blocking": True}
     proj.script([{"report": report(status="blocked", questions=[q])}, GOOD])
     proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()

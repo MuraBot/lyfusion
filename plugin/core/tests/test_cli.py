@@ -193,12 +193,15 @@ def test_explore_stdin_utf8_writes_artifacts(proj):
     assert "任务原话：修改问候。" in artifact and "代码在 app/greet.py。" in artifact
     assert artifact.splitlines()[0] == "任务编号:T1"
     assert artifact.splitlines()[1].startswith("助手会话编号:")
-    assert (proj.root / "fusion/explore.md").read_text(encoding="utf-8") == artifact
-    assert p.stdout.decode("utf-8").splitlines()[0] == "结果: fusion/explore.md"
-    assert "计划用 Markdown" in p.stdout.decode("utf-8")
+    assert not (proj.root / "fusion/explore.md").exists()
+    assert not (proj.root / "fusion/review.md").exists()
+    assert p.stdout.decode("utf-8").splitlines()[0] == "Result: fusion/tasks/T1/explore.md"
+    assert "plan as Markdown" in p.stdout.decode("utf-8")
     stdout = p.stdout.decode("utf-8")
     assert "## 助手回答" in stdout and "代码在 app/greet.py。" in stdout
-    assert stdout.count("下一步:") == 1
+    assert stdout.count("Next:") == 1
+    gitignore = (proj.root / "fusion/.gitignore").read_text(encoding="utf-8")
+    assert "explore.md" not in gitignore and "review.md" not in gitignore
 
 
 def test_wait_limit_releases_lease_and_resumes_explore_and_delegate(proj):
@@ -211,7 +214,7 @@ def test_wait_limit_releases_lease_and_resumes_explore_and_delegate(proj):
     p = cli(proj, "explore", "-", input_text="任务原话")
     assert p.returncode == 3
     output = p.stdout.decode("utf-8")
-    assert "助手还在做" in output and 'fusion-core.py" wait' in output
+    assert "Sidekick still working" in output and 'fusion-core.py" wait' in output
     assert "下一步:" not in output
     conn = store.connect(proj.root)
     try:
@@ -224,13 +227,14 @@ def test_wait_limit_releases_lease_and_resumes_explore_and_delegate(proj):
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
     output = p.stdout.decode("utf-8")
     assert "延迟后的探索结论" in output and "## 助手回答" in output
-    assert (proj.root / "fusion/explore.md").exists()
-    assert output.count("下一步:") == 1
+    assert (proj.root / "fusion/tasks/T1/explore.md").exists()
+    assert not (proj.root / "fusion/explore.md").exists()
+    assert output.count("Next:") == 1
 
     plan = {"goal": "加模块", "brief": "改代码", "scope": ["app/**"]}
     p = cli(proj, "delegate", "-", input_text=json.dumps(plan, ensure_ascii=False))
     assert p.returncode == 3
-    assert "助手还在做" in p.stdout.decode("utf-8")
+    assert "Sidekick still working" in p.stdout.decode("utf-8")
     p = cli(proj, "wait", "--task", "T1")
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
     output = p.stdout.decode("utf-8")
@@ -285,7 +289,7 @@ def test_old_test_failure_is_not_counted_or_shown_as_check(proj):
     assert candidate["checks"]["passed"]
     old_test = next(row for row in candidate["checks"]["results"] if row.get("restored") is not None)
     assert not old_test["passed"]
-    review = (proj.root / "fusion/review.md").read_text(encoding="utf-8")
+    review = (proj.root / "fusion/tasks/T1/review-1.md").read_text(encoding="utf-8")
     checks = review.split("## Checks\n", 1)[1].split("\n## ", 1)[0]
     assert "Old tests on new code" not in checks and "FAIL" not in checks
     assert "Old test failed on new code: tests/test_greet.py::test_hello" in review
@@ -336,7 +340,7 @@ def test_delegate_four_field_plan_and_resumes_explore(proj):
     plan = {"goal": "加模块", "brief": "## 目标\n加 app/new.py", "scope": ["app/**"]}
     p = cli(proj, "delegate", "-", input_text=json.dumps(plan, ensure_ascii=False))
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
-    assert (proj.root / "fusion/review.md").exists()
+    assert (proj.root / "fusion/tasks/T1/review-1.md").exists()
     calls = proj.calls()
     assert calls[0]["resume"] is False and calls[1]["resume"] is True
     assert "fusion/decisions.md 全文" in calls[1]["prompt"]
@@ -468,12 +472,13 @@ def test_review_pack_sections_scope_and_stdout(proj):
         {"goal": "add module", "brief": "change code", "scope": ["app/**"]}
     ))
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
-    text = (proj.root / "fusion/review.md").read_text(encoding="utf-8")
+    text = (proj.root / "fusion/tasks/T1/review-1.md").read_text(encoding="utf-8")
     headings = [line for line in text.splitlines() if line.startswith("## ")]
     assert headings == ["## Checks", "## Engine scan", "## Sidekick", "## Changes"]
     assert "outside.txt" in text and "Out of scope: outside.txt" in text
     assert "Choice: value 2 (why: matches the existing value)" in text
     stdout = p.stdout.decode("utf-8")
+    assert "fusion/tasks/T1/review-1.md" in stdout
     assert "## Checks" in stdout and "## Sidekick" in stdout
     assert "```diff" in stdout and stdout.count("Next:") == 1
     assert "Diff omitted" not in text and "workstation path" not in text
@@ -491,7 +496,7 @@ def test_review_omits_violation_section_and_large_diff(proj):
         ),
     )
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
-    text = (proj.root / "fusion/review.md").read_text(encoding="utf-8")
+    text = (proj.root / "fusion/tasks/T1/review-1.md").read_text(encoding="utf-8")
     assert "## 违规" not in text
     assert "```diff" not in text and "app/new.py" in text
     assert "Diff omitted (" in text and "git diff " in text
@@ -510,7 +515,7 @@ def test_existing_exploration_is_resumed_and_new_input_ignored(proj):
     proj.sup.tick()
     p = cli(proj, "explore", "-", input_text="不应使用的新输入")
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
-    assert "已有运行在进行,接着等它;这次的输入没有用" in p.stdout.decode("utf-8")
+    assert "A run was already in progress; this input was not used." in p.stdout.decode("utf-8")
     assert len(proj.calls()) == 1
     artifact = (proj.root / "fusion" / "tasks" / out["task"] / "explore.md").read_text(
         encoding="utf-8"
@@ -559,7 +564,7 @@ def test_delegate_returns_review_when_autofixes_fail(proj):
     }
     p = cli(proj, "delegate", "-", input_text=json.dumps(plan, ensure_ascii=False))
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
-    review = (proj.root / "fusion/review.md").read_text(encoding="utf-8")
+    review = (proj.root / "fusion/tasks/T1/review-1.md").read_text(encoding="utf-8")
     assert "FAIL (exit 1)" in review
 
 
@@ -578,7 +583,7 @@ def test_review_numstat_marks_out_of_scope_test_path(proj):
     plan = {"goal": "添加模块", "brief": "新增文件", "scope": ["app/**"]}
     p = cli(proj, "delegate", "-", input_text=json.dumps(plan, ensure_ascii=False))
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
-    review = (proj.root / "fusion/review.md").read_text(encoding="utf-8")
+    review = (proj.root / "fusion/tasks/T1/review-1.md").read_text(encoding="utf-8")
     assert "- tests/new_test.py +1 -0 (out of scope)" in review
     assert "files changed" not in review
 

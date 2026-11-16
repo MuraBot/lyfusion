@@ -75,8 +75,9 @@ def main():
     for path in step.get("delete") or []:
         Path(path).unlink(missing_ok=True)
     for i, c in enumerate(step.get("commands") or []):
-        emit({"type": "item.completed", "item": {"id": f"c{i}", "type": "command_execution",
-                                                 "command": c["command"], "exit_code": c.get("exit", 0),
+        command_item = {"id": f"c{i}", "type": "command_execution", "command": c["command"]}
+        emit({"type": "item.started", "item": command_item})
+        emit({"type": "item.completed", "item": {**command_item, "exit_code": c.get("exit", 0),
                                                  "aggregated_output": c.get("output", "")}})
     text = step.get("text")
     if text is None:

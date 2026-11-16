@@ -28,6 +28,11 @@ def model_notes(root, model: str) -> dict[str, str]:
     return {key: "\n".join(value) for key, value in result.items()}
 
 REPORT_REMINDER = "Return only the final JSON report with status, summary, questions, choices, problems and brief_check; status is done or blocked."
+CONTINUE_PROMPT = ("You reported blocked but listed no blocking question. If nothing blocks you, continue and finish the brief. "
+                   "If something does block you, report blocked again with a question marked blocking that says what you need from the lead.")
+
+def continue_prompt() -> str:
+    return CONTINUE_PROMPT + "\n" + REPORT_REMINDER
 # 续用同一个会话时(自动修、修改意见、补报告)只重申的短规则;完整的做法在 WORK_RULES,派工时发一次
 FIXED_RULES = """固定规则:
 - 一口气做完本次任务。

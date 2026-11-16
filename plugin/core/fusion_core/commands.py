@@ -52,12 +52,6 @@ def _new_task(ctx: Ctx, plan: dict | None, initial_state: str) -> str:
     return tid
 
 
-def _placeholder(root: Path, name: str, task: str, round_no: int) -> None:
-    path = root / "fusion" / name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"# {task} 第 {round_no} 轮:助手还在做,结果出来后覆盖这个文件\n", encoding="utf-8")
-
-
 def current_task(state: dict, task_id: str | None = None) -> dict:
     if task_id:
         return _task(state, task_id)
@@ -84,7 +78,6 @@ def cmd_explore(ctx: Ctx, original: str) -> dict:
     if not isinstance(original, str) or not original.strip():
         raise FusionError("探索输入不能为空;请写任务原话和问题")
     tid = _new_task(ctx, None, "exploring")
-    _placeholder(ctx.root, "explore.md", tid, 1)
     state = replay(store.read(ctx.conn))
     rid = f"r{state['next_run']}"
     _emit(ctx, [{"type": "run_requested", "task": tid,
@@ -110,7 +103,6 @@ def cmd_delegate(ctx: Ctx, raw_plan: dict, task_id: str | None = None) -> dict:
                      "data": {"plan": plan, "version": task["version"] + 1}}])
     note = commit_decisions(ctx.root)
     state = replay(store.read(ctx.conn))
-    _placeholder(ctx.root, "review.md", tid, (state["tasks"][tid].get("change_rounds", 0) + 1))
     rid = f"r{state['next_run']}"
     _emit(ctx, [{"type": "run_requested", "task": tid,
                  "data": {"run": rid, "kind": "implement"}}])
@@ -140,7 +132,6 @@ def cmd_revise(ctx: Ctx, task_id: str | None, text: str) -> dict:
             raise FusionError(f"{task['id']} 已经提过 {limit} 轮修改意见。按约定先停下来问用户:继续改,还是取消。", code=2)
         note = commit_decisions(ctx.root)
         rid = f"r{state['next_run']}"
-        _placeholder(ctx.root, "review.md", task["id"], task["change_rounds"] + 2)
         _emit(ctx, [{"type": "run_requested", "task": task["id"],
                      "data": {"run": rid, "kind": "changes", "interrupt": active_run["id"],
                               "lead_text": lead_text, "message": normalized}}])
@@ -153,7 +144,6 @@ def cmd_revise(ctx: Ctx, task_id: str | None, text: str) -> dict:
         raise FusionError(f"{task['id']} 已经提过 {limit} 轮修改意见。按约定先停下来问用户:继续改,还是取消。", code=2)
     note = commit_decisions(ctx.root)
     rid = f"r{state['next_run']}"
-    _placeholder(ctx.root, "review.md", task["id"], task["change_rounds"] + 2)
     _emit(ctx, [{"type": "changes_requested", "task": task["id"],
                  "data": {"round": task["change_rounds"] + 1}},
                 {"type": "run_requested", "task": task["id"],

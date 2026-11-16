@@ -310,6 +310,18 @@ def test_station_rotation_threshold_uses_model_compact(proj):
     assert not any(event["type"] == "station_retired" for event in events)
 
 
+def test_station_reuses_worktree_when_new_scope_is_in_a_different_area(proj):
+    cfg = config.load(proj.root)
+    station = {"name": "main#1", "line": "main", "status": "idle", "ctx_est": 0,
+               "model": cfg["local"]["sidekick"]["model"], "files": ["old/feature.py"], "tasks": []}
+    state = {"stations": {"main#1": station}, "station_seq": {"main": 1},
+             "runs": {}, "tasks": {}, "usage": {}}
+    task = {"runs": [], "plan": {"scope": ["new/feature.py"]}}
+    selected, events, _ = proj.sup._station_for(state, cfg, task)
+    assert selected["name"] == "main#1"
+    assert not any(event["type"] == "station_retired" for event in events)
+
+
 def test_model_capabilities_and_effort_validation(proj, capsys):
     assert config.model_efforts("gpt-6-luna") == ["low", "medium", "high", "xhigh", "max"]
     assert config.model_efforts("gpt-6-astra")[-1] == "ultra"

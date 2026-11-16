@@ -34,11 +34,8 @@ DEFAULT_CONFIG = {
     "clean": True,                # Codex 是否不读用户配置并禁用 apps、plugins
     "check_timeout": 900,         # 单条检查命令的超时(秒)
     "stall_minutes": 20,          # 多久没有新事件算"长时间无进展"
-    # 运行超过多久叫醒 lead;0 关闭。也让 lead 的提示缓存(约 1 小时)不过期,保持在 50 以内。
-    "watch_minutes": 40,
+    "auto_continue": 2,
     "wait_minutes": 9,           # 等待命令最多等多久先返回(分钟);0 = 一直等。Claude Code 前台 Bash 最长 10 分钟
-    "watch_small_reads": 15,       # 碎读达到多少次叫醒 lead;0 关闭
-    "watch_repeats": 5,            # 重复命令达到多少次叫醒 lead;0 关闭
     "small_read_lines": 80,        # 单条读命令输出不超过多少行算碎读
     "context_ratio": DEFAULT_CONTEXT_RATIO,  # 必须小于 1,在自动压缩前换工位,避免压缩丢掉只发送一次的工作规则
     "handoff_dir": "fusion/handoffs",
@@ -58,7 +55,7 @@ DEFAULT_LOCAL = {
     "codex": None,                # Codex 命令,列表;默认自动查找
 }
 
-GITIGNORE = "fusion.db\nfusion.db-*\nlocal.json\nruns/\nhandoffs/\nexplore.md\nreview.md\ntasks/\n"
+GITIGNORE = "fusion.db\nfusion.db-*\nlocal.json\nruns/\nhandoffs/\ntasks/\n"
 
 
 def project_root(start: str | os.PathLike | None = None) -> Path:

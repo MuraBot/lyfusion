@@ -33,7 +33,7 @@ def apply(state: dict, event: dict) -> None:
 def _task_created(s, e, d, tid):
     s["tasks"][tid] = {"id": tid, "version": 1, "plan": d.get("plan"), "state": d.get("state", "planned"),
                         "runs": [], "active_run": None, "candidates": [], "latest": None,
-                        "fix_attempts": 0, "change_rounds": 0, "questions": [], "signals": [],
+                        "fix_attempts": 0, "change_rounds": 0, "auto_continue_count": 0, "questions": [], "signals": [],
                         "branch": None, "base": None, "accepted_commit": None, "accept_cand": None,
                         "latest_report": None, "integration": None, "pending_revise": None,
                         "minor_fix": None,
@@ -82,8 +82,12 @@ def _run_requested(s, e, d, tid):
             task["active_run"], task["state"] = rid, "running"
             if d["kind"] == "fix":
                 task["fix_attempts"] += 1
-            elif d["kind"] != "report":
+            elif d["kind"] == "continue":
+                task["auto_continue_count"] = task.get("auto_continue_count", 0) + 1
+            elif d["kind"] not in ("report",):
                 task["fix_attempts"] = 0
+                if d["kind"] in ("implement", "changes"):
+                    task["auto_continue_count"] = 0
 
 
 def _station_created(s, e, d, tid):
@@ -159,6 +163,9 @@ def _run_ended(s, e, d, tid):
                report=d.get("report"), problems=d.get("problems"),
                duration=d.get("duration"), runstats=d.get("runstats"),
                codex_version=d.get("codex_version", run.get("codex_version")))
+    for key in ("full_tests_seconds", "partial_tests_seconds", "lint_seconds", "other_cmds_seconds", "thinking_seconds"):
+        if key in d:
+            run[key] = d[key]
     st = s["stations"].get(run.get("station") or "")
     if st and st["status"] == "busy":
         st["status"] = "idle"

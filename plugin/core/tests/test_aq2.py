@@ -42,7 +42,7 @@ def test_review_lists_candidate_station_and_each_command_once(proj):
     p = cli(proj, "delegate", "-", input_text=json.dumps(
         {"goal": "加模块", "brief": "改代码", "checks": [{"run": test_cmd, "expect": 0}]}))
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
-    text = (proj.root / "fusion/review.md").read_text(encoding="utf-8")
+    text = (proj.root / "fusion/tasks/T1/review-1.md").read_text(encoding="utf-8")
     assert text.count(f"`{test_cmd}`") == 1
     assert "Old tests on new code" not in text
     assert "workstation path" not in text

@@ -114,83 +114,144 @@ def test_old_run_without_metrics_displays_dashes():
     assert "| T1 | r1 | 实现 | ok | - | - | - | - | - |" in views.ledger(state)
 
 
-def test_watch_signal_is_once_and_empty_last_file_does_not_finish(proj, monkeypatch):
+def test_watch_threshold_keys_do_not_wake_the_lead(proj, monkeypatch):
     ctx = proj.ctx()
     try:
         tid = C._new_task(ctx, {"goal": "watch", "brief": "brief", "scope": [], "checks": []}, "explored")
     finally:
         ctx.close()
     cfg = config_mod.load(proj.root)
-    cfg.update(watch_minutes=0, watch_small_reads=1, watch_repeats=0)
+    cfg.update(watch_minutes=1, watch_small_reads=1, watch_repeats=1)
     run_dir = proj.root / "fusion" / "runs" / "r88"
     run_dir.mkdir(parents=True)
-    (run_dir / "last.txt").write_text("", encoding="utf-8")
     (run_dir / "events.jsonl").write_text(json.dumps(_command("Get-Content a", "x")), encoding="utf-8")
     run = {"id": "r88", "task": tid, "dir": str(run_dir), "pid": 999999,
-           "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "station": None}
-    monkeypatch.setattr(supervisor_mod, "pid_alive", lambda pid: True)
-    assert proj.sup.poll_run(proj.state(), cfg, run) is True
-    assert proj.state()["tasks"][tid]["signals"][-1]["kind"] == "watch"
-    detail = proj.state()["tasks"][tid]["signals"][-1]["detail"]
-    assert "Get-Content a" in detail
-    assert "碎读 1 次(阈值 1)" in detail and "watch_small_reads" not in detail
-    assert not any(event["type"] == "run_ended" for event in proj.events())
-    second = supervisor_mod.Supervisor(proj.root)
-    try:
-        assert second.poll_run(second.state(), cfg, run) is False
-    finally:
-        second.conn.close()
-    assert len([s for s in proj.state()["tasks"][tid]["signals"] if s["kind"] == "watch"]) == 1
-
-
-def test_watch_all_thresholds_disabled(proj, monkeypatch):
-    ctx = proj.ctx()
-    try:
-        tid = C._new_task(ctx, {"goal": "watch", "brief": "brief", "scope": [], "checks": []}, "explored")
-    finally:
-        ctx.close()
-    cfg = config_mod.load(proj.root)
-    cfg.update(watch_minutes=0, watch_small_reads=0, watch_repeats=0)
-    run_dir = proj.root / "fusion" / "runs" / "r89"
-    run_dir.mkdir(parents=True)
-    (run_dir / "events.jsonl").write_text(json.dumps(_command("Get-Content a", "x")), encoding="utf-8")
-    run = {"id": "r89", "task": tid, "dir": str(run_dir), "pid": 999999,
            "started": "2000-01-01T00:00:00", "station": None}
     monkeypatch.setattr(supervisor_mod, "pid_alive", lambda pid: True)
     assert proj.sup.poll_run(proj.state(), cfg, run) is False
     assert not proj.state()["tasks"][tid]["signals"]
 
 
-def test_watch_handles_run_without_task(proj, monkeypatch):
-    cfg = config_mod.load(proj.root)
-    cfg.update(watch_minutes=0, watch_small_reads=1, watch_repeats=0)
-    run_dir = proj.root / "fusion" / "runs" / "r93"
-    run_dir.mkdir(parents=True)
-    (run_dir / "events.jsonl").write_text(json.dumps(_command("Get-Content a", "x")), encoding="utf-8")
-    run = {"id": "r93", "task": None, "dir": str(run_dir), "pid": 999999,
-           "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "station": None}
-    monkeypatch.setattr(supervisor_mod, "pid_alive", lambda pid: True)
-    assert proj.sup.poll_run(proj.state(), cfg, run) is False
-
-
-def test_watch_minutes_threshold(proj, monkeypatch):
+def test_idle_events_beyond_stall_limit_still_emit_stalled_signal(proj, monkeypatch):
     ctx = proj.ctx()
     try:
-        tid = C._new_task(ctx, {"goal": "watch", "brief": "brief", "scope": [], "checks": []}, "explored")
+        tid = C._new_task(ctx, {"goal": "stall", "brief": "brief", "scope": [], "checks": []}, "explored")
     finally:
         ctx.close()
-    cfg = config_mod.load(proj.root)
-    cfg.update(watch_minutes=1, watch_small_reads=0, watch_repeats=0)
-    run_dir = proj.root / "fusion" / "runs" / "r90"
+    run_dir = proj.root / "fusion" / "runs" / "r89"
     run_dir.mkdir(parents=True)
-    (run_dir / "events.jsonl").write_text("", encoding="utf-8")
-    run = {"id": "r90", "task": tid, "dir": str(run_dir), "pid": 999999,
-           "started": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - 180)), "station": None}
+    event_file = run_dir / "events.jsonl"
+    event_file.write_text("", encoding="utf-8")
+    old = time.time() - 180
+    import os
+    os.utime(event_file, (old, old))
+    run = {"id": "r89", "task": tid, "dir": str(run_dir), "pid": 999999,
+           "started": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(old)), "station": None}
+    cfg = config_mod.load(proj.root)
+    cfg["stall_minutes"] = 1
     monkeypatch.setattr(supervisor_mod, "pid_alive", lambda pid: True)
     assert proj.sup.poll_run(proj.state(), cfg, run) is True
-    signal = proj.state()["tasks"][tid]["signals"][-1]
-    assert signal["kind"] == "watch"
-    assert "用时 3.0 分钟(阈值 1)" in signal["detail"]
+    assert proj.state()["tasks"][tid]["signals"][-1]["kind"] == "stalled"
+
+
+def test_wait_timeout_reports_run_statistics_and_recent_command(proj, monkeypatch, capsys):
+    class Connection:
+        def close(self):
+            pass
+
+    class Supervisor:
+        conn = Connection()
+        holder = "test"
+
+        def __init__(self, root, poll):
+            pass
+
+        def state(self):
+            return {"tasks": {"T1": {"state": "running", "active_run": "r1", "runs": ["r1"], "signals": []}},
+                    "runs": {"r1": {"id": "r1", "task": "T1", "kind": "implement", "status": "started",
+                                      "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "dir": str(command_run)}}}
+
+        def tick(self):
+            return False
+
+    command_run = proj.root / "fusion/runs/r1"
+    command_run.mkdir(parents=True)
+    (command_run / "events.jsonl").write_text(json.dumps(_command("Get-Content a", "x")), encoding="utf-8")
+    monkeypatch.setattr(cli, "Supervisor", Supervisor)
+    monkeypatch.setattr(store, "take_lease", lambda conn, holder: True)
+    monkeypatch.setattr(store, "release_lease", lambda conn, holder: None)
+    monkeypatch.setattr(cli.time, "monotonic", iter([0, 600]).__next__)
+    with pytest.raises(FusionError) as error:
+        cli._wait(proj.root, "T1")
+    output = capsys.readouterr().out
+    assert error.value.code == 3
+    assert "small reads" in output and "last command: Get-Content a" in output
+
+
+def test_local_naive_run_start_is_elapsed_as_local_time(monkeypatch):
+    from datetime import datetime, timedelta
+
+    started = (datetime.now() - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%S")
+    elapsed = cli._run_elapsed_minutes({"started": started})
+    assert 4.9 <= elapsed <= 6
+
+
+def test_event_stamps_are_persisted_and_only_added_once(proj, monkeypatch):
+    run_dir = proj.root / "fusion/runs/stamped"
+    run_dir.mkdir(parents=True)
+    events_file = run_dir / "events.jsonl"
+    events_file.write_text('\n'.join(json.dumps({"type": "item.started", "item": {"id": str(i)}})
+                                      for i in range(2)) + "\n", encoding="utf-8")
+    stamps = iter([100.0, 101.0, 102.0])
+    monkeypatch.setattr(codex.time, "time", lambda: next(stamps))
+    first = codex.read_events(run_dir)
+    assert [event["_fusion_read_at"] for event in first] == [100.0, 101.0]
+    second = codex.read_events(run_dir)
+    assert [event["_fusion_read_at"] for event in second] == [100.0, 101.0]
+    with events_file.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps({"type": "item.completed", "item": {"id": "2"}}) + "\n")
+    third = codex.read_events(run_dir)
+    assert [event["_fusion_read_at"] for event in third] == [100.0, 101.0, 102.0]
+
+
+def test_command_time_is_split_by_kind_and_rendered_in_ledger():
+    from fusion_core.runstats import metrics
+
+    events = []
+    commands = [
+        ("test", "full_tests"),
+        ("python -m pytest tests/test_x.py", "partial_tests"),
+        ("ruff check .", "lint"),
+        ("git status", "other_cmds"),
+    ]
+    for index, (command, _) in enumerate(commands):
+        item = {"id": str(index), "type": "command_execution", "command": command}
+        events.extend([
+            {"type": "item.started", "item": item, "_fusion_read_at": index * 10.0},
+            {"type": "item.completed", "item": item, "_fusion_read_at": index * 10.0 + 5.0},
+        ])
+    from fusion_core.util import timestamp
+    started = "1970-01-01T00:00:00"
+    result = metrics(events, started, "codex fake", {"test": "test", "lint": "ruff check ."},
+                     ended_at=timestamp(started) + 50)
+    assert [result[f"{name}_seconds"] for name in ("full_tests", "partial_tests", "lint", "other_cmds", "thinking")] == [5.0, 5.0, 5.0, 5.0, 30.0]
+    state = {"tasks": {}, "runs": {"r1": {"id": "r1", "task": "T1", "kind": "continue", "status": "ended",
+                 "result": "ok", "duration": result["duration"], "codex_version": "codex fake", **result}}}
+    ledger = views.ledger(state)
+    assert "| full tests | partial tests | lint | other cmds | thinking |" in ledger
+    assert "continue" in ledger and "0.1 | 0.1 | 0.1 | 0.1 | 0.5" in ledger
+
+
+def test_launch_records_full_argv_including_codex_prefix(proj, monkeypatch):
+    cfg = config_mod.load(proj.root)
+    run_dir = proj.root / "fusion/runs/argv"
+    station = {"model": "gpt-6-luna", "worktree": str(proj.station)}
+    monkeypatch.setattr(codex, "find_codex", lambda current: ["C:/tools/codex.exe", "--wrapper"])
+    monkeypatch.setattr(codex, "spawn_detached", lambda command, **kwargs: command)
+    command = codex.launch(cfg, station, run_dir, "prompt", "read-only", None, schema=False)
+    saved = json.loads((run_dir / "args.json").read_text(encoding="utf-8"))
+    assert saved == command
+    assert saved[:2] == ["C:/tools/codex.exe", "--wrapper"]
 
 
 def test_turn_completed_waits_for_process_exit_before_reading_report(proj, monkeypatch):
@@ -323,7 +384,7 @@ def test_revise_during_explore_exits_with_error(proj, monkeypatch):
     assert error.value.code == 1
 
 
-@pytest.mark.parametrize("signal_kind", ["stalled", "watch"])
+@pytest.mark.parametrize("signal_kind", ["stalled"])
 def test_same_active_change_text_continues_waiting(proj, signal_kind):
     ctx = proj.ctx()
     try:
@@ -372,44 +433,11 @@ def test_revise_continue_wait_message_explains_matching_opinion(proj, monkeypatc
     assert "这次的输入没有用" not in output
 
 
-def test_wait_watch_exits_two_and_lists_actions(monkeypatch, tmp_path):
-    class Connection:
-        def close(self):
-            pass
-
-    class Supervisor:
-        conn = Connection()
-        holder = "test"
-        calls = 0
-
-        def __init__(self, root, poll):
-            pass
-
-        def state(self):
-            self.calls += 1
-            signals = [] if self.calls == 1 else [{"kind": "watch", "detail": "碎读 1 次(阈值 1)", "run": "r1"}]
-            return {"tasks": {"T1": {"state": "running", "signals": signals}},
-                    "runs": {"r1": {"kind": "changes"}}}
-
-        def tick(self):
-            return False
-
-    monkeypatch.setattr(cli, "Supervisor", Supervisor)
-    monkeypatch.setattr(store, "take_lease", lambda conn, holder: True)
-    monkeypatch.setattr(store, "release_lease", lambda conn, holder: None)
-    monkeypatch.setattr(cli.time, "sleep", lambda duration: None)
-    with pytest.raises(FusionError, match="碎读") as error:
-        cli._wait(tmp_path, "T1")
-    assert error.value.code == 2
-    assert "用同样的修改意见再运行一次" in str(error.value)
-    assert "revise - <<'EOF'" in str(error.value) and "cancel --task T1" in str(error.value)
-
-
 def test_work_and_explore_prompts_repeat_code_read_rules():
     prompt = explore_prompt("question", "decisions")
     for text in (WORK_RULES, FIXED_RULES):
-            assert "整份文件或大段" in text
-            assert "不要反复跑" in text
+        assert "整份文件或大段" in text
+        assert "不要反复跑" in text
     assert "Read whole files or large sections" in prompt
     assert "Do not repeat the same command" in prompt
     assert "do not call Claude" in prompt and "auth.json" in prompt

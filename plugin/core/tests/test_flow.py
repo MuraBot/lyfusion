@@ -70,7 +70,7 @@ def test_happy_path(proj):
 
 def test_blocked_then_answer_resumes_same_thread(proj):
     setup_task(proj)
-    q = {"text": "bye 要不要支持中文?"}
+    q = {"text": "bye 要不要支持中文?", "blocking": True}
     proj.script([{"write": {"app/farewell.py": "# 半成品\n"}, "report": report("先问一下", status="blocked", questions=[q])}, GOOD])
     proj.do(C.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
@@ -86,6 +86,43 @@ def test_blocked_then_answer_resumes_same_thread(proj):
     assert calls[1]["resume"] and calls[1]["thread"] == proj.state()["stations"]["main#1"]["thread"]
     assert "不要" in calls[1]["prompt"] and "你是 lyfusion 的助手" not in calls[1]["prompt"]
     assert proj.task()["state"] == "in_review"
+
+
+def test_blocked_without_question_auto_continues_once(proj):
+    setup_task(proj)
+    proj.script([{"report": report("continue", status="blocked")}, GOOD])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
+    proj.drain()
+    task = proj.task()
+    kinds = [proj.state()["runs"][run_id]["kind"] for run_id in task["runs"]]
+    assert kinds == ["implement", "continue"]
+    assert task["state"] == "in_review"
+    assert "You reported blocked but listed no blocking question." in proj.calls()[1]["prompt"]
+
+
+def test_blocked_without_question_auto_continue_stops_at_limit(proj):
+    setup_task(proj)
+    proj.script([{"report": report("still blocked", status="blocked")} for _ in range(3)])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
+    proj.drain()
+    task = proj.task()
+    kinds = [proj.state()["runs"][run_id]["kind"] for run_id in task["runs"]]
+    assert kinds == ["implement", "continue", "continue"]
+    assert task["state"] == "blocked"
+
+
+def test_auto_continue_can_be_disabled(proj):
+    from fusion_core import config
+
+    cfg = config.load(proj.root)
+    cfg["auto_continue"] = 0
+    config.save_project(proj.root, {key: value for key, value in cfg.items() if key != "local"})
+    setup_task(proj)
+    proj.script([{"report": report("blocked", status="blocked")}])
+    proj.do(C.cmd_delegate, plan_farewell(), "T1")
+    proj.drain()
+    assert [run["kind"] for run in proj.state()["runs"].values()] == ["implement"]
+    assert proj.task()["state"] == "blocked"
 
 
 def test_fix_loop_then_check_failed(proj):

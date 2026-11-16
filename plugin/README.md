@@ -13,7 +13,7 @@
 
 插件不带 `bin/`(claude.ai 托管的插件不允许):lead 用 `python "<安装目录>/core/fusion-core.py" <子命令>` 运行引擎,完整路径由 SessionStart 注入的使用说明给出;`/fusion` 用 `${CLAUDE_PLUGIN_ROOT}`。
 
-lead 在 Bash 后台运行四个主流程命令,每条命令会等待结果并写入 `fusion/explore.md` 或 `fusion/review.md`。跨任务设计决定保存在 `fusion/decisions.md`。
+The lead runs the four workflow commands in the foreground. Each command waits for its result and writes it under `fusion/tasks/T*/` (`explore.md` or `review-N.md`). Cross-task design decisions are stored in `fusion/decisions.md`.
 
 ## 支持什么
 - lead:Claude Code 里的 Claude(桌面应用的 Code 标签或命令行)。在普通聊天里钩子不加载,插件不起作用

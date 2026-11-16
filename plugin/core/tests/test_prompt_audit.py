@@ -56,20 +56,22 @@ def test_model_notes_reach_assistant_and_lead(proj):
     assert "项目 lead 备注" in context
 
 
-def test_starting_runs_replace_old_result_artifacts(proj):
+def test_delegate_does_not_write_placeholder_or_overwrite_existing_top_level_result(proj):
     proj.write("fusion/review.md", "old review")
     commands_ctx = proj.ctx()
     try:
         result = commands.cmd_delegate(commands_ctx, plan_farewell())
     finally:
         commands_ctx.close()
-    assert proj.read("fusion/review.md") == f"# {result['task']} 第 1 轮:助手还在做,结果出来后覆盖这个文件\n"
+    assert proj.read("fusion/review.md") == "old review"
+    assert not (proj.root / "fusion/tasks" / result["task"] / "review-1.md").exists()
 
 
-def test_explore_replaces_its_previous_artifact(proj):
+def test_explore_does_not_write_placeholder_or_overwrite_existing_top_level_result(proj):
     proj.write("fusion/explore.md", "old exploration")
-    result = proj.do(commands.cmd_explore, "检查模块")
-    assert proj.read("fusion/explore.md") == f"# {result['task']} 第 1 轮:助手还在做,结果出来后覆盖这个文件\n"
+    result = proj.do(commands.cmd_explore, "inspect module")
+    assert proj.read("fusion/explore.md") == "old exploration"
+    assert not (proj.root / "fusion/tasks" / result["task"] / "explore.md").exists()
 
 
 def test_guide_omits_workstation_path_without_old_status_tools(proj):
@@ -182,10 +184,10 @@ def test_old_test_failure_log_is_safe_when_run_dir_is_missing(proj):
     assert "FAILED tests/old_test.py::test_old" not in text
 
 
-def test_revision_replaces_review_placeholder_before_run(proj):
+def test_revision_does_not_write_a_review_placeholder(proj):
     setup_task(proj)
     proj.script([{"report": report(status="blocked", questions=[{"text": "input", "blocking": True}])}, GOOD])
     proj.do(commands.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
-    proj.do(commands.cmd_revise, "T1", "继续")
-    assert proj.read("fusion/review.md").startswith("# T1 第 2 轮:助手还在做")
+    proj.do(commands.cmd_revise, "T1", "continue")
+    assert not (proj.root / "fusion/tasks/T1/review-2.md").exists()

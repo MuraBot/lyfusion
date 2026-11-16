@@ -19,12 +19,10 @@ from .util import (
     CMD,
     FusionError,
     git,
-    globs_overlap,
     kill_tree,
     now,
     pid_alive,
     redact_file,
-    timestamp,
 )
 
 TURN_EXIT_GRACE_SECONDS = 60
@@ -34,27 +32,6 @@ def _attach_run_metrics(events: list[dict], metrics: dict) -> None:
     for event in events:
         if event.get("type") == "run_ended":
             event.setdefault("data", {}).update(metrics)
-
-
-def _same_area(files: list[str], globs: list[str]) -> bool:
-    """工位做过的文件和新任务的范围是不是同一块地方:文件范围重叠,或者有共同的目录。"""
-    if globs_overlap(files, globs):
-        return True
-
-    def dirs(paths):
-        out = set()
-        for p in paths:
-            fixed = p.replace("\\", "/").split("*")[0]
-            d = fixed.rsplit("/", 1)[0] if "/" in fixed else ""
-            out.add(d)
-        return out
-
-    a, b = dirs(files), dirs(globs)
-    return any(
-        x == y or (x and y and (x.startswith(y + "/") or y.startswith(x + "/")))
-        for x in a
-        for y in b
-    )
 
 
 def _estimate_ctx(input_tokens: int, requests: int, previous_input: int, previous_ctx: int) -> int:
@@ -77,8 +54,6 @@ class Supervisor:
         self.holder = store.holder_id()
         self._stop = threading.Event()
         self._stall_flagged: set[str] = set()
-        self._watch_flagged: dict[str, set[str]] = {}
-        self._watch_checked: dict[str, float] = {}
         self._turn_exit_seen: dict[str, float] = {}
         self._last_error: str | None = None
 
@@ -303,7 +278,6 @@ class Supervisor:
             compact = config_mod.current_model_settings(sk)["compact"]
             ratio = config_mod.context_ratio(cfg)
             limit = int(compact * ratio)
-            globs = task.get("plan", {}).get("scope", [])
             reason = None
             if st.get("model") != sk["model"]:
                 reason = f"换了助手模型({st.get('model')} → {sk['model']})"
@@ -312,8 +286,6 @@ class Supervisor:
                     f"当前上下文约 {st['ctx_est']} token,超过换工位阈值 {limit}"
                     f"(压缩上限 {compact} × {int(ratio * 100)}%)"
                 )
-            elif st["files"] and globs and not _same_area(st["files"], globs):
-                reason = "新任务的文件范围和这个工位做过的文件不在同一个目录(换了主题)"
             if reason:
                 events.append(
                     {
@@ -378,6 +350,8 @@ class Supervisor:
                 body = prompts.report_prompt(
                     str(run.get("message") or ""), aq.decisions_text(self.root)
                 )
+            elif kind == "continue":
+                body = prompts.continue_prompt()
             else:
                 raise FusionError(f"未知的运行类型 {kind}")
             prompt = body
@@ -590,43 +564,6 @@ class Supervisor:
                         ]
                     )
                     return True
-            now_mono = time.monotonic()
-            if now_mono - self._watch_checked.get(run["id"], 0) >= 30:
-                self._watch_checked[run["id"]] = now_mono
-                stats = runstats.summarize(evs, cfg)
-                started = timestamp(run.get("started"))
-                elapsed = max(0, time.time() - started) if started else 0
-                thresholds = (
-                    ("watch_minutes", cfg.get("watch_minutes", 40), elapsed / 60),
-                    ("watch_small_reads", cfg.get("watch_small_reads", 15), stats["small_reads"]),
-                    ("watch_repeats", cfg.get("watch_repeats", 5), stats["repeats"]),
-                )
-                flagged = self._watch_flagged.setdefault(run["id"], set())
-                task_state = s["tasks"].get(run.get("task") or "")
-                for signal in (task_state or {}).get("signals", []):
-                    if signal.get("kind") == "watch" and signal.get("run") == run["id"]:
-                        flagged.update(signal.get("causes", []))
-                crossed = [(key, limit, value) for key, limit, value in thresholds
-                           if limit and (value > limit if key == "watch_minutes" else value >= limit)
-                           and key not in flagged]
-                if crossed and run.get("task"):
-                    flagged.update(key for key, _, _ in crossed)
-                    labels = {"watch_minutes": "用时", "watch_small_reads": "碎读", "watch_repeats": "重复"}
-                    reasons = ", ".join(
-                        f"{labels[key]} {value:.1f} 分钟(阈值 {limit})" if key == "watch_minutes"
-                        else f"{labels[key]} {int(value)} 次(阈值 {limit})"
-                        for key, limit, value in crossed
-                    )
-                    recent = "\n".join(stats["recent"]) or "(暂无命令)"
-                    self.emit([{"type": "signal", "task": run["task"], "data": {
-                        "kind": "watch",
-                        "run": run["id"],
-                        "causes": [key for key, _, _ in crossed],
-                        "detail": (f"运行 {run['id']} 看护提醒: {reasons};已运行 {elapsed / 60:.1f} 分钟;"
-                                   f"命令 {stats['commands']}/碎读 {stats['small_reads']}/重复 {stats['repeats']}\n"
-                                   f"最近命令:\n{recent}"),
-                    }}])
-                    return True
             return False
         self._turn_exit_seen.pop(run["id"], None)
         self.finish_run(s, cfg, run, evs)
@@ -808,6 +745,15 @@ class Supervisor:
             }
         )
         if result == "blocked":
+            eligible = run.get("kind") in ("implement", "changes", "minor_fix", "continue")
+            limit = cfg.get("auto_continue", 2)
+            count = int(task.get("auto_continue_count", 0) or 0)
+            if eligible and not blocking and isinstance(limit, int) and limit > count:
+                events.append({"type": "run_requested", "task": tid,
+                               "data": {"run": f"r{s['next_run']}", "kind": "continue"}})
+                _attach_run_metrics(events, metrics)
+                self.emit(events)
+                return
             events.append(
                 {
                     "type": "signal",
