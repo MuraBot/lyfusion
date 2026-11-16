@@ -71,7 +71,7 @@ def test_cli_public_command_set_and_version():
     found = set(match.group(1).split(","))
     found.discard("hook")  # Plugin-internal SessionStart bridge.
     assert found == names
-    assert VERSION == "5.0.0-rc.1.1"
+    assert VERSION == "5.0.0-rc.2"
     meta = json.loads((PLUGIN / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))
     assert meta["version"] == VERSION
 

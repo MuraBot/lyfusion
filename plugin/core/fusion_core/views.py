@@ -104,8 +104,8 @@ def status(root, cfg, state, target: str | None = None) -> str:
              f"Assistant: {sk.get('model', '')} · effort {settings['effort'] or 'default'} · fast {fast_label} · compact {settings['compact']}",
              ("Codex environment: clean (does not read ~/.codex/config.toml; apps and plugins disabled)" if effective["clean"]
               else "Codex environment: same as desktop (reads ~/.codex/config.toml)")
-             + "(set in fusion/config.json)",
-             f"Station rotation: context exceeds {effective['switch_at']}(compact limit {settings['compact']} × {int(effective['context_ratio'] * 100)}%)",
+             + " (set in fusion/config.json)",
+             f"Station rotation: context exceeds {effective['switch_at']} (compact limit {settings['compact']} × {int(effective['context_ratio'] * 100)}%)",
              f"Handoff: {handoff['mode']} (at {handoff['tokens']} tokens) · {handoff['dir']}"]
     lines.extend(f"Warning: {warning}" for warning in configuration_warnings(cfg))
     for task in state["tasks"].values():

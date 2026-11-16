@@ -55,8 +55,8 @@ def test_unregistered_model_uses_codex_defaults_and_status_reports_current_model
     shown = views.status(proj.root, cfg, {"tasks": {}})
     assert "Assistant: haiku-5.5 · effort default · fast unsupported · compact 400000" in shown
     assert "· compact 400000" in shown
-    assert "Codex environment: clean (does not read ~/.codex/config.toml; apps and plugins disabled)(set in fusion/config.json)" in shown
-    assert "Station rotation: context exceeds 240000(compact limit 400000 × 60%)" in shown
+    assert "Codex environment: clean (does not read ~/.codex/config.toml; apps and plugins disabled) (set in fusion/config.json)" in shown
+    assert "Station rotation: context exceeds 240000 (compact limit 400000 × 60%)" in shown
 
 
 def test_config_get_set_and_station_rotation_behavior_remain(proj, capsys):
@@ -228,7 +228,7 @@ def test_invalid_compact_and_ratio_fall_back_and_warn(proj):
     ratio_warning = "fusion/config.json has an invalid context_ratio; using 0.6"
     compact_warning = "fusion/local.json has an invalid sidekick.models.gpt-6-luna.compact; using 400000"
     assert ratio_warning in shown and compact_warning in shown
-    assert "Station rotation: context exceeds 240000(compact limit 400000 × 60%)" in shown
+    assert "Station rotation: context exceeds 240000 (compact limit 400000 × 60%)" in shown
 
     checks = cli._preflight(proj.root)["checks"]
     warnings = [row["detail"] for row in checks if row["check"] == "Configuration warning"]
