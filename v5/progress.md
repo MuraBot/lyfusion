@@ -295,3 +295,16 @@
 - mod 测试:新加 `plugin/tests/fusion-card.test.tsx`(假引擎,`claude plugin test plugin`,4 个通过,不打进包);引擎全量测试 220 个通过,lint 通过;`claude plugin validate` 通过
 - 版本 `5.0.0-rc.4`(五处:多了 `hooks/register.tsx` 的 `MOD_VERSION` + decisions 第 6 条);包 `v5/dist/lyfusion-plugin-5.0.0-rc.4.zip`;本地标签 `v5.0.0-rc.4`,没推送
 - 等 Lily:上传 rc.4 包、新开会话,截深色和浅色的卡片图;旧会话里试一下 `/reload-plugins`
+
+## v5.0.0-rc.5(2026-11-16,rc.4 测试后的修改)
+> Lily 测完 rc.4(旧会话里 `/reload-plugins` 能换上新面板),经"lyfusion 会话"提了四件事:Fusion 开着时底部小灯不亮、选择框是直角、sidekick 由我们定白名单(只留 6.1 sol、6.1 terra、6 luna)、修 astra 的小漏洞。lead 自己做(A 档),没有 Fusion 任务、没用 Codex。
+- 预览:热加载临时 mod 出了 7 轮(第 2、3 轮 Lily 那边没显示，第 4 轮起加了"加载了就弹提示 + 重画底栏 + 自动开窗",之后都正常)。查清楚的事:
+  - **小灯**:桌面端画 Button 时不认里面 `Text` 的颜色(主题色名 claude、写死的十六进制、plain 按钮都是灰的),emoji 的颜色是它自己的。改成按钮文字 "🟠 Fusion"(开)、"⚪ Fusion"(关)、"🟡 Fusion"(要新开会话)
+  - **按钮大小**:试了 Text 的 `size`、Button 的 `variant`,底栏按钮大小都一样，是桌面端自己定的，对不齐模型选择器(Lily 看过，先这样)
+  - **圆角**:Box 没有圆角属性;`borderStyle: 'round'` 的边框要占一整格，行变得太大(R2、R3);Client 里不能画 Svg。做法:行的灰底换成一张圆角图(Svg,高 22 px、圆角 6 px,Lily 在 P1~P4 里选的 P3),用 Box 的 `hover` 在鼠标移上去时显示;"Recommended"、"Unavailable" 小标签也换成圆角图垫底，和桌面端"推荐"一样
+  - 行的文字改由卡片自己画，上面盖一层不画东西的 Client(`hooks/hit.tsx`)收点击;`hooks/row.tsx` 删掉(做减法)
+  - 底栏按钮前面改成放引擎自己画的内容(`next(e)`),模式标签由引擎画，我们不再自己拼
+- sidekick 白名单(引擎):`SIDEKICK_MODELS = gpt-6.1-sol、gpt-6.1-terra、gpt-6-luna`;名字、effort、Fast、上下文照旧从 Codex 的 models_cache.json 读，按 Codex 的 priority 排;白名单里但 Codex 没列的标 Unavailable;`config model <白名单外>` 报错、不写文件(`/fusion model` 也一样);local.json 里存着白名单外的当前模型时按 gpt-6-luna 用，存着的白名单外模型设置不列出来;luna 最低 high、推荐 high 不变。删掉 `EXCLUDED_MODELS`、`KNOWN_MODELS`、`is_hidden_model` 和 MODEL_INFO 里的 astra;"Codex 缓存里没有的内置模型也算可用"这条规则也删了(白名单模型没被 Codex 列出就是 Unavailable)
+- 测试:引擎全量 222 个通过(新加 2 个:白名单外的当前模型按 luna 用且不列出、Codex 没列的白名单模型标 Unavailable;astra 的 `config model` 改成断言被拒且文件不变;测试里假的 Codex 缓存加了 terra,还留着 astra 用来测过滤);mod 测试 4 个通过(行的点击、圆角高亮的图、底栏 🟠/🟡);lint 通过;`claude plugin validate` 通过
+- 版本 `5.0.0-rc.5`(五处 + decisions 第 6 条);包 `v5/dist/lyfusion-plugin-5.0.0-rc.5.zip`(29 个文件);本地标签 `v5.0.0-rc.5`,没推送
+- 等 Lily:上传 rc.5,新会话(或旧会话 `/reload-plugins`)看底栏小灯和卡片列表的圆角，深浅色各截一张

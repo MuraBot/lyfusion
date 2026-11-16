@@ -69,7 +69,7 @@ def test_station_rotates_on_model_change_with_handoff(proj):
     proj.do(C.cmd_accept, "T1")
     proj.drain()
     local = config_mod.load(proj.root)["local"]
-    local["sidekick"]["model"] = "gpt-6-astra"
+    local["sidekick"]["model"] = "gpt-6.1-sol"
     config_mod.save_local(proj.root, local)
     proj.do(C._new_task, plan_farewell(goal="第二个"), "explored")
     proj.do(C.cmd_delegate, plan_farewell(goal="?" * 3), "T2")
@@ -78,7 +78,7 @@ def test_station_rotates_on_model_change_with_handoff(proj):
     assert s["stations"]["main#1"]["status"] == "retired"
     assert s["stations"]["main#2"]["predecessor"] == "main#1"
     call = proj.calls()[1]
-    assert not call["resume"] and "Previous station handoff summary" in call["prompt"] and "gpt-6-astra" in call["args"]
+    assert not call["resume"] and "Previous station handoff summary" in call["prompt"] and "gpt-6.1-sol" in call["args"]
 
 
 def test_resume_failure_retires_station(proj):

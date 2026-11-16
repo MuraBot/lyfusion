@@ -27,33 +27,33 @@ def test_effort_and_fast_are_isolated_by_model(proj, capsys):
 
     command("effort", "xhigh")
     command("fast", "on")
-    command("model", "gpt-6-astra")
+    command("model", "gpt-6.1-sol")
     command("fast", "on")
-    command("model", "haiku-5.5")
+    command("model", "gpt-6.1-terra")
     before = (proj.root / "fusion" / "local.json").read_bytes()
     assert main(["--project", str(proj.root), "config", "fast", "on"]) == 1
-    assert "haiku-5.5 does not support Fast Mode" in capsys.readouterr().err
+    assert "gpt-6.1-terra does not support Fast Mode" in capsys.readouterr().err
     assert (proj.root / "fusion" / "local.json").read_bytes() == before
     changed = json.loads(before)
     assert changed["sidekick"]["models"]["gpt-6-luna"] == {"effort": "xhigh", "fast": True}
-    assert changed["sidekick"]["models"]["gpt-6-astra"] == {"fast": True}
+    assert changed["sidekick"]["models"]["gpt-6.1-sol"] == {"fast": True}
     switched = command("model", "gpt-6-luna")
     assert config.current_model_settings(switched["local"]["sidekick"]) == {
         "effort": "xhigh", "fast": True, "compact": config.DEFAULT_COMPACT,
     }
 
 
-def test_unregistered_model_uses_codex_defaults_and_status_reports_current_model(proj):
+def test_model_without_settings_uses_codex_defaults_and_status_reports_current_model(proj):
     local = config.load(proj.root)["local"]
-    local["sidekick"]["model"] = "haiku-5.5"
-    local["sidekick"]["models"]["haiku-5.5"] = {"fast": True}
+    local["sidekick"]["model"] = "gpt-6.1-terra"
+    local["sidekick"]["models"]["gpt-6.1-terra"] = {"fast": True}
     config.save_local(proj.root, local)
     cfg = config.load(proj.root)
-    args = build_args(cfg, {"model": "haiku-5.5", "worktree": str(proj.station)}, proj.root / "run", "workspace-write", None, True)
+    args = build_args(cfg, {"model": "gpt-6.1-terra", "worktree": str(proj.station)}, proj.root / "run", "workspace-write", None, True)
     assert "model_reasoning_effort=high" not in args
     assert not any("service_tier" in arg for arg in args)
     shown = views.status(proj.root, cfg, {"tasks": {}})
-    assert "Assistant: haiku-5.5 · effort default · fast unsupported · compact 400000" in shown
+    assert "Assistant: gpt-6.1-terra · effort default · fast unsupported · compact 400000" in shown
     assert "· compact 400000" in shown
     assert "Codex environment: clean (does not read ~/.codex/config.toml; apps and plugins disabled) (set in fusion/config.json)" in shown
     assert "Station rotation: context exceeds 240000 (compact limit 400000 × 60%)" in shown
@@ -79,9 +79,9 @@ def test_config_get_set_and_station_rotation_behavior_remain(proj, capsys):
     assert {"model", "worktree", "thread", "status"}.issubset(first)
     assert "effort" not in first and "fast" not in first
     local = config.load(proj.root)["local"]
-    local["sidekick"]["model"] = "gpt-6-astra"
+    local["sidekick"]["model"] = "gpt-6.1-sol"
     config.save_local(proj.root, local)
-    assert config.load(proj.root)["local"]["sidekick"]["model"] == "gpt-6-astra"
+    assert config.load(proj.root)["local"]["sidekick"]["model"] == "gpt-6.1-sol"
 
 
 def test_fast_change_keeps_resume_thread_and_applies_fast_to_next_run(proj):
@@ -137,9 +137,9 @@ def test_compact_is_model_scoped_and_passed_as_integer_override(proj, capsys):
     args = build_args(cfg, station, proj.root / "run", "workspace-write", None, True)
     assert "model_auto_compact_token_limit=300000" in args
 
-    command("model", "haiku-5.5")
+    command("model", "gpt-6.1-terra")
     unknown = config.load(proj.root)
-    args = build_args(unknown, {"model": "haiku-5.5", "worktree": str(proj.station)},
+    args = build_args(unknown, {"model": "gpt-6.1-terra", "worktree": str(proj.station)},
                       proj.root / "run", "workspace-write", None, True)
     assert "model_auto_compact_token_limit=400000" in args
     command("model", "gpt-6-luna")
@@ -327,13 +327,13 @@ def test_model_capabilities_and_effort_validation(proj, capsys):
     assert config.model_efforts("gpt-6-luna") == ["high", "xhigh", "max"]
     assert config.recommended_effort("gpt-6-luna") == "high"
     assert config.recommended_effort("gpt-6.1-sol") is None
-    assert config.model_efforts("gpt-6-astra")[-1] == "ultra"
+    assert config.model_efforts("gpt-6.1-sol")[-1] == "ultra"
     assert config.model_efforts("unknown") == config.DEFAULT_EFFORTS
     assert not config.supports_fast("unknown") and config.max_compact("unknown") is None
     assert config.current_model_settings({"model": "unknown", "models": {"unknown": {"fast": True}}})["fast"] is False
 
     for model, effort, expected in (("gpt-6-luna", "max", 0), ("gpt-6-luna", "ultra", 1), ("gpt-6-luna", "medium", 1),
-                                    ("gpt-6-astra", "ultra", 0), ("unknown", "max", 1)):
+                                    ("gpt-6.1-sol", "ultra", 0), ("gpt-6.1-terra", "max", 1)):
         assert main(["--project", str(proj.root), "config", "model", model]) == 0
         capsys.readouterr()
         result = main(["--project", str(proj.root), "config", "effort", effort])
@@ -341,9 +341,9 @@ def test_model_capabilities_and_effort_validation(proj, capsys):
         capsys.readouterr()
 
     local = config.load(proj.root)["local"]
-    local["sidekick"]["models"].setdefault("unknown", {})["fast"] = True
+    local["sidekick"]["models"].setdefault("gpt-6.1-terra", {})["fast"] = True
     config.save_local(proj.root, local)
-    args = build_args(config.load(proj.root), {"model": "unknown", "worktree": str(proj.station)},
+    args = build_args(config.load(proj.root), {"model": "gpt-6.1-terra", "worktree": str(proj.station)},
                       proj.root / "run", "workspace-write", None, True)
     assert not any("service_tier" in arg for arg in args)
 
@@ -353,7 +353,8 @@ def test_compact_model_upper_bound(proj, capsys):
     assert "Context limit cannot exceed 872000 for gpt-6-luna" in capsys.readouterr().err
     assert main(["--project", str(proj.root), "config", "compact", "1"]) == 0
     capsys.readouterr()
-    assert main(["--project", str(proj.root), "config", "model", "unknown"]) == 0
+    # GPT-6.1-Terra's largest context is unknown in the test cache: no upper bound
+    assert main(["--project", str(proj.root), "config", "model", "gpt-6.1-terra"]) == 0
     capsys.readouterr()
     assert main(["--project", str(proj.root), "config", "compact", "900000"]) == 0
 

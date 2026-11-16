@@ -45,7 +45,7 @@ function panelJson(version: string): string {
 type On = Parameters<TestBody>[1]
 
 // A project that uses Fusion, an engine of `version`; returns the engine commands run and the toasts shown
-function fakeEngine(on: On, version = '5.0.0-rc.4') {
+function fakeEngine(on: On, version = '5.0.0-rc.5') {
   const calls: string[][] = []
   const toasts: string[] = []
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -66,39 +66,38 @@ function fakeEngine(on: On, version = '5.0.0-rc.4') {
   return { calls, toasts }
 }
 
-function itemOf(found: { props: Record<string, unknown> } | undefined): Record<string, unknown> | undefined {
-  const props = found?.props.props as { item?: Record<string, unknown> } | undefined
-  return props?.item
-}
+const BAR = { plugin: 'lyfusion-plugin', component: 'SessionMode', props: { modes: [] } } as const
 
 test('the desktop card shows the settings and opens a list in place', async ($, on) => {
   const engine = fakeEngine(on)
   await $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
 
-  expect(itemOf(await ui.find({ type: 'Client', key: 'row-nav-model' }))?.detail).toBe('GPT-6-Luna')
-  expect(itemOf(await ui.find({ type: 'Client', key: 'row-nav-effort' }))?.detail).toBe('High')
-  expect(itemOf(await ui.find({ type: 'Client', key: 'row-nav-compact' }))?.detail).toBe('400k')
+  expect((await ui.find({ key: 'row-nav-model' }))?.text).toContain('GPT-6-Luna')
+  expect((await ui.find({ key: 'row-nav-effort' }))?.text).toContain('High')
+  expect((await ui.find({ key: 'row-nav-compact' }))?.text).toContain('400k')
   expect((await ui.find({ type: 'Svg' }))?.props.alt).toBe('Fusion on')
+  // Each pickable row has the rounded highlight the surface shows on hover
+  expect((await ui.findAll({ type: 'Svg' })).filter(svg => svg.props.alt === 'Highlight')).toHaveLength(3)
 
   // Reasoning effort: the list replaces the card; High is checked and recommended; Luna offers nothing below High
-  await ui.post({ pick: 'nav', value: 'effort' }, { in: 'row-nav-effort' })
-  const high = itemOf(await ui.find({ type: 'Client', key: 'row-effort-high' }))
-  expect(high?.tag).toBe('Recommended')
-  expect(high?.checked).toBe(true)
-  expect(await ui.find({ type: 'Client', key: 'row-effort-low' })).toBeUndefined()
-  expect(await ui.find({ type: 'Client', key: 'row-nav-model' })).toBeUndefined()
+  await ui.post({ pick: 'nav', value: 'effort' }, { in: 'pick-nav-effort' })
+  const high = (await ui.find({ key: 'row-effort-high' }))?.text
+  expect(high).toContain('Recommended')
+  expect(high).toContain('✓')
+  expect(await ui.find({ key: 'row-effort-low' })).toBeUndefined()
+  expect(await ui.find({ key: 'row-nav-model' })).toBeUndefined()
 
-  await ui.post({ pick: 'effort', value: 'max' }, { in: 'row-effort-max' })
+  await ui.post({ pick: 'effort', value: 'max' }, { in: 'pick-effort-max' })
   expect(engine.calls).toContainEqual(['config', 'effort', 'max'])
-  expect(await ui.find({ type: 'Client', key: 'row-nav-model' })).toBeDefined()
+  expect(await ui.find({ key: 'row-nav-model' })).toBeDefined()
 
-  // The sidekick list marks a model Codex does not offer, and it cannot be picked
-  await ui.post({ pick: 'nav', value: 'model' }, { in: 'row-nav-model' })
-  const custom = itemOf(await ui.find({ type: 'Client', key: 'row-model-custom-model' }))
-  expect(custom?.tag).toBe('Unavailable')
-  expect(custom?.disabled).toBe(true)
-  await ui.post({ pick: 'back', value: 'back' }, { in: 'row-back-back' })
+  // The sidekick list marks a model Codex does not offer: dim, no highlight and no click target
+  await ui.post({ pick: 'nav', value: 'model' }, { in: 'pick-nav-model' })
+  expect((await ui.find({ key: 'row-model-custom-model' }))?.text).toContain('Unavailable')
+  expect(await ui.find({ type: 'Client', key: 'pick-model-custom-model' })).toBeUndefined()
+  expect(await ui.find({ type: 'Client', key: 'pick-model-gpt-6.1-sol' })).toBeDefined()
+  await ui.post({ pick: 'back', value: 'back' }, { in: 'pick-back-back' })
 
   // The switches
   await ui.post({ toggle: 'enabled' }, { in: 'hit-enabled' })
@@ -106,6 +105,11 @@ test('the desktop card shows the settings and opens a list in place', async ($, 
   await ui.post({ toggle: 'fast' }, { in: 'hit-fast' })
   expect(engine.calls).toContainEqual(['config', 'fast', 'on'])
   await ui.unmount()
+
+  // The bar's dot is an emoji: the desktop draws a Button's Text children without their colours
+  const bar = await $.ui.mount({ ...BAR, surface: 'desktop' })
+  expect((await bar.find({ type: 'Button', key: 'fusion' }))?.props.label).toBe('🟠 Fusion')
+  await bar.unmount()
 })
 
 test('a custom context limit is checked against the model maximum', async ($, on) => {
@@ -113,7 +117,7 @@ test('a custom context limit is checked against the model maximum', async ($, on
   await $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
 
-  await ui.post({ pick: 'nav', value: 'compact' }, { in: 'row-nav-compact' })
+  await ui.post({ pick: 'nav', value: 'compact' }, { in: 'pick-nav-compact' })
   expect((await ui.find({ type: 'Text', text: /Up to 872k for GPT-6-Luna/ }))?.text).toBeDefined()
   await ui.input({ key: 'compact-custom', text: '900' })
   expect((await ui.find({ type: 'Text', text: /Enter a number from 1 to 872/ }))?.text).toBeDefined()
@@ -125,17 +129,20 @@ test('a custom context limit is checked against the model maximum', async ($, on
 })
 
 test('a newer engine on disk: one line, one toast, no setting changed', async ($, on) => {
-  const engine = fakeEngine(on, '5.0.0-rc.5')
+  const engine = fakeEngine(on, '5.0.0-rc.6')
   await $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
 
   const line = await ui.find({ type: 'Text', text: /lyfusion was updated/ })
-  expect(line?.text).toBe('lyfusion was updated (5.0.0-rc.4 → 5.0.0-rc.5). Start a new session to load it.')
+  expect(line?.text).toBe('lyfusion was updated (5.0.0-rc.5 → 5.0.0-rc.6). Start a new session to load it.')
   expect(await ui.find({ type: 'Client' })).toBeUndefined()
   expect(engine.toasts.filter(text => text.includes('Start a new session'))).toHaveLength(1)
 
   expect(engine.calls.filter(args => args[1] !== 'panel')).toEqual([])
   await ui.unmount()
+  const bar = await $.ui.mount({ ...BAR, surface: 'desktop' })
+  expect((await bar.find({ type: 'Button', key: 'fusion' }))?.props.label).toBe('🟡 Fusion')
+  await bar.unmount()
 })
 
 test('a surface without Client or Svg gets the panel of Selects', async ($, on) => {

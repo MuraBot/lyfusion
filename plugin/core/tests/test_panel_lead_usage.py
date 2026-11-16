@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import io
 import json
+import os
+from pathlib import Path
 from types import SimpleNamespace
 
 from fusion_core import cli, config, store, views
@@ -10,7 +12,7 @@ from fusion_core import cli, config, store, views
 def test_panel_emits_only_panel_fields_and_current_settings(proj, capsys):
     local = config.load(proj.root)["local"]
     local["sidekick"]["models"]["gpt-6-luna"]["compact"] = 250000
-    local["sidekick"]["models"]["custom-model"] = {"effort": "low"}
+    local["sidekick"]["models"]["custom-model"] = {"effort": "low"}  # not a sidekick model: never listed
     config.save_local(proj.root, local)
 
     assert cli.main(["--project", str(proj.root), "config", "panel"]) == 0
@@ -19,11 +21,11 @@ def test_panel_emits_only_panel_fields_and_current_settings(proj, capsys):
     panel = json.loads(raw)
     assert panel == {
         "schema_version": 2, "version": cli.VERSION, "project": True, "enabled": True,
-        "model": "gpt-6-luna", "models": ["gpt-6.1-sol", "gpt-6-luna", "custom-model"],
-        "unavailable": ["custom-model"],
+        "model": "gpt-6-luna", "models": ["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna"],
+        "unavailable": [],
         "effort": "high", "efforts": ["high", "xhigh", "max"], "recommended_effort": "high", "fast": False,
         "fast_models": ["gpt-6.1-sol", "gpt-6-luna"],
-        "model_names": {"gpt-6.1-sol": "GPT-6.1-Sol", "gpt-6-luna": "GPT-6-Luna", "custom-model": "custom-model"},
+        "model_names": {"gpt-6.1-sol": "GPT-6.1-Sol", "gpt-6.1-terra": "GPT-6.1-Terra", "gpt-6-luna": "GPT-6-Luna"},
         "compact": 250000, "compacts": [250000, 262144, 400000, 600000, 800000],
         "max_compact": config.max_compact("gpt-6-luna"),
         "context_ratio": 0.6, "switch_at": 150000,
@@ -195,13 +197,41 @@ def test_panel_policy_hides_astra_and_raises_a_low_luna_effort(proj, capsys):
 
     assert cli.main(["--project", str(proj.root), "config", "panel"]) == 0
     panel = json.loads(capsys.readouterr().out)
-    assert "gpt-6-astra" not in panel["models"]
+    assert "gpt-6-astra" not in panel["models"]  # Codex lists it, but it is not on the sidekick whitelist
     assert panel["effort"] == "high" and panel["efforts"][0] == "high"
 
-    # Chosen earlier through /fusion: still listed, as unavailable
-    assert cli.main(["--project", str(proj.root), "config", "model", "gpt-6-astra"]) == 0
-    capsys.readouterr()
+    # /fusion model and the card refuse a model outside the whitelist, and nothing is written
+    before = (proj.root / "fusion" / "local.json").read_bytes()
+    assert cli.main(["--project", str(proj.root), "config", "model", "gpt-6-astra"]) == 1
+    assert "gpt-6-astra cannot be the sidekick" in capsys.readouterr().err
+    assert (proj.root / "fusion" / "local.json").read_bytes() == before
+
+
+def test_stored_model_outside_the_whitelist_runs_as_luna_and_is_not_listed(proj, capsys):
+    # Chosen before rc.5 (or written by hand): the current model and its settings
+    local = config.load(proj.root)["local"]
+    local["sidekick"]["model"] = "gpt-6-astra"
+    local["sidekick"]["models"]["gpt-6-astra"] = {"effort": "ultra", "fast": True}
+    config.save_local(proj.root, local)
+
+    cfg = config.load(proj.root)
+    assert cfg["local"]["sidekick"]["model"] == "gpt-6-luna"
+    assert config.effective_settings(cfg)["model"] == "gpt-6-luna"
     assert cli.main(["--project", str(proj.root), "config", "panel"]) == 0
     panel = json.loads(capsys.readouterr().out)
-    assert panel["model"] == "gpt-6-astra" and panel["unavailable"] == ["gpt-6-astra"]
-    assert panel["recommended_effort"] is None
+    assert panel["model"] == "gpt-6-luna" and panel["effort"] == "high"
+    assert panel["models"] == ["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna"] and panel["unavailable"] == []
+    assert "gpt-6-astra" not in panel["model_names"]
+
+
+def test_whitelisted_model_codex_does_not_list_is_unavailable(proj, capsys):
+    cache = Path(os.environ["CODEX_HOME"]) / "models_cache.json"
+    data = json.loads(cache.read_text(encoding="utf-8"))
+    data["models"] = [entry for entry in data["models"] if entry["slug"] != "gpt-6.1-terra"]
+    cache.write_text(json.dumps(data), encoding="utf-8")
+    config._MODEL_CACHE_STATE = None
+
+    assert cli.main(["--project", str(proj.root), "config", "panel"]) == 0
+    panel = json.loads(capsys.readouterr().out)
+    assert panel["models"] == ["gpt-6.1-sol", "gpt-6-luna", "gpt-6.1-terra"]
+    assert panel["unavailable"] == ["gpt-6.1-terra"]

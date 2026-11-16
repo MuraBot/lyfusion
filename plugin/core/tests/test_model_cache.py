@@ -38,14 +38,15 @@ def test_panel_uses_cache_priority_capabilities_and_visibility(proj, capsys):
                     supported_reasoning_levels=[{"effort": effort} for effort in
                                                 ("low", "medium", "high", "xhigh", "max", "ultra")]),
         model_entry("gpt-6-luna", 6, display_name="GPT-6-Luna"),
-        model_entry("gpt-reserve", 0, visibility="hide"),
+        model_entry("gpt-6-astra", 3, display_name="GPT-6-Astra"),
+        model_entry("gpt-6.1-terra", 0, visibility="hide"),
     ])
 
     assert main(["--project", str(proj.root), "config", "panel"]) == 0
     panel = json.loads(capsys.readouterr().out)
-    assert panel["models"][:2] == ["gpt-6.1-sol", "gpt-6-luna"]
-    assert "gpt-6-astra" not in panel["models"]  # never offered as the sidekick (Lily, 2026-11-16)
-    assert "gpt-reserve" not in panel["models"]
+    # Only the sidekick whitelist, in Codex's order; a whitelisted model Codex hides is listed as unavailable
+    assert panel["models"] == ["gpt-6.1-sol", "gpt-6-luna", "gpt-6.1-terra"]
+    assert panel["unavailable"] == ["gpt-6.1-terra"]
     assert panel["model_names"]["gpt-6.1-sol"] == "GPT-6.1-Sol"
     assert {"gpt-6.1-sol", "gpt-6-luna"}.issubset(panel["fast_models"])
     assert config.model_efforts("gpt-6.1-sol")[-1] == "ultra"
@@ -57,7 +58,7 @@ def test_config_validates_cache_efforts_and_speed_tiers(proj, capsys):
                     supported_reasoning_levels=[{"effort": value} for value in
                                                 ("low", "medium", "high", "xhigh", "max", "ultra")]),
         model_entry("gpt-6-luna", 6, display_name="GPT-6-Luna"),
-        model_entry("slow-model", 2, additional_speed_tiers=[]),
+        model_entry("gpt-6.1-terra", 2, additional_speed_tiers=[]),
     ])
     assert main(["--project", str(proj.root), "config", "model", "gpt-6.1-sol"]) == 0
     capsys.readouterr()
@@ -67,7 +68,7 @@ def test_config_validates_cache_efforts_and_speed_tiers(proj, capsys):
     capsys.readouterr()
     assert main(["--project", str(proj.root), "config", "effort", "ultra"]) != 0
     capsys.readouterr()
-    assert main(["--project", str(proj.root), "config", "model", "slow-model"]) == 0
+    assert main(["--project", str(proj.root), "config", "model", "gpt-6.1-terra"]) == 0
     capsys.readouterr()
     assert main(["--project", str(proj.root), "config", "fast", "on"]) != 0
     assert "Fast Mode" in capsys.readouterr().err
@@ -121,13 +122,13 @@ def test_cache_is_read_once_per_mtime(proj, monkeypatch):
     config.model_efforts("gpt-6-luna")
     config.supports_fast("gpt-6-luna")
     config.max_compact("gpt-6-luna")
-    config.known_models()
+    assert "gpt-6.1-terra" in config.known_models()
     assert len(reads) == 1
 
     stat = cache.stat()
-    cache.write_text(json.dumps({"models": [model_entry("changed", 1)]}), encoding="utf-8")
+    cache.write_text(json.dumps({"models": [model_entry("gpt-6-luna", 1)]}), encoding="utf-8")
     os.utime(cache, ns=(stat.st_atime_ns, stat.st_mtime_ns + 2_000_000_000))
-    assert "changed" in config.known_models()
+    assert config.known_models() == ["gpt-6-luna"]
     assert len(reads) == 2
 
 

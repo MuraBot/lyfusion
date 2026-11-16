@@ -18,14 +18,13 @@ MODEL_INFO = {
                     "fast": True, "max_compact": 872000},
     "gpt-6-luna": {"name": "GPT-6-Luna", "efforts": ["low", "medium", "high", "xhigh", "max"],
                    "fast": True, "max_compact": 872000},
-    "gpt-6-astra": {"name": "GPT-6-Astra", "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
-                    "fast": True, "max_compact": 872000},
 }
-# Lily's sidekick policy (2026-11-16): models never offered as the sidekick, and per-model effort floors with the
-# recommended effort. GPT-6-Luna below high is too weak to work as a sidekick.
-EXCLUDED_MODELS = {"gpt-6-astra"}
+# Lily's sidekick whitelist (rc.5): only these models can be the sidekick; Codex's model cache still supplies their
+# names, efforts, Fast Mode and context sizes. A stored model outside it runs as DEFAULT_MODEL.
+SIDEKICK_MODELS = ("gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna")
+DEFAULT_MODEL = "gpt-6-luna"
+# Per-model effort floors with the recommended effort: GPT-6-Luna below high is too weak to work as a sidekick.
 EFFORT_POLICY = {"gpt-6-luna": {"min": "high", "recommended": "high"}}
-KNOWN_MODELS = [model for model in MODEL_INFO if model not in EXCLUDED_MODELS]
 DEFAULT_EFFORTS = ["low", "medium", "high", "xhigh"]
 COMPACT_CHOICES = [262144, 400000, 600000, 800000]
 _MODEL_CACHE_STATE = None
@@ -35,21 +34,20 @@ def codex_home() -> Path:
     return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
 
 
-def _models_from_state(entries: dict[str, dict], ordered: list[dict], warning: str | None) -> list[str]:
+def _models_from_state(ordered: list[dict], warning: str | None) -> list[str]:
+    """The whitelisted models Codex lists, in its priority order; the built-in ones when its cache is unreadable."""
     if warning is not None:
-        return [model for model in MODEL_INFO if model not in EXCLUDED_MODELS]
-    cached = [entry["slug"] for entry in sorted(
+        return [model for model in SIDEKICK_MODELS if model in MODEL_INFO]
+    return [entry["slug"] for entry in sorted(
         ordered,
         key=lambda entry: (entry.get("priority") if isinstance(entry.get("priority"), int)
                            and not isinstance(entry.get("priority"), bool) else 0),
-    ) if entry.get("visibility") == "list"]
-    models = cached + [model for model in MODEL_INFO if model not in entries]
-    return [model for model in models if model not in EXCLUDED_MODELS]
+    ) if entry.get("visibility") == "list" and entry["slug"] in SIDEKICK_MODELS]
 
 
 def _model_cache() -> tuple[dict[str, dict], list[dict], str | None]:
     """Read Codex's model cache once per path and modification time."""
-    global _MODEL_CACHE_STATE, KNOWN_MODELS
+    global _MODEL_CACHE_STATE
     path = codex_home() / "models_cache.json"
     try:
         mtime = path.stat().st_mtime_ns
@@ -92,18 +90,12 @@ def _model_cache() -> tuple[dict[str, dict], list[dict], str | None]:
     if reason is not None:
         entries, ordered = {}, []
     _MODEL_CACHE_STATE = (path, mtime, entries, ordered, warning)
-    KNOWN_MODELS = _models_from_state(entries, ordered, warning)
     return entries, ordered, warning
 
 
 def known_models() -> list[str]:
-    entries, ordered, warning = _model_cache()
-    return _models_from_state(entries, ordered, warning)
-
-
-def is_hidden_model(model: str) -> bool:
-    entries, _, warning = _model_cache()
-    return warning is None and model in entries and entries[model].get("visibility") != "list"
+    _, ordered, warning = _model_cache()
+    return _models_from_state(ordered, warning)
 
 
 def model_info(model: str) -> dict:
@@ -154,7 +146,7 @@ DEFAULT_LOCAL = {
     "enabled": False,
     "handoff_mode": "write",
     "handoff_tokens": 200000,
-    "sidekick": {"model": "gpt-6-luna", "models": {"gpt-6-luna": {"effort": "high", "fast": False}}},
+    "sidekick": {"model": DEFAULT_MODEL, "models": {DEFAULT_MODEL: {"effort": "high", "fast": False}}},
     "env": {},                    # Additional environment variables for the assistant and check commands.
     "codex": None,                # Codex command as a list; found automatically by default.
 }
@@ -229,6 +221,9 @@ def _normalize_sidekick(sidekick: dict) -> None:
         sidekick.pop("effort", None)
         sidekick.pop("fast", None)
     sidekick["models"] = models
+    if model not in SIDEKICK_MODELS:
+        # Stored before the whitelist, or by hand: the sidekick runs as the default model
+        sidekick["model"] = DEFAULT_MODEL
 
 
 def current_model_settings(sidekick: dict) -> dict:

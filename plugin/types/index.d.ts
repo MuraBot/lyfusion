@@ -7,7 +7,7 @@ export type Panel = {
   enabled: boolean
   model: string
   models: string[]
-  unavailable?: string[] // listed only because local.json names them; not offered as the sidekick (rc.4)
+  unavailable?: string[] // sidekick models Codex does not list: shown, not pickable (rc.4; the whitelist rc.5)
   effort: string | null
   efforts: string[]
   recommended_effort?: string | null // rc.4

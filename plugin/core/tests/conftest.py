@@ -31,8 +31,19 @@ def isolated_codex_home(tmp_path, monkeypatch):
     codex_home = tmp_path / "codex-home"
     codex_home.mkdir()
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    # Codex's model cache as the tests see it: the three sidekick models, and GPT-6-Astra, which Codex lists but is not
+    # on the sidekick whitelist. GPT-6.1-Terra here has no Fast Mode and no known context size (test data, not Codex's
+    # real values)
+    table = {
+        "gpt-6.1-sol": config_mod.MODEL_INFO["gpt-6.1-sol"],
+        "gpt-6.1-terra": {"name": "GPT-6.1-Terra", "efforts": ["low", "medium", "high", "xhigh"], "fast": False,
+                          "max_compact": None},
+        "gpt-6-luna": config_mod.MODEL_INFO["gpt-6-luna"],
+        "gpt-6-astra": {"name": "GPT-6-Astra", "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+                        "fast": True, "max_compact": 872000},
+    }
     models = []
-    for priority, (slug, info) in enumerate(config_mod.MODEL_INFO.items()):
+    for priority, (slug, info) in enumerate(table.items()):
         models.append({
             "slug": slug,
             "display_name": info["name"],

@@ -1,5 +1,5 @@
 {
-  "description": "lyfusion: SessionStart injects instructions for the four workflow actions in new sessions (outputs nothing when Fusion is disabled for the project); modules is the Fusion bar module (the ● Fusion button below the input opens the Fusion card, a small floating pane on the desktop app; it also records lead usage during explore and accept)",
+  "description": "lyfusion: SessionStart injects instructions for the four workflow actions in new sessions (outputs nothing when Fusion is disabled for the project); modules is the Fusion bar module (the 🟠 Fusion button below the input opens the Fusion card, a small floating pane on the desktop app; it also records lead usage during explore and accept)",
   "modules": ["./register.tsx"],
   "hooks": {
     "SessionStart": [

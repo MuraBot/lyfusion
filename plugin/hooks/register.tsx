@@ -1,5 +1,5 @@
 // lyfusion's Fusion bar (rc.1 tasks 6 and 7; the card rc.4; written by the lead)
-// - SessionMode (below the input, next to the model picker): the "● Fusion" button, Claude orange when Fusion is on, grey when off;
+// - SessionMode (below the input, next to the model picker): the "🟠 Fusion" button (⚪ when off, 🟡 after an update);
 //   press it to open or close the Fusion card
 // - The card is a pane that asks for the desktop app's small floating form (a widget), so nothing is drawn in the band above
 //   the prompt. It fills the pane and follows its size (the Pane hook runs again on a resize). Like the desktop's model picker:
@@ -22,7 +22,7 @@ import type { ElementTable, EngineInterface, Register, RenderChildren, RenderEle
 import type { Notice, Panel, Stale } from '../types'
 
 // The version this module was built as: the same string as plugin.json and fusion_core.VERSION (tests/test_shape.py checks)
-const MOD_VERSION = '5.0.0-rc.4'
+const MOD_VERSION = '5.0.0-rc.5'
 const PANE = 'fusion'
 
 const panel = atom({ plugin: 'lyfusion-plugin', key: 'panel' } as const, null)
@@ -72,7 +72,7 @@ let staleWarned = false // toast once
 // that moment, which would otherwise be the one being accepted)
 let pendingExplore: Counts | null = null
 
-// A row of the card (row.tsx draws it)
+// A row of the card's lists
 type Item = {
   value: string
   label: string
@@ -109,6 +109,14 @@ function lastLine(text: string): string {
   const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
   return lines[lines.length - 1] ?? ''
 }
+
+// Rounded greys are pictures (rc.5): a Box has no corner radius and a Client cannot draw an Svg. A half-transparent grey
+// reads on light and dark themes alike; the picture takes the width of the Box it sits in. The row height (22 px) and
+// the 6 px corners are what Lily picked in the rc.5 preview
+const HIGHLIGHT_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%"><rect width="100%" height="100%" rx="6" ry="6" fill="#808080" fill-opacity="0.22"/></svg>'
+const BADGE_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%"><rect width="100%" height="100%" rx="4" ry="4" fill="#808080" fill-opacity="0.18"/></svg>'
 
 // The switch picture. An image, so theme names cannot reach it: Claude orange when on, a half-transparent grey
 // track when off (reads on light and dark), white knob with a faint edge
@@ -276,7 +284,7 @@ async function pick($: EngineInterface, args: string[]): Promise<void> {
   await change($, args)
 }
 
-// The "● Fusion" button: open the card as a desktop widget (a surface without widgets seats it as usual), or close it
+// The Fusion button: open the card as a desktop widget (a surface without widgets seats it as usual), or close it
 async function toggleCard($: EngineInterface): Promise<void> {
   const isUp = (await $.ui.panes()).some(pane => pane.id === PANE)
   if (isUp) {
@@ -323,7 +331,8 @@ function usageFailed($: EngineInterface, text: string): void {
   }
 }
 
-// The card on the desktop app: menu rows and switches drawn by Clients (row.tsx, hit.tsx), Plain (the widget is the frame)
+// The card on the desktop app, Plain (the widget is the frame). It draws its rows and switches itself; an empty Client
+// (hit.tsx) over each takes the click
 async function desktopCard($: EngineInterface, table: ElementTable, state: Panel): Promise<RenderElement | null> {
   const { Box, Text, Button } = table
   const Svg = 'Svg' in table ? table.Svg : undefined
@@ -337,8 +346,58 @@ async function desktopCard($: EngineInterface, table: ElementTable, state: Panel
   const note = await read($, notice)
   const name = (id: string) => state.model_names?.[id] ?? modelName(id)
 
+  // A small badge like the desktop's own (Recommended, Unavailable): grey text on a rounded grey picture
+  const badge = (tag: string) => (
+    <Box flexDirection="row" alignItems="center">
+      <Box position="absolute" top={0} left={0} right={0} bottom={0} overflow="hidden" justifyContent="center">
+        <Svg source={BADGE_SVG} alt={tag} height={16} />
+      </Box>
+      <Box position="relative" paddingX={1}>
+        <Text dimColor size="caption">
+          {tag}
+        </Text>
+      </Box>
+    </Box>
+  )
+
+  // A menu row like the desktop's model picker: under the pointer the surface shows the rounded grey behind it
+  // (no hook runs); a row that cannot be picked is dim and inert. A click posts { pick: id, value }
   const row = (id: string, item: Item) => (
-    <Client key={`row-${id}-${item.value}`} module="./row.tsx" props={{ id, item }} width="100%" />
+    <Box key={`item-${id}-${item.value}`} width="100%" height={1}>
+      {item.disabled ? null : (
+        <Box position="absolute" top={0} left={0} right={0} bottom={0} overflow="hidden" display="none" hover={{ display: 'flex' }}>
+          <Svg source={HIGHLIGHT_SVG} alt="Highlight" height={22} />
+        </Box>
+      )}
+      <Box
+        key={`row-${id}-${item.value}`}
+        position="relative"
+        width="100%"
+        height={1}
+        flexDirection="row"
+        alignItems="center"
+        justifyContent="space-between"
+        gap={1}
+        paddingX={1}
+      >
+        <Box flexDirection="row" alignItems="center" gap={1}>
+          <Text dimColor={item.disabled} weight={item.strong ? 'semibold' : undefined} wrap="truncate-end">
+            {item.label}
+          </Text>
+          {item.tag ? badge(item.tag) : null}
+        </Box>
+        <Box flexDirection="row" alignItems="center" gap={1}>
+          {item.detail ? <Text dimColor>{item.detail}</Text> : null}
+          {item.checked ? <Text color="suggestion">✓</Text> : null}
+          {item.chevron ? <Text dimColor>›</Text> : null}
+        </Box>
+      </Box>
+      {item.disabled ? null : (
+        <Box position="absolute" top={0} left={0} right={0} bottom={0}>
+          <Client key={`pick-${id}-${item.value}`} module="./hit.tsx" props={{ data: { pick: id, value: item.value } }} width="100%" height="100%" />
+        </Box>
+      )}
+    </Box>
   )
 
   // The switch picture with an invisible Client over it: a click on it flips the setting (ui.message)
@@ -346,7 +405,7 @@ async function desktopCard($: EngineInterface, table: ElementTable, state: Panel
     <Box key={`switch-${id}`} width={5} height={1}>
       <Svg source={switchSvg(isOn)} alt={`${label} ${isOn ? 'on' : 'off'}`} width={36} height={20} />
       <Box position="absolute" top={0} left={0} right={0} bottom={0}>
-        <Client key={`hit-${id}`} module="./hit.tsx" props={{ id }} width="100%" height="100%" />
+        <Client key={`hit-${id}`} module="./hit.tsx" props={{ data: { toggle: id } }} width="100%" height="100%" />
       </Box>
     </Box>
   )
@@ -710,14 +769,16 @@ export const register: Register = on => {
     if (!state && !old) {
       return next(e)
     }
-    const { Box, Text, Button } = $.ui.resolve(e)
-    const modes = e.props.modes.join(' & ')
+    const { Box, Button } = $.ui.resolve(e)
+    // What the engine and other mods draw here (the mode labels) stays, before the button
+    const beneath = await next(e)
+    // The desktop draws a Button's Text children without their colours (rc.5, Lily's screenshots), so the dot is an
+    // emoji, whose colour is its own: orange on, white off, yellow when a newer package needs a new session
+    const dot = old ? '🟡' : state?.enabled ? '🟠' : '⚪'
     return (
       <Box flexDirection="row" alignItems="center" gap="xs">
-        {modes ? <Text dimColor>{modes}</Text> : null}
-        <Button key="fusion" onPress={() => void toggleCard($)}>
-          <Text color={old ? 'warning' : state?.enabled ? 'claude' : 'inactive'}>●</Text> Fusion
-        </Button>
+        {beneath}
+        <Button key="fusion" label={`${dot} Fusion`} onPress={() => void toggleCard($)} />
       </Box>
     )
   })

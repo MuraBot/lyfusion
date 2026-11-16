@@ -845,16 +845,10 @@ def main(argv=None) -> int:
             if args.action == "panel":
                 local = cfg["local"]
                 sidekick = local.get("sidekick", {})
-                model = sidekick.get("model", config_mod.DEFAULT_LOCAL["sidekick"]["model"])
-                model_settings = sidekick.get("models", {})
-                models = config_mod.known_models()
-                listed = set(models)
-                if isinstance(model_settings, dict):
-                    models.extend(name for name in model_settings
-                                  if isinstance(name, str) and not config_mod.is_hidden_model(name))
-                if not config_mod.is_hidden_model(model):
-                    models.append(model)
-                models = list(dict.fromkeys(models))
+                model = sidekick.get("model", config_mod.DEFAULT_MODEL)  # load() keeps it on the whitelist
+                # Every whitelisted model: the ones Codex offers in its order, then the ones it does not list
+                offered = config_mod.known_models()
+                models = offered + [name for name in config_mod.SIDEKICK_MODELS if name not in offered]
                 current = config_mod.current_model_settings(sidekick)
                 compact_choices = config_mod.compact_choices(model, current["compact"])
                 effective = config_mod.effective_settings(cfg)
@@ -865,7 +859,7 @@ def main(argv=None) -> int:
                     "enabled": bool(local.get("enabled", False)),
                     "model": model,
                     "models": models,
-                    "unavailable": [name for name in models if name not in listed],  # not in Codex's model list
+                    "unavailable": [name for name in models if name not in offered],  # not in Codex's model list
                     "effort": current["effort"],
                     "efforts": config_mod.model_efforts(model),
                     "recommended_effort": config_mod.recommended_effort(model),
@@ -933,6 +927,9 @@ def main(argv=None) -> int:
                     raise FusionError(f"config {args.action} requires a value")
                 sidekick = cfg["local"]["sidekick"]
                 if args.action == "model":
+                    if value not in config_mod.SIDEKICK_MODELS:
+                        raise FusionError(f"{value} cannot be the sidekick; the sidekick models are "
+                                          + ", ".join(config_mod.SIDEKICK_MODELS))
                     sidekick["model"] = value
                     config_mod.save_local(root, cfg["local"])
                 elif args.action == "compact":
