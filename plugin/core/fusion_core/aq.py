@@ -12,7 +12,7 @@ from .util import CMD, FusionError, any_match, git
 
 def read_input(value: str | None, stdin) -> str:
     if not value:
-        raise FusionError("缺少输入文件或 - (标准输入)")
+        raise FusionError("Missing input file or - (standard input)")
     if value == "-":
         return stdin.buffer.read().decode("utf-8-sig")
     return Path(value).read_bytes().decode("utf-8-sig")
@@ -24,19 +24,19 @@ def parse_plan(text: str) -> dict:
     try:
         return validate.plan(json.loads(text))
     except json.JSONDecodeError as exc:
-        raise FusionError(f"计划不是合法的 JSON:{exc}") from exc
+        raise FusionError(f"Plan is not valid JSON:{exc}") from exc
 
 
 def _markdown_plan(text: str) -> dict:
-    """把 Markdown 计划转换成四字段计划。"""
+    """Convert a Markdown plan to a four-field plan."""
     text = text.lstrip("\ufeff \t\r\n")
     lines = text.splitlines()
     first = next((index for index, line in enumerate(lines) if line.strip()), None)
     if first is None:
-        raise FusionError('Markdown 计划第一行要是 "# 一句话目标";也可以用 JSON(第一个字符是 {)')
+        raise FusionError('The first line of a Markdown plan must be "# One-line goal"; JSON is also accepted (first character is {)')
     goal_match = re.fullmatch(r"#\s+(.+?)\s*", lines[first])
     if not goal_match or not goal_match.group(1).strip():
-        raise FusionError('Markdown 计划第一行要是 "# 一句话目标";也可以用 JSON(第一个字符是 {)')
+        raise FusionError('The first line of a Markdown plan must be "# One-line goal"; JSON is also accepted (first character is {)')
     goal = goal_match.group(1).strip()
 
     reserved: dict[str, list[str]] = {}
@@ -63,7 +63,7 @@ def _markdown_plan(text: str) -> dict:
             if match:
                 name = match.group(1).lower()
                 if name in reserved:
-                    raise FusionError(f"## {name} 一节只能写一次")
+                    raise FusionError(f"## {name} section may appear only once")
                 reserved[name] = []
                 section = name
                 removed.add(index)
@@ -75,12 +75,12 @@ def _markdown_plan(text: str) -> dict:
                 continue
             item_match = re.fullmatch(r"\s*[-*]\s+(.+?)\s*", line)
             if not item_match:
-                raise FusionError(f'## {section} 一节每行写 "- 项":{line}')
+                raise FusionError(f'## {section} section items must use "- item":{line}')
             item = item_match.group(1).strip()
             if len(item) >= 2 and item.startswith("`") and item.endswith("`"):
                 item = item[1:-1].strip()
             if not item:
-                raise FusionError(f'## {section} 一节每行写 "- 项":{line}')
+                raise FusionError(f'## {section} section items must use "- item":{line}')
             reserved[section].append(item)
 
     brief_lines = [line for index, line in enumerate(lines) if index not in removed]

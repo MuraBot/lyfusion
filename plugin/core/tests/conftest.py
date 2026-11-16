@@ -1,6 +1,6 @@
-"""测试夹具:每个测试一个小 git 项目 + 假 Codex。
+"""Test fixtures: a small Git project and fake Codex for each test.
 
-项目放在 tests/_work/ 下(不能放系统临时目录:引擎会拒绝在临时目录里开工位)。
+Projects live under tests/_work/ (not the system temp directory; the engine refuses to create a worktree there).
 """
 from __future__ import annotations
 
@@ -55,11 +55,11 @@ TEST_GREET = ('import unittest\nfrom app.greet import hello\n\n\nclass T(unittes
 def sh(*args, cwd):
     p = subprocess.run(list(args), cwd=cwd, check=False, capture_output=True, text=True, encoding="utf-8")
     if p.returncode != 0:
-        raise RuntimeError(f"{args} 失败:{p.stderr}")
+        raise RuntimeError(f"{args} failed:{p.stderr}")
     return p.stdout.strip()
 
 
-def report(summary="做完了", **kw):
+def report(summary="Done", **kw):
     r = {"status": "done", "summary": summary, "choices": [], "questions": [], "problems": []}
     r.update(kw)
     return r
@@ -79,7 +79,7 @@ class Proj:
         self.write("app/greet.py", GREET)
         self.write("tests/__init__.py", "")
         self.write("tests/test_greet.py", TEST_GREET)
-        self.commit("初始")
+        self.commit("Initial commit")
         test_cmd = f'"{sys.executable}" -m unittest discover -s tests -t . -q'
         config_mod.init(self.root, test=test_cmd)
         local = config_mod.load(self.root)["local"]
@@ -90,7 +90,7 @@ class Proj:
         self.script([])
         self.sup = Supervisor(self.root, poll=0.05)
 
-    # ---- 文件和 git ----
+    # ---- Files and Git ----
     def write(self, rel, text, root=None):
         p = (root or self.root) / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -111,7 +111,7 @@ class Proj:
     def station(self) -> Path:
         return self.root.parent / "proj-fusion"
 
-    # ---- 假 Codex ----
+    # ---- Fake Codex ----
     def script(self, steps):
         self.script_path.write_text(json.dumps(steps, ensure_ascii=False), encoding="utf-8")
         for suffix in (".n", ".calls.jsonl"):
@@ -125,7 +125,7 @@ class Proj:
             return []
         return [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()]
 
-    # ---- 引擎 ----
+    # ---- Engine ----
     def ctx(self):
         return Ctx(self.root)
 
@@ -163,7 +163,7 @@ def proj(request):
 
 
 def _rm(path: Path):
-    # 先拆掉 worktree 登记,再删目录
+    # Remove the worktree registration before deleting the directory.
     def onerr(func, p, exc):
         import os
         import stat

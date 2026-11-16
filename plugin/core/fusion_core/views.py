@@ -12,9 +12,9 @@ from .config import (
 )
 from .util import CMD
 
-STATE_CN = {"exploring": "探索中", "explored": "探索完成", "planned": "待派工", "running": "助手在做",
-            "blocked": "待回答", "checking": "检查中", "in_review": "待审", "integrating": "验收中",
-            "accepted": "已验收", "cancelled": "已取消"}
+STATE_LABEL = {"exploring": "Exploring", "explored": "Explored", "planned": "Planned", "running": "Running",
+            "blocked": "Blocked", "checking": "Checking", "in_review": "In review", "integrating": "Integrating",
+            "accepted": "Accepted", "cancelled": "Cancelled"}
 SESSION_LIMIT = 20
 
 LEAD_GUIDE = """lyfusion is on: the Codex sidekick writes this project's code; you (the lead) define each task completely and review the result.
@@ -84,50 +84,50 @@ def session_context(root, cfg, state, source=None) -> str:
 
 def task_line(task: dict) -> str:
     plan = task.get("plan") or {}
-    return f"{task['id']} · {STATE_CN.get(task['state'], task['state'])} · {plan.get('goal', '')}"
+    return f"{task['id']} · {STATE_LABEL.get(task['state'], task['state'])} · {plan.get('goal', '')}"
 
 
 def status(root, cfg, state, target: str | None = None) -> str:
     if target and target.startswith("r"):
         run = state["runs"].get(target)
-        return f"{target}: {run['status']} ({run['kind']})" if run else f"运行 {target} 不存在"
+        return f"{target}: {run['status']} ({run['kind']})" if run else f"Run {target} does not exist"
     if target:
         task = state["tasks"].get(target)
-        return task_line(task) if task else f"任务 {target} 不存在"
+        return task_line(task) if task else f"Task {target} does not exist"
     local = cfg.get("local", {})
     sk = local.get("sidekick", {})
     settings = current_model_settings(sk)
     effective = effective_settings(cfg)
     handoff = handoff_settings(cfg)
-    fast_label = "on" if settings["fast"] else "off" if supports_fast(sk.get("model", "")) else "不支持"
-    lines = [f"Fusion: {'开启' if local.get('enabled') else '关闭'}",
-             f"助手: {sk.get('model', '')} · effort {settings['effort'] or '默认'} · fast {fast_label} · 压缩 {settings['compact']}",
-             ("Codex 环境: 干净(不读 ~/.codex/config.toml,关 apps、plugins)" if effective["clean"]
-              else "Codex 环境: 和桌面端一样(读 ~/.codex/config.toml)")
-             + "(项目设置 fusion/config.json 的 clean)",
-             f"换工位: 上下文超过 {effective['switch_at']}(压缩上限 {settings['compact']} × {int(effective['context_ratio'] * 100)}%)",
+    fast_label = "on" if settings["fast"] else "off" if supports_fast(sk.get("model", "")) else "unsupported"
+    lines = [f"Fusion: {'on' if local.get('enabled') else 'off'}",
+             f"Assistant: {sk.get('model', '')} · effort {settings['effort'] or 'default'} · fast {fast_label} · compact {settings['compact']}",
+             ("Codex environment: clean (does not read ~/.codex/config.toml; apps and plugins disabled)" if effective["clean"]
+              else "Codex environment: same as desktop (reads ~/.codex/config.toml)")
+             + "(set in fusion/config.json)",
+             f"Station rotation: context exceeds {effective['switch_at']}(compact limit {settings['compact']} × {int(effective['context_ratio'] * 100)}%)",
              f"Handoff: {handoff['mode']} (at {handoff['tokens']} tokens) · {handoff['dir']}"]
-    lines.extend(f"警告: {warning}" for warning in configuration_warnings(cfg))
+    lines.extend(f"Warning: {warning}" for warning in configuration_warnings(cfg))
     for task in state["tasks"].values():
         lines.append(task_line(task))
         if task.get("latest"):
             cand = state["candidates"][task["latest"]]
             check = cand.get("checks") or {}
-            lines.append(f"  候选 {task['latest']}: {'检查通过' if check.get('passed') else '检查未通过'}")
+            lines.append(f"  Candidate {task['latest']}: {'checks passed' if check.get('passed') else 'checks failed'}")
     if not state["tasks"]:
-        lines.append("没有任务")
+        lines.append("No tasks")
     return "\n".join(lines)
 
 
 def ledger(state, task_id: str | None = None) -> str:
-    lines = ["| 任务 | 状态 | 目标 | 修复 | 修改轮 | Lead(验收时) | Lead 调用(工具/请求) | 助手输入/缓存/输出 (M) | 助手模型 / effort / fast |",
+    lines = ["| Task | State | Goal | Fixes | Change rounds | Lead (at acceptance) | Lead calls (tools/requests) | Assistant input/cache/output (M) | Assistant model / effort / fast |",
              "|---|---|---|---:|---:|---:|---:|---:|---|"]
     for task in state["tasks"].values():
         if task_id and task["id"] != task_id:
             continue
         plan = task.get("plan") or {}
         usage = state.get("usage", {}).get(task["id"], {})
-        # 引擎不读 Claude 的记录;lead 的用量由 lead 自己用用量工具看,没有数据就写明
+        # The engine does not read Claude usage; lead checks usage with its own usage tool. Missing data is shown explicitly.
         lead = _lead_usage_display(state, task["id"])
         lead_calls = _lead_calls_display(state, task["id"])
         assistant = _usage_triplet(usage.get("sidekick", {}))
@@ -138,14 +138,14 @@ def ledger(state, task_id: str | None = None) -> str:
             model = run.get("model")
             if not model:
                 continue
-            item = (model, run.get("effort") or "默认", "on" if run.get("fast") else "off")
+            item = (model, run.get("effort") or "default", "on" if run.get("fast") else "off")
             if item not in seen:
                 settings.append(" / ".join(item))
                 seen.add(item)
         lines.append(f"| {task['id']} | {task['state']} | {plan.get('goal', '')} | {task['fix_attempts']} | {task['change_rounds']} | {lead} | {lead_calls} | {assistant} | {'<br>'.join(settings)} |")
-    lines += ["", "| 任务 | 运行 | 种类 | 结束状态 | 用时(分钟) | 命令 | 碎读 | 重复 | full tests | partial tests | lint | other cmds | thinking | Codex 版本 |",
+    lines += ["", "| Task | Run | Kind | Final state | Duration (minutes) | Commands | Small reads | Repeats | Full tests | Partial tests | Lint | Other commands | Thinking | Codex version |",
               "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
-    kinds = {"explore": "探索", "implement": "实现", "changes": "修改", "fix": "自动修", "report": "补报告", "minor_fix": "minor fix", "continue": "continue"}
+    kinds = {"explore": "explore", "implement": "implement", "changes": "changes", "fix": "auto-fix", "report": "report retry", "minor_fix": "minor fix", "continue": "continue"}
     for run in state.get("runs", {}).values():
         if task_id and run.get("task") != task_id:
             continue
@@ -176,7 +176,7 @@ def _usage_triplet(usage: dict) -> str:
 def _lead_usage_display(state: dict, task_id: str) -> str:
     accept = state.get("lead_usage", {}).get(task_id)
     if not accept:
-        return "未记录"
+        return "Not recorded"
     accept_data = accept.get("data", {})
     explores = []
     for record in state.get("lead_usage_events", []):
@@ -199,19 +199,19 @@ def _lead_usage_display(state: dict, task_id: str) -> str:
         amount = f"-${abs(delta):.2f}" if delta < 0 else f"${delta:.2f}"
     else:
         amount = "-"
-    parts = [f"本任务 {amount}"]
+    parts = [f"This task {amount}"]
     context = []
     if "tokens" in accept_data and "window" in accept_data:
         context.append(
-            f"上下文 {_compact_tokens(accept_data['tokens'])}/"
+            f"Context {_compact_tokens(accept_data['tokens'])}/"
             f"{_compact_tokens(accept_data['window'])}"
         )
     if "five_hour" in accept_data:
         context.append(f"5h {_format_percent(accept_data['five_hour'])}")
     if "seven_day" in accept_data:
-        context.append(f"周 {_format_percent(accept_data['seven_day'])}")
+        context.append(f"7d {_format_percent(accept_data['seven_day'])}")
     if context:
-        parts.append(f"验收时 {context[0]}")
+        parts.append(f"At acceptance {context[0]}")
         parts.extend(context[1:])
     return " · ".join(parts)
 

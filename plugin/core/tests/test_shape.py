@@ -23,7 +23,7 @@ def test_removed_public_surfaces_are_absent():
 
 
 def test_no_bin_dir_and_guide_has_full_command():
-    # claude.ai 鎵樼鐨勬彃浠朵笉鑳藉甫椤跺眰 bin/;lead 鐢ㄤ娇鐢ㄨ鏄庨噷鐨勫畬鏁村懡浠よ繍琛屽紩鎿?
+    # claude.ai hosted plugins cannot include a top-level bin/; the lead runs the engine using the full command in the usage guide.
     from fusion_core.util import CMD
     from fusion_core.views import lead_guide
 
@@ -33,7 +33,7 @@ def test_no_bin_dir_and_guide_has_full_command():
     for sub in ("explore -", "delegate -", "revise -", "accept", "wait", "cancel"):
         assert f"{CMD} {sub}" in guide, sub
     assert "fusion-core " not in guide.replace(CMD, "")
-    # /fusion 鏄彧缁欑敤鎴锋墜鍔ㄨ繍琛岀殑鎶€鑳?瑁稿悕 /fusion 鑳界敤,鎻忚堪涓嶈繘 Claude 鐨勪笂涓嬫枃
+    # /fusion is a user-invoked skill; aliases work, but its description is excluded from Claude context.
     assert not (PLUGIN / "commands").exists()
     skill = (PLUGIN / "skills/fusion/SKILL.md").read_text(encoding="utf-8")
     front = skill.split("---")[1].splitlines()

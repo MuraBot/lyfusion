@@ -1,12 +1,12 @@
-"""假 Codex:按剧本输出事件、改文件、写最终回复。只给测试用。
+"""Fake Codex: emit events, change files, and write final replies from scripted steps. For tests only.
 
-剧本是 JSON 列表,每次被调用取下一步(计数器存在剧本旁边)。一步可以有:
-  write: {路径: 内容}       在工作目录里写文件
-  delete: [路径]
+The script is a JSON list; each invocation takes the next step (the counter is stored beside the script). A step can include:
+  write: {path: content}    write a file in the working directory
+  delete: [path]
   commands: [{"command": "...", "exit": 0}]
-  report: {...}             最终回复(JSON 报告);或 text: "..." 原样输出
-  sleep: 秒
-  resume_fails: true        续用时假装找不到会话(不输出 thread.started、不写最终回复)
+  report: {...}             final reply (JSON report); or text: "..." to output verbatim
+  sleep: seconds
+  resume_fails: true        pretend the session cannot be resumed (no thread.started event or final reply)
   input_tokens / output_tokens
 """
 import json
@@ -46,7 +46,7 @@ def main():
     n = int(counter.read_text()) if counter.exists() else 0
     counter.write_text(str(n + 1))
     steps = json.loads(script.read_text(encoding="utf-8"))
-    step = steps[n] if n < len(steps) else {"report": _report("没有更多剧本")}
+    step = steps[n] if n < len(steps) else {"report": _report("No more scripted steps")}
     stdin_is_file = stat.S_ISREG(os.fstat(0).st_mode)
     prompt = sys.stdin.buffer.read().decode("utf-8")
     resume = len(args) > 1 and args[0] == "exec" and args[1] == "resume"
@@ -81,7 +81,7 @@ def main():
                                                  "aggregated_output": c.get("output", "")}})
     text = step.get("text")
     if text is None:
-        text = json.dumps(step.get("report") or _report("做完了"), ensure_ascii=False)
+        text = json.dumps(step.get("report") or _report("Done"), ensure_ascii=False)
     emit({"type": "item.completed", "item": {"id": "m", "type": "agent_message", "text": text}})
     emit({"type": "turn.completed", "usage": {"input_tokens": step.get("input_tokens", 1000),
                                               "cached_input_tokens": 800, "cache_write_input_tokens": 0,

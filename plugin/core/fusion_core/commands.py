@@ -13,7 +13,7 @@ class Ctx:
     def __init__(self, root: Path, actor: str = "lead"):
         self.root = Path(root)
         if not config_mod.is_fusion_project(self.root):
-            raise FusionError("这个项目没有打开 Fusion。先运行 /fusion on")
+            raise FusionError("Fusion has not been enabled for this project. Run /fusion on first.")
         self.cfg = config_mod.load(self.root)
         self.conn = store.connect(self.root)
         self.actor = actor
@@ -33,14 +33,14 @@ def _emit(ctx: Ctx, events: list[dict]) -> None:
 def _task(state: dict, task_id: str) -> dict:
     task = state["tasks"].get(task_id or "")
     if task is None:
-        raise FusionError(f"任务 {task_id} 不存在")
+        raise FusionError(f"Task {task_id} does not exist")
     return task
 
 
 def _wip_check(state: dict, excluding: str | None = None) -> None:
     busy = [t["id"] for t in state["tasks"].values() if t["id"] != excluding and t["state"] not in TERMINAL]
     if busy:
-        raise FusionError(f"同一时刻只允许 1 个进行中的任务:{busy[-1]} 还没结束")
+        raise FusionError(f"Only one task may be active at a time: {busy[-1]} is not finished")
 
 
 def _new_task(ctx: Ctx, plan: dict | None, initial_state: str) -> str:
@@ -62,21 +62,21 @@ DECISIONS = "fusion/decisions.md"
 
 
 def commit_decisions(root: Path) -> str | None:
-    """decisions.md 有改动就只提交这一个文件(检查点)。失败不挡派工,返回原因给 lead 看。"""
+    """Commit only decisions.md when it has changes (a checkpoint). Failure does not block delegation; return the reason for lead."""
     if not (root / DECISIONS).exists():
         return None
     code, out, _ = git("status", "--porcelain", "--", DECISIONS, cwd=root, check=False)
     if code != 0 or not out.strip():
         return None
     git("add", "--", DECISIONS, cwd=root, check=False)
-    code, _, err = git("commit", "-q", "-m", "fusion: 更新设计决定(decisions.md)", "--", DECISIONS,
+    code, _, err = git("commit", "-q", "-m", "fusion: update design decisions (decisions.md)", "--", DECISIONS,
                        cwd=root, check=False)
-    return None if code == 0 else f"没能提交 {DECISIONS}:{err.strip()[:200]}"
+    return None if code == 0 else f"Could not commit {DECISIONS}: {err.strip()[:200]}"
 
 
 def cmd_explore(ctx: Ctx, original: str) -> dict:
     if not isinstance(original, str) or not original.strip():
-        raise FusionError("探索输入不能为空;请写任务原话和问题")
+        raise FusionError("Exploration input cannot be empty; provide the user's task and questions")
     tid = _new_task(ctx, None, "exploring")
     state = replay(store.read(ctx.conn))
     rid = f"r{state['next_run']}"
@@ -97,7 +97,7 @@ def cmd_delegate(ctx: Ctx, raw_plan: dict, task_id: str | None = None) -> dict:
     else:
         tid = task["id"]
         if task["state"] != "explored":
-            raise FusionError(f"{tid} 还没有可派工的探索结果;请运行 explore 或选择已探索任务")
+            raise FusionError(f"{tid} has no exploration result to delegate yet; run explore or select an explored task")
         _wip_check(state, excluding=tid)
         _emit(ctx, [{"type": "plan_updated", "task": tid,
                      "data": {"plan": plan, "version": task["version"] + 1}}])
@@ -111,17 +111,17 @@ def cmd_delegate(ctx: Ctx, raw_plan: dict, task_id: str | None = None) -> dict:
 
 def cmd_revise(ctx: Ctx, task_id: str | None, text: str) -> dict:
     if not isinstance(text, str) or not text.strip():
-        raise FusionError("修改意见不能为空")
+        raise FusionError("Revision request cannot be empty")
     state = replay(store.read(ctx.conn))
     task = current_task(state, task_id)
     if task is None:
-        raise FusionError("没有进行中的任务")
+        raise FusionError("There is no active task")
     active_run = state["runs"].get(task.get("active_run") or "")
     if task["state"] == "running" and active_run and active_run["kind"] in ("implement", "changes", "fix"):
         if active_run["status"] != "started":
-            raise FusionError("运行还没有启动,请稍后重新运行 revise")
+            raise FusionError("The run has not started yet; run revise again later")
         if task.get("pending_revise"):
-            raise FusionError(f"{task['id']} 已有修改请求正在处理中,请等它启动后再 revise")
+            raise FusionError(f"{task['id']} already has a revision request in progress; wait for it to start before revising")
         lead_text = text
         normalized = lead_text.strip()
         previous_text = active_run.get("lead_text", active_run.get("message")) or ""
@@ -129,7 +129,7 @@ def cmd_revise(ctx: Ctx, task_id: str | None, text: str) -> dict:
             return {"task": task["id"], "run": active_run["id"], "continue_wait": True}
         limit = ctx.cfg.get("max_change_rounds", 3)
         if task["change_rounds"] >= limit:
-            raise FusionError(f"{task['id']} 已经提过 {limit} 轮修改意见。按约定先停下来问用户:继续改,还是取消。", code=2)
+            raise FusionError(f"{task['id']} already has {limit} revision rounds. Stop and ask the user whether to continue or cancel.", code=2)
         note = commit_decisions(ctx.root)
         rid = f"r{state['next_run']}"
         _emit(ctx, [{"type": "run_requested", "task": task["id"],
@@ -138,10 +138,10 @@ def cmd_revise(ctx: Ctx, task_id: str | None, text: str) -> dict:
         return {"task": task["id"], "run": rid, "interrupt": active_run["id"],
                 "decisions_note": note}
     if task["state"] not in ("in_review", "blocked"):
-        raise FusionError(f"{task['id']} 当前状态不能修改:{views.STATE_CN.get(task['state'], task['state'])}")
+        raise FusionError(f"{task['id']} cannot be revised in its current state: {views.STATE_LABEL.get(task['state'], task['state'])}")
     limit = ctx.cfg.get("max_change_rounds", 3)
     if task["change_rounds"] >= limit:
-        raise FusionError(f"{task['id']} 已经提过 {limit} 轮修改意见。按约定先停下来问用户:继续改,还是取消。", code=2)
+        raise FusionError(f"{task['id']} already has {limit} revision rounds. Stop and ask the user whether to continue or cancel.", code=2)
     note = commit_decisions(ctx.root)
     rid = f"r{state['next_run']}"
     _emit(ctx, [{"type": "changes_requested", "task": task["id"],
@@ -161,21 +161,21 @@ def cmd_accept(ctx: Ctx, task_id: str | None = None, waive: str | None = None,
     state = replay(store.read(ctx.conn))
     task = current_task(state, task_id)
     if task is None:
-        raise FusionError("没有进行中的任务")
+        raise FusionError("There is no active task")
     if task["state"] == "accepted":
         return {"task": task["id"], "commit": task["accepted_commit"]}
     if task["state"] == "blocked" and (task.get("latest_report") or {}).get("status") == "blocked":
-        raise FusionError("助手停下来问了问题,先用 revise 回答")
+        raise FusionError("The assistant stopped to ask a question; answer it with revise first")
     if task["state"] != "in_review":
-        raise FusionError(f"{task['id']} 还没有可验收的审查结果")
+        raise FusionError(f"{task['id']} has no review result to accept yet")
     if not task.get("latest"):
-        raise FusionError(f"{task['id']} 还没有候选可以验收")
+        raise FusionError(f"{task['id']} has no candidate to accept yet")
     candidate = state["candidates"][task["latest"]]
     check = candidate.get("checks") or {}
     if minor_fix is not None:
         limit = ctx.cfg.get("max_change_rounds", 3)
         if task["change_rounds"] >= limit:
-            raise FusionError(f"{task['id']} 已经提过 {limit} 轮修改意见。按约定先停下来问用户:继续改,还是取消。", code=2)
+            raise FusionError(f"{task['id']} already has {limit} revision rounds. Stop and ask the user whether to continue or cancel.", code=2)
         files = [item["path"] for item in gitops.changed_files(
             ctx.root, candidate["base"], candidate["commit"]
         )]
@@ -189,9 +189,9 @@ def cmd_accept(ctx: Ctx, task_id: str | None = None, waive: str | None = None,
         return {"task": task["id"], "candidate": task["latest"], "minor_fix": True}
     errors = []
     if not check.get("passed") and (not check.get("only_env") or not waive):
-        errors.append("检查没有全部通过")
+        errors.append("Not all checks passed")
     if check.get("violations") and not waive:
-        errors.append("有违规;验收要用 --waive 写明原因,有禁止操作时原因里要写用户的原话")
+        errors.append("Violations were found; use --waive with a reason to accept. If a prohibited action was involved, include the user's exact words in the reason.")
     if errors:
         raise FusionError("; ".join(errors))
     _emit(ctx, [{"type": "accept_requested", "task": task["id"],
@@ -203,8 +203,8 @@ def cmd_cancel(ctx: Ctx, task_id: str | None = None, reason: str | None = None) 
     state = replay(store.read(ctx.conn))
     task = current_task(state, task_id)
     if task is None:
-        raise FusionError("没有进行中的任务")
-    _emit(ctx, [{"type": "cancelled", "task": task["id"], "data": {"reason": reason or "lead 取消"}}])
+        raise FusionError("There is no active task")
+    _emit(ctx, [{"type": "cancelled", "task": task["id"], "data": {"reason": reason or "Lead cancelled"}}])
     return {"task": task["id"]}
 
 

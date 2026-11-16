@@ -22,7 +22,7 @@ def run(event: str, data: dict) -> str | None:
     try:
         cfg = config_mod.load(root)
     except FormatTooNew as exc:
-        return f"Fusion 状态格式过新: {exc.path} (版本 {exc.version})。\n请升级 lyfusion-plugin 后再使用。"
+        return f"Fusion state format is too new: {exc.path} (version {exc.version}).\nUpgrade lyfusion-plugin before using this project."
     if not cfg["local"].get("enabled"):
         return None
     ctx = Ctx(root)
@@ -42,7 +42,7 @@ def main(event: str) -> int:
     try:
         text = run(event, data)
     except FormatTooNew as exc:
-        text = f"Fusion 状态格式过新: {exc.path} (版本 {exc.version})。\n请升级 lyfusion-plugin 后再使用。"
+        text = f"Fusion state format is too new: {exc.path} (version {exc.version}).\nUpgrade lyfusion-plugin before using this project."
     except Exception:  # noqa: BLE001 - host hooks must fail closed without surfacing plugin errors.
         return 0
     if text:

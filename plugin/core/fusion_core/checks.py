@@ -11,16 +11,16 @@ ENV_ERROR = re.compile(r"(?i)certificate verify failed|CERTIFICATE_VERIFY_FAILED
                        r"SSL: |ECONNRESET|ETIMEDOUT|ECONNREFUSED|Could not resolve host|"
                        r"Temporary failure in name resolution|getaddrinfo|Connection timed out")
 BUILTIN_RULES = [
-    (r"(?i)GIT_SSL_NO_VERIFY|http\.sslVerify\s*=?\s*false|sslVerify\s+false", "关闭了 git 的证书检查", "cmd diff"),
-    (r"(?i)NODE_TLS_REJECT_UNAUTHORIZED\s*=?\s*['\"]?0", "关闭了 Node 的证书检查", "cmd diff"),
-    (r"(?i)strict-ssl\s*[= ]\s*false", "关闭了 npm 的证书检查", "cmd diff"),
-    (r"(?i)--trusted-host\b", "pip 跳过证书检查", "cmd"),
-    (r"(?i)\bcurl\b[^\n]*\s(-k|--insecure)\b", "curl 跳过证书检查", "cmd"),
-    (r"(?i)\bverify\s*=\s*False\b", "代码里关闭了证书检查", "cmd diff"),
-    (r"(?i)rejectUnauthorized\s*:\s*false", "代码里关闭了证书检查", "diff"),
-    (r"(?i)--no-verify\b", "跳过了 git 钩子", "cmd"),
+    (r"(?i)GIT_SSL_NO_VERIFY|http\.sslVerify\s*=?\s*false|sslVerify\s+false", "Git certificate verification is disabled", "cmd diff"),
+    (r"(?i)NODE_TLS_REJECT_UNAUTHORIZED\s*=?\s*['\"]?0", "Node certificate verification is disabled", "cmd diff"),
+    (r"(?i)strict-ssl\s*[= ]\s*false", "npm certificate verification is disabled", "cmd diff"),
+    (r"(?i)--trusted-host\b", "pip skips certificate verification", "cmd"),
+    (r"(?i)\bcurl\b[^\n]*\s(-k|--insecure)\b", "curl skips certificate verification", "cmd"),
+    (r"(?i)\bverify\s*=\s*False\b", "Code disables certificate verification", "cmd diff"),
+    (r"(?i)rejectUnauthorized\s*:\s*false", "Code disables certificate verification", "diff"),
+    (r"(?i)--no-verify\b", "Git hooks are skipped", "cmd"),
     (r"\bgit\s+(push|commit|rebase|merge|switch|checkout\s+-b|branch\s+-[dD]|reset\s+--hard)\b",
-     "助手执行了 git 写操作", "cmd"),
+     "The assistant ran a Git write command", "cmd"),
 ]
 
 
@@ -69,14 +69,14 @@ def run_one(name: str, cmd: str, cwd: Path, cfg: dict, log: Path, expect=None) -
 
 def scan_forbidden(cfg: dict, commands: list[dict], added: list[tuple[str, str]]) -> list[dict]:
     rules = [(re.compile(pattern), reason, where) for pattern, reason, where in BUILTIN_RULES]
-    rules += [(re.compile(rule["pattern"]), rule.get("why", "项目禁止的操作"), rule.get("where", "cmd diff"))
+    rules += [(re.compile(rule["pattern"]), rule.get("why", "Operation forbidden by the project"), rule.get("where", "cmd diff"))
               for rule in cfg.get("forbidden") or []]
     hits = []
     for command in commands:
         source = command.get("command") or ""
         for pattern, reason, where in rules:
             if "cmd" in where and pattern.search(source):
-                hits.append({"kind": "forbidden", "why": reason, "where": "命令", "detail": source[:300]})
+                hits.append({"kind": "forbidden", "why": reason, "where": "command", "detail": source[:300]})
     for path, line in added:
         for pattern, reason, where in rules:
             if "diff" in where and pattern.search(line):
@@ -85,7 +85,7 @@ def scan_forbidden(cfg: dict, commands: list[dict], added: list[tuple[str, str]]
 
 
 def plan_checks(cfg: dict, plan: dict) -> list[tuple[int, dict]]:
-    """计划里的检查,去掉和项目测试、lint 完全相同(期望退出码 0)的那些:同一条命令不跑两遍、不列两行。"""
+    """Remove plan checks identical to project tests or lint (expected exit code 0), so commands run and appear only once."""
     project = {(cfg.get(k) or "").strip() for k in ("test", "lint")} - {""}
     out = []
     for i, check in enumerate(plan.get("checks") or [], 1):
@@ -103,18 +103,18 @@ def pipeline(root: Path, cfg: dict, state: dict, task: dict, candidate: dict, wo
     changed = gitops.changed_files(worktree, base, commit)
     paths = [item["path"] for item in changed]
     if cfg.get("test"):
-        results.append(run_one("测试", cfg["test"], worktree, cfg, logs / "test.log"))
+        results.append(run_one("Tests", cfg["test"], worktree, cfg, logs / "test.log"))
     if cfg.get("lint"):
         results.append(run_one("lint", cfg["lint"], worktree, cfg, logs / "lint.log"))
     for i, check in plan_checks(cfg, task["plan"]):
-        results.append(run_one(f"检查 {i}", check["run"], worktree, cfg, logs / f"check-{i}.log", check.get("expect", 0)))
+        results.append(run_one(f"Check {i}", check["run"], worktree, cfg, logs / f"check-{i}.log", check.get("expect", 0)))
 
     tests_changed = [item for item in changed if any_match(item["old"] or item["path"], cfg.get("tests_glob"))
                      and item["status"] in ("M", "D", "R")]
     if tests_changed and cfg.get("test"):
         restored = gitops.restore_old_tests(worktree, base, tests_changed)
         try:
-            old = run_one("旧测试跑新代码", cfg["test"], worktree, cfg, logs / "old-tests.log")
+            old = run_one("Old tests on new code", cfg["test"], worktree, cfg, logs / "old-tests.log")
         finally:
             gitops.clean(worktree)
         old["restored"] = restored
@@ -125,11 +125,11 @@ def pipeline(root: Path, cfg: dict, state: dict, task: dict, candidate: dict, wo
                     and not any_match(path, cfg.get("tests_glob"))]
     added = gitops.added_lines(worktree, base, commit)
     violations.extend(scan_forbidden(cfg, commands, added))
-    hard = [result for result in results if result["name"] != "旧测试跑新代码"]
+    hard = [result for result in results if result["name"] != "Old tests on new code"]
     passed = all(result["passed"] for result in hard)
     only_env = not passed and all(result["passed"] or result["env_error"] for result in hard)
     failures = "\n\n".join(
-        f"### {r['name']}:`{r['cmd']}`(退出码 {r['exit']})\n{r['tail']}"
+        f"### {r['name']}: `{r['cmd']}` (exit code {r['exit']})\n{r['tail']}"
         for r in hard if not r["passed"] and not r["env_error"])
     return {"cand": candidate["cand"], "commit": commit, "passed": passed, "only_env": only_env,
             "results": results, "violations": violations, "changed": paths,

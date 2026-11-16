@@ -80,7 +80,7 @@ def _setup_project(root: Path, test=None, lint=None, *, enabled: bool = True) ->
     decisions = root / "fusion" / "decisions.md"
     if not decisions.exists():
         decisions.write_text(
-            "# 设计决定\n> lead 直接编辑这个文件。每次派工,引擎把全文带给助手。只写所有任务都要守的决定。\n",
+            "# Design decisions\n> lead edits this file directly. The engine includes the full text in every task handoff. Record only decisions that apply to every task.\n",
             encoding="utf-8",
         )
 
@@ -112,7 +112,7 @@ def _run_elapsed_minutes(run) -> float:
 
 
 def _wait(root: Path, task_id: str, *, explore: bool = False) -> dict:
-    """等任务完成;超过前台上限时释放租约并让 Codex 继续运行。"""
+    """Wait for a task to finish; release the lease and let Codex continue after the foreground limit."""
     sup = Supervisor(root, poll=0.2)
     wait_started = time.monotonic()
     try:
@@ -122,7 +122,7 @@ def _wait(root: Path, task_id: str, *, explore: bool = False) -> dict:
         wait_minutes = _valid_wait_minutes(project_config.get("wait_minutes", 9))
         initial = sup.state()["tasks"].get(task_id)
         if initial is None:
-            raise FusionError(f"任务 {task_id} 不存在")
+            raise FusionError(f"Task {task_id} does not exist")
         signal_count = len(initial.get("signals", []))
         while True:
             if store.take_lease(sup.conn, sup.holder):
@@ -130,7 +130,7 @@ def _wait(root: Path, task_id: str, *, explore: bool = False) -> dict:
             state = sup.state()
             task = state["tasks"].get(task_id)
             if task is None:
-                raise FusionError(f"任务 {task_id} 不存在")
+                raise FusionError(f"Task {task_id} does not exist")
             active_run = state.get("runs", {}).get(task.get("active_run") or "")
             elapsed_wait = (time.monotonic() - wait_started) / 60
             if (wait_minutes > 0 and elapsed_wait >= wait_minutes
@@ -154,7 +154,7 @@ def _wait(root: Path, task_id: str, *, explore: bool = False) -> dict:
             for signal in new_signals:
                 if signal["kind"] == "revise_dropped":
                     raise FusionError(
-                        f"修改意见没有生效:{signal['detail']},请运行 {CMD} status 看清状态后再 revise",
+                        f"Revision had no effect: {signal['detail']}. Run {CMD} status to inspect the state, then revise.",
                         code=2,
                     )
             if explore and task["state"] in ("explored", "blocked"):
@@ -170,7 +170,7 @@ def _wait(root: Path, task_id: str, *, explore: bool = False) -> dict:
             for signal in new_signals:
                 if signal["kind"] == "stalled":
                     raise FusionError(
-                        f"{signal['detail']}\n请再运行同一条命令继续等,或运行 {CMD} cancel --task {task_id}",
+                        f"{signal['detail']}\nRun the same command again to keep waiting, or run {CMD} cancel --task {task_id}",
                         code=2,
                     )
             time.sleep(0.2)
@@ -223,8 +223,8 @@ def _write_explore(root, tid, state, original: str | None, continued: bool = Fal
         original = (state["runs"][run].get("questions") or [""])[0]
     answer = state["explore_answers"].get(run, {}).get("answer", "")
     station = state["runs"][run].get("station")
-    session = (state["stations"].get(station) or {}).get("thread") or "(未绑定)"
-    artifact = f"任务编号:{tid}\n助手会话编号:{session}\n\n# 探索结果\n\n## lead 的原文\n{original.rstrip()}\n\n## 助手回答\n{answer.rstrip()}\n"
+    session = (state["stations"].get(station) or {}).get("thread") or "(unbound)"
+    artifact = f"Task ID: {tid}\nAssistant session ID: {session}\n\n# Exploration result\n\n## Original lead message\n{original.rstrip()}\n\n## Assistant response\n{answer.rstrip()}\n"
     path = aq.save_history(root, tid, "explore.md", artifact)
     relative_path = path.relative_to(root).as_posix()
     print(
@@ -274,8 +274,8 @@ def _do_explore(args, root):
             task = state["tasks"][tid]
             round_no = task["change_rounds"] + 1
             path, pack_path = _write_review(root, task, state, f"review-{round_no}.md", round_no)
-            summary = (f"结果: {path.relative_to(root).as_posix()}\n检查与问题已写入审查包。\n"
-                       "已有运行在进行,接着等它;这次的输入没有用")
+            summary = (f"Result: {path.relative_to(root).as_posix()}\nChecks and questions are in the review pack.\n"
+                       "A run is already in progress; keep waiting for it. This input was not used.")
             _print_review(path, pack_path, summary, _review_text(root, path, task, state, round_no))
             return
         text = None
@@ -325,13 +325,13 @@ def _do_delegate(args, root):
     questions = len((task.get("latest_report") or {}).get("questions", []))
     files = len(chk.get("changed", []))
     lines = [
-        f"结果: {path.relative_to(root).as_posix()}",
-        f"检查: {passed}/{len(results)} 通过",
-        f"违规: {violations} 条",
-        f"问题: {questions} 条;改动文件: {files} 个",
+        f"Result: {path.relative_to(root).as_posix()}",
+        f"Checks: {passed}/{len(results)} passed",
+        f"Violations: {violations}",
+        f"Questions: {questions}; changed files: {files}",
     ]
     if existing:
-        lines.append("已有运行在进行,接着等它;这次的输入没有用")
+        lines.append("A run is already in progress; keep waiting for it. This input was not used.")
     _print_review(path, pack_path, "\n".join(lines), _review_text(root, path, task, state, task["change_rounds"] + 1))
 
 
@@ -340,9 +340,9 @@ def _do_revise(args, root):
     if existing:
         tid, is_explore, kind = existing
         if is_explore:
-            raise FusionError("探索还在运行,请等探索结束后再 revise")
+            raise FusionError("Exploration is still running; wait for it to finish before revising")
         if kind not in ("implement", "changes", "fix"):
-            raise FusionError(f"{kind} 运行中不能 revise,请等它结束")
+            raise FusionError(f"Cannot revise while {kind} is running; wait for it to finish")
         ctx = Ctx(root)
         try:
             text = _input(args)
@@ -371,13 +371,13 @@ def _do_revise(args, root):
     results = [result for result in chk.get("results", []) if result.get("restored") is None]
     report = task.get("latest_report") or {}
     lines = [
-        f"结果: {path.relative_to(root).as_posix()}",
-        f"检查: {sum(bool(r.get('passed')) for r in results)}/{len(results)} 通过",
-        f"违规: {len(chk.get('violations', []))} 条",
-        f"问题: {len(report.get('questions', []))} 条;改动文件: {len(chk.get('changed', []))} 个",
+        f"Result: {path.relative_to(root).as_posix()}",
+        f"Checks: {sum(bool(r.get('passed')) for r in results)}/{len(results)} passed",
+        f"Violations: {len(chk.get('violations', []))}",
+        f"Questions: {len(report.get('questions', []))}; changed files: {len(chk.get('changed', []))}",
     ]
     if existing and out.get("continue_wait"):
-        lines.append("修改意见和正在做的这一轮相同,接着等它")
+        lines.append("Revision matches the current round; keep waiting.")
     _print_review(path, pack_path, "\n".join(lines), _review_text(root, path, task, state, round_no))
 
 
@@ -396,7 +396,7 @@ def _do_wait(args, root):
     if task is None:
         task = next(reversed(list(state["tasks"].values())), None)
         if task is None:
-            print("没有要等的")
+            print("Nothing to wait for")
             return
     minor = task.get("minor_fix") or {}
     if minor and not minor.get("pending") and task["state"] != "integrating":
@@ -420,7 +420,7 @@ def _do_wait(args, root):
             _report_accept(root, accepted)
         return
     if not run or run.get("status") not in ("requested", "started"):
-        status = views.STATE_CN.get(task["state"], task["state"])
+        status = views.STATE_LABEL.get(task["state"], task["state"])
         result = (f"fusion/tasks/{task['id']}/explore.md" if task["state"] == "explored"
                   else f"fusion/tasks/{task['id']}/review-{task['change_rounds'] + 1}.md")
         print(f"No run to wait for ({task['id']}): {status}; result: {result}")
@@ -444,11 +444,11 @@ def _do_wait(args, root):
     chk = (result["candidates"].get(task.get("latest")) or {}).get("checks") or {}
     checks = [row for row in chk.get("results", []) if row.get("restored") is None]
     summary = "\n".join((
-        f"结果: {path.relative_to(root).as_posix()}",
-        f"检查: {sum(bool(row.get('passed')) for row in checks)}/{len(checks)} 通过",
-        f"违规: {len(chk.get('violations', []))} 条",
-        f"问题: {len((task.get('latest_report') or {}).get('questions', []))} 条;改动文件: {len(chk.get('changed', []))} 个",
-        "接着等完了这一轮",
+        f"Result: {path.relative_to(root).as_posix()}",
+        f"Checks: {sum(bool(row.get('passed')) for row in checks)}/{len(checks)} passed",
+        f"Violations: {len(chk.get('violations', []))}",
+        f"Questions: {len((task.get('latest_report') or {}).get('questions', []))}; changed files: {len(chk.get('changed', []))}",
+        "Keep waiting for this round to finish",
     ))
     _print_review(path, pack_path, summary, _review_text(root, path, task, result, task["change_rounds"] + 1))
 
@@ -499,19 +499,19 @@ def _maybe_print_handoff_reminder(root: Path, task_id: str) -> None:
 
 def _print_accept_success(root, task) -> None:
     print(
-        f"提交: {task['accepted_commit']}\n快进分支: {config_mod.load(root)['base_branch']}\n下一步: {CMD} status"
+        f"Commit: {task['accepted_commit']}\nFast-forwarded branch: {config_mod.load(root)['base_branch']}\nNext: {CMD} status"
     )
     _maybe_print_handoff_reminder(root, task["id"])
 
 def _report_accept(root, task):
     if task["state"] != "accepted":
         detail = (task.get("integration") or {}).get("detail", task["state"])
-        if "未提交" in detail:
-            message = f"lead 工作目录有没提交的改动,快进会冲突:先提交或撤销,再运行 {CMD} accept"
-        elif "冲突" in detail:
-            message = f"合并冲突,已退回审查:用 {CMD} revise 让助手在最新的主分支上解决"
+        if "uncommitted" in detail:
+            message = f"Lead working tree has uncommitted changes; fast-forward would conflict. Commit or discard them, then run {CMD} accept"
+        elif "conflict" in detail:
+            message = f"Merge conflict; returned to review. Use {CMD} revise to have the assistant resolve it on the latest base branch"
         else:
-            message = f"集成失败:{detail}"
+            message = f"Integration failed: {detail}"
         raise FusionError(message, code=2)
     _print_accept_success(root, task)
 
@@ -558,10 +558,10 @@ def _print_minor_fix_review(root, task, state):
     check = (state.get("candidates", {}).get(task.get("latest")) or {}).get("checks") or {}
     results = [row for row in check.get("results", []) if row.get("restored") is None]
     summary = "\n".join((
-        f"结果: {path.relative_to(root).as_posix()}",
-        f"检查: {sum(bool(row.get('passed')) for row in results)}/{len(results)} 通过",
-        f"违规: {len(check.get('violations', []))} 条",
-        f"问题: {len((task.get('latest_report') or {}).get('questions', []))} 条;改动文件: {len(check.get('changed', []))} 个",
+        f"Result: {path.relative_to(root).as_posix()}",
+        f"Checks: {sum(bool(row.get('passed')) for row in results)}/{len(results)} passed",
+        f"Violations: {len(check.get('violations', []))}",
+        f"Questions: {len((task.get('latest_report') or {}).get('questions', []))}; changed files: {len(check.get('changed', []))}",
     ))
     _print_review(path, pack_path, summary, _review_text(root, path, task, state, round_no))
 
@@ -580,20 +580,20 @@ def _preflight(root: Path) -> dict:
     for name in ("config.json", "local.json"):
         path = root / "fusion" / name
         if not path.exists():
-            version_details.append(f"{path.as_posix()}: 没有,按 1")
+            version_details.append(f"{path.as_posix()}: missing; defaulting to 1")
             continue
         try:
             raw = json.loads(path.read_text(encoding="utf-8") or "{}")
             version = raw.get("schema_version", 1)
-            label = str(version) if "schema_version" in raw else "没有,按 1"
+            label = str(version) if "schema_version" in raw else "missing; defaulting to 1"
             if not isinstance(version, int) or isinstance(version, bool) or version <= 0:
                 format_ok = False
-                label += "(损坏)"
+                label += "(corrupt)"
             elif version > SCHEMA:
                 format_ok = False
-                label += "(需要升级插件)"
+                label += "(plugin upgrade required)"
         except (json.JSONDecodeError, UnicodeDecodeError):
-            label = "损坏"
+            label = "corrupt"
             format_ok = False
         version_details.append(f"{path.as_posix()}: {label}")
     db_path = root / "fusion" / "fusion.db"
@@ -603,27 +603,27 @@ def _preflight(root: Path) -> dict:
             db_version = readonly.execute("PRAGMA user_version").fetchone()[0]
             row_versions = readonly.execute("SELECT MAX(v) FROM events").fetchone()[0]
             readonly.close()
-            version_details.append(f"{db_path.as_posix()}: {db_version if db_version else '没有,按 1'}")
+            version_details.append(f"{db_path.as_posix()}: {db_version if db_version else 'missing; defaulting to 1'}")
             if db_version > SCHEMA or (row_versions is not None and row_versions > SCHEMA):
                 format_ok = False
                 if db_version <= SCHEMA and row_versions is not None and row_versions > SCHEMA:
-                    version_details[-1] += f"(事件版本 {row_versions},需要升级插件)"
+                    version_details[-1] += f"(event version {row_versions}; plugin upgrade required)"
                 elif db_version > SCHEMA:
-                    version_details[-1] += "(需要升级插件)"
+                    version_details[-1] += "(plugin upgrade required)"
         except sqlite3.Error:
-            version_details.append(f"{db_path.as_posix()}: 损坏")
+            version_details.append(f"{db_path.as_posix()}: corrupt")
             format_ok = False
     else:
-        version_details.append(f"{db_path.as_posix()}: 没有,按 1")
-    add("状态格式", format_ok, "; ".join(version_details))
+        version_details.append(f"{db_path.as_posix()}: missing; defaulting to 1")
+    add("State format", format_ok, "; ".join(version_details))
 
     add("git", True, git("--version", cwd=root))
     add("Python", sys.version_info >= (3, 10), sys.version.split()[0])
     fusion = config_mod.is_fusion_project(root)
     add(
-        "Fusion 已打开",
+        "Fusion is enabled",
         fusion,
-        str(root / "fusion") if fusion else "运行 /fusion on",
+        str(root / "fusion") if fusion else "run /fusion on",
     )
     try:
         cfg = (
@@ -643,7 +643,7 @@ def _preflight(root: Path) -> dict:
     try:
         codex_command = codex.find_codex(cfg)
         version = codex.version(cfg, root)
-        add("Codex", version is not None, version or "无法读取版本")
+        add("Codex", version is not None, version or "could not read version")
     except (FusionError, OSError) as exc:
         add("Codex", False, str(exc))
     if codex_command:
@@ -656,11 +656,11 @@ def _preflight(root: Path) -> dict:
         try:
             sandbox_result = run(codex_command + sandbox_args, cwd=str(root), timeout=30, env=env)
             sandbox_output = sandbox_result["output"].strip()
-            sandbox_line = sandbox_output.splitlines()[-1] if sandbox_output else "(无输出)"
+            sandbox_line = sandbox_output.splitlines()[-1] if sandbox_output else "(no output)"
             sandbox_ok = sandbox_result["exit"] == 0 and bool(sandbox_output)
-            add("沙箱里能跑命令", sandbox_ok, sandbox_line)
+            add("Sandbox command execution", sandbox_ok, sandbox_line)
         except OSError as exc:
-            add("沙箱里能跑命令", False, str(exc).splitlines()[-1])
+            add("Sandbox command execution", False, str(exc).splitlines()[-1])
         missing = []
         try:
             exec_help = run(codex_command + ["exec", "--help"], cwd=str(root), timeout=30, env=env)
@@ -668,46 +668,46 @@ def _preflight(root: Path) -> dict:
             features = run(codex_command + ["features", "list"], cwd=str(root), timeout=30, env=env)
             for label, result in (("exec --help", exec_help), ("exec resume --help", resume_help)):
                 if result["exit"] != 0:
-                    missing.append(f"{label} 执行失败(exit={result['exit']})")
+                    missing.append(f"{label} failed (exit={result['exit']})")
                 for flag in ("--ignore-user-config", "--disable"):
                     if flag not in result["output"]:
-                        missing.append(f"{label} 缺少 {flag}")
+                        missing.append(f"{label} missing {flag}")
             if features["exit"] != 0:
-                missing.append(f"features list 执行失败(exit={features['exit']})")
+                missing.append(f"features list failed (exit={features['exit']})")
             for feature in ("apps", "plugins"):
                 if not re.search(rf"(?m)^\s*{feature}(?:\s|$)", features["output"]):
-                    missing.append(f"features list 缺少 {feature}")
-            detail = "; ".join(missing) if missing else "exec、exec resume 参数和 apps/plugins feature 均可用"
+                    missing.append(f"features list missing {feature}")
+            detail = "; ".join(missing) if missing else "exec, exec resume options, and apps/plugins features are available"
             if not clean:
-                detail += "(项目没开干净模式,仅供参考)"
-            add("干净模式参数", not missing or not clean, detail)
+                detail += "(clean mode is off for this project; informational only)"
+            add("Clean mode options", not missing or not clean, detail)
         except OSError as exc:
-            detail = f"调用 Codex 失败:{exc}"
-            add("干净模式参数", not clean, detail + ("(项目没开干净模式,仅供参考)" if not clean else ""))
+            detail = f"Codex call failed: {exc}"
+            add("Clean mode options", not clean, detail + ("(clean mode is off for this project; informational only)" if not clean else ""))
     else:
-        detail = "找不到 Codex,无法检查参数"
+        detail = "Codex not found; cannot check options"
         if not clean:
-            detail += "(项目没开干净模式,仅供参考)"
-        add("干净模式参数", not clean, detail)
+            detail += "(clean mode is off for this project; informational only)"
+        add("Clean mode options", not clean, detail)
     if fusion:
         for warning in config_mod.configuration_warnings(cfg):
-            add("配置警告", True, warning)
+            add("Configuration warning", True, warning)
     worktree = gitops.station_dir(root)
-    add("工位目录不在临时目录", not gitops.in_temp(worktree), str(worktree))
+    add("Station directory is outside the temp directory", not gitops.in_temp(worktree), str(worktree))
     add(
-        "工位目录",
+        "Station directory",
         not worktree.exists() or (worktree / ".git").exists(),
-        "还没建"
+        "not created yet"
         if not worktree.exists()
         else (
-            "是 git worktree"
+            "is a Git worktree"
             if (worktree / ".git").exists()
-            else "已存在但不是 worktree"
+            else "exists but is not a worktree"
         ),
     )
     if fusion:
         add(
-            "主分支",
+            "Base branch",
             git(
                 "rev-parse", "--verify", "-q", cfg["base_branch"], cwd=root, check=False
             )[0]
@@ -715,15 +715,15 @@ def _preflight(root: Path) -> dict:
             cfg["base_branch"],
         )
         add(
-            "测试命令",
+            "Test command",
             bool(cfg.get("test")),
-            cfg.get("test") or "没配置:fusion/config.json 的 test",
+            cfg.get("test") or "not configured in fusion/config.json",
         )
         dirty = git("status", "--porcelain", cwd=root)
         add(
-            "lead 工作目录干净",
+            "Lead working tree is clean",
             not dirty,
-            "干净" if not dirty else "有未提交的改动(验收快进时可能冲突)",
+            "clean" if not dirty else "has uncommitted changes (may conflict during acceptance)",
         )
     return {"ok": all(row["ok"] for row in rows), "checks": rows}
 
@@ -733,16 +733,16 @@ def main(argv=None) -> int:
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(
-        prog="fusion-core", description=f"lyfusion 引擎 {VERSION}"
+        prog="fusion-core", description=f"lyfusion engine {VERSION}"
     )
     parser.add_argument(
-        "--project", help="项目目录(默认:CLAUDE_PROJECT_DIR 或当前目录)"
+        "--project", help="Project directory (default: CLAUDE_PROJECT_DIR or current directory)"
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
     for name, help_text in (
-        ("explore", "探索原话 Markdown 或 -"),
-        ("delegate", "计划用 Markdown 或 JSON,或 -"),
-        ("revise", "修改意见或 -"),
+        ("explore", "Exploration prompt in Markdown or -"),
+        ("delegate", "Plan in Markdown or JSON, or -"),
+        ("revise", "Revision request or -"),
     ):
         p = sub.add_parser(name)
         p.add_argument("source", help=help_text)
@@ -793,8 +793,8 @@ def main(argv=None) -> int:
         elif args.cmd == "cancel":
             ctx = Ctx(root)
             try:
-                out = cmd_cancel(ctx, args.task, "lead 取消")
-                print(f"已取消: {out['task']}\n下一步: {CMD} status")
+                out = cmd_cancel(ctx, args.task, "Lead cancelled")
+                print(f"Cancelled: {out['task']}\nNext: {CMD} status")
             finally:
                 ctx.close()
         elif args.cmd == "status":
@@ -807,27 +807,27 @@ def main(argv=None) -> int:
             if args.cmd == "on":
                 _setup_project(root, args.test, args.lint)
                 print(
-                    f"Fusion 已在 {root} 打开。配置在 fusion/config.json,开关和助手模型在 fusion/local.json。"
+                    f"Fusion is already enabled in {root}. Project settings are in fusion/config.json; the toggle and assistant model are in fusion/local.json."
                 )
                 print(views.lead_guide(config_mod.load(root)))
             elif not config_mod.is_fusion_project(root):
-                print("这个项目没有打开过 Fusion。")
+                print("Fusion has not been enabled for this project.")
             else:
                 cfg = config_mod.load(root)
                 cfg["local"]["enabled"] = False
                 config_mod.save_local(root, cfg["local"])
-                print("Fusion 已关闭(数据都还在,on 可以再打开)。")
+                print("Fusion is disabled (data is retained; run on to enable it again).")
         elif args.cmd == "config":
             if args.action == "panel" and not config_mod.is_fusion_project(root):
                 print(json.dumps({"schema_version": SCHEMA, "project": False}, ensure_ascii=False))
                 return 0
             if args.action == "enabled":
                 if args.json not in ("on", "off"):
-                    raise FusionError("config enabled 只能是 on 或 off")
+                    raise FusionError("config enabled must be on or off")
                 if not config_mod.is_fusion_project(root):
-                    raise FusionError("这个项目没有打开过 Fusion。先运行 /fusion 打开")
+                    raise FusionError("Fusion has not been enabled for this project. Run /fusion to enable it.")
                 _setup_project(root, enabled=args.json == "on")
-                print("Fusion 已打开" if args.json == "on" else "Fusion 已关闭")
+                print("Fusion is enabled" if args.json == "on" else "Fusion disabled")
                 return 0
             cfg = config_mod.load(root)
             if args.action == "panel":
@@ -872,15 +872,15 @@ def main(argv=None) -> int:
                 local_change = change.get("local", {})
                 project_change = change.get("config", {})
                 if not isinstance(local_change, dict) or not isinstance(project_change, dict):
-                    raise FusionError("config set 的 local 和 config 必须是对象")
+                    raise FusionError("config set local and config values must be objects")
                 if "context_ratio" in project_change:
                     ratio = project_change["context_ratio"]
                     if (isinstance(ratio, bool) or not isinstance(ratio, (int, float))
                             or (isinstance(ratio, float) and not math.isfinite(ratio))
                             or not 0 < ratio < 1):
-                        raise FusionError("context_ratio 只能是有限数,且大于 0、小于 1")
+                        raise FusionError("context_ratio must be a finite number greater than 0 and less than 1")
                 if "clean" in project_change and not isinstance(project_change["clean"], bool):
-                    raise FusionError("clean 只能是布尔值 true 或 false")
+                    raise FusionError("clean must be a boolean (true or false)")
                 if local_change:
                     local = cfg["local"]
                     for key, value in local_change.items():
@@ -913,7 +913,7 @@ def main(argv=None) -> int:
             else:
                 value = args.json
                 if not value:
-                    raise FusionError(f"config {args.action} 需要一个值")
+                    raise FusionError(f"config {args.action} requires a value")
                 sidekick = cfg["local"]["sidekick"]
                 if args.action == "model":
                     sidekick["model"] = value
@@ -922,13 +922,13 @@ def main(argv=None) -> int:
                     try:
                         compact = int(value)
                     except ValueError as exc:
-                        raise FusionError("compact 只能是正整数") from exc
+                        raise FusionError("compact must be a positive integer") from exc
                     if compact <= 0:
-                        raise FusionError("compact 只能是正整数")
+                        raise FusionError("compact must be a positive integer")
                     model = sidekick["model"]
                     limit = config_mod.max_compact(model)
                     if limit is not None and compact > limit:
-                        raise FusionError(f"上下文上限不能超过 {model} 的 {limit}")
+                        raise FusionError(f"Context limit cannot exceed {limit} for {model}")
                     settings = sidekick.setdefault("models", {}).setdefault(model, {})
                     settings["compact"] = compact
                     config_mod.save_local(root, cfg["local"])
@@ -938,14 +938,14 @@ def main(argv=None) -> int:
                     if args.action == "effort":
                         choices = config_mod.model_efforts(model)
                         if value not in choices:
-                            joined = "、".join(choices[:-1]) + " 或 " + choices[-1]
-                            raise FusionError(f"effort 只能是 {joined}({model})")
+                            joined = " / ".join(choices[:-1]) + " or " + choices[-1]
+                            raise FusionError(f"effort for {model} must be one of: {joined}")
                         settings["effort"] = value
                     else:
                         if value not in ("on", "off"):
-                            raise FusionError("fast 只能是 on 或 off")
+                            raise FusionError("fast must be on or off")
                         if value == "on" and not config_mod.supports_fast(model):
-                            raise FusionError(f"{model} 不支持 Fast Mode")
+                            raise FusionError(f"{model} does not support Fast Mode")
                         settings["fast"] = value == "on"
                     config_mod.save_local(root, cfg["local"])
                 print(json.dumps(config_mod.load(root), ensure_ascii=False, indent=2))
@@ -959,15 +959,15 @@ def main(argv=None) -> int:
                 ctx.close()
         elif args.cmd == "lead-usage":
             if args.at not in ("explore", "accept"):
-                raise FusionError("lead-usage --at 只能是 explore 或 accept")
+                raise FusionError("lead-usage --at must be explore or accept")
             if args.source != "-":
-                raise FusionError("lead-usage 的输入必须是 - (标准输入)")
+                raise FusionError("lead-usage input must be - (standard input)")
             try:
                 raw_usage = json.loads(sys.stdin.buffer.read().decode("utf-8-sig"))
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-                raise FusionError("lead-usage 的输入不是合法 JSON") from exc
+                raise FusionError("lead-usage input is not valid JSON") from exc
             if not isinstance(raw_usage, dict):
-                raise FusionError("lead-usage 输入必须是 JSON 对象")
+                raise FusionError("lead-usage input must be a JSON object")
             ctx = Ctx(root)
             try:
                 task_id = None
@@ -979,7 +979,7 @@ def main(argv=None) -> int:
                         task = next((item for item in reversed(list(state["tasks"].values()))
                                      if item["state"] in ("in_review", "integrating")), None)
                     if task is None:
-                        raise FusionError("找不到要记录 lead 用量的任务", code=2)
+                        raise FusionError("No task found for recording lead usage", code=2)
                     task_id = task["id"]
                 elif args.task:
                     task_id = args.task
@@ -988,7 +988,7 @@ def main(argv=None) -> int:
                 with store.transaction(ctx.conn):
                     store.append(ctx.conn, [{"type": "lead_usage", "task": task_id, "data": data}], ctx.actor)
                 label = task_id or args.at
-                print(f"已记录 {label} 的 lead 用量")
+                print(f"Recorded lead usage for {label}")
             finally:
                 ctx.close()
         return 0
@@ -997,7 +997,7 @@ def main(argv=None) -> int:
             print(str(exc), file=sys.stderr)
         return getattr(exc, "code", 1)
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        print(f"输入格式错误:{exc}", file=sys.stderr)
+        print(f"Invalid input format: {exc}", file=sys.stderr)
         return 1
 
 

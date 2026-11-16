@@ -1,28 +1,28 @@
 ---
 name: fusion
-description: 打开、关闭或设置 lyfusion-plugin(只由用户手动运行)
+description: Enable, disable, or configure lyfusion-plugin (run only by the user)
 argument-hint: "on [--test <command>] [--lint <command>] | off | status | model <name> | effort <level> | fast on|off | compact <number> | handoff <clear|write|off> | handoff-tokens <N> | test <command>"
 disable-model-invocation: true
 ---
-用户给的参数:$ARGUMENTS
+User-provided arguments: $ARGUMENTS
 
-引擎命令是 `python "${CLAUDE_PLUGIN_ROOT}/core/fusion-core.py"`,下表写作 `FC`。运行时把 `FC` 换成这条完整的命令(带引号照写)。文件不存在时告诉用户插件可能没启用,不要去别处找。
+The engine command is `python "${CLAUDE_PLUGIN_ROOT}/core/fusion-core.py"`, abbreviated below as `FC`. Replace `FC` with this full command when running it (keep the quotes). If the file is missing, tell the user the plugin may not be enabled; do not look elsewhere.
 
-按参数运行对应命令,把结果用一两句中文告诉用户:
+Run the command for the given argument and summarize the result for the user in one or two concise sentences:
 
-| 参数 | 命令 |
+| Argument | Command |
 |---|---|
-| 空 或 status | `FC status` |
-| on --test 命令 [--lint 命令] | 先 `FC preflight`,汇报没通过的项;再运行 `FC on --test "命令" [--lint "命令"]` |
+| Empty or status | `FC status` |
+| on --test command [--lint command] | Run `FC preflight` first and report any failures; then run `FC on --test "command" [--lint "command"]` |
 | off | `FC off` |
-| model 名字 | `FC config model 名字` |
-| effort 档位 | `FC config effort 档位` |
+| model name | `FC config model name` |
+| effort level | `FC config effort level` |
 | fast on / fast off | `FC config fast on|off` |
-| compact 数字 | `FC config compact 数字` |
+| compact number | `FC config compact number` |
 | handoff clear / write / off | `FC config handoff clear|write|off` |
 | handoff-tokens N | `FC config handoff-tokens N` (positive integer) |
-| test 命令 | `FC config set '{"config":{"test":"命令"}}'` |
+| test command | `FC config set '{"config":{"test":"command"}}'` |
 
-打开后,SessionStart 会注入 4 个动作的使用说明。所有状态都保存在项目的 `fusion/` 目录里。
+When enabled, SessionStart injects instructions for the four workflow actions. All state is stored in the project's `fusion/` directory.
 
-项目还没打开过 Fusion、又不知道测试命令时,先问用户测试命令,再 `FC on --test "命令"`。
+If Fusion has not been enabled for the project and the test command is unknown, ask the user for it before running `FC on --test "command"`.

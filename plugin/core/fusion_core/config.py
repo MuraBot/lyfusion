@@ -1,4 +1,4 @@
-"""项目配置:`fusion/config.json`(进 git)和 `fusion/local.json`(不进 git)。"""
+"""Project configuration: `fusion/config.json` (tracked) and `fusion/local.json` (untracked)."""
 from __future__ import annotations
 
 import json
@@ -123,26 +123,26 @@ def model_info(model: str) -> dict:
     }
 
 DEFAULT_CONFIG = {
-    "base_branch": None,          # 默认:init 时 lead 工作目录所在的分支
-    "test": None,                 # 项目测试命令,例如 "python -m pytest -q"
-    "lint": None,                 # lint 命令,可以没有
+    "base_branch": None,          # Default: the branch of the lead worktree at init.
+    "test": None,                 # Project test command, e.g. "python -m pytest -q".
+    "lint": None,                 # Optional lint command.
     "tests_glob": ["tests/**", "test/**", "**/test_*.py", "**/*_test.py", "**/*.test.js", "**/*.spec.js"],
-    "forbidden": [],              # 额外的禁止规则:{"pattern": 正则, "why": 原因}
-    "station_copy": [],           # 建工位目录时要复制的未跟踪文件
-    "network": False,             # 助手的沙箱能否联网
-    "clean": True,                # Codex 是否不读用户配置并禁用 apps、plugins
-    "check_timeout": 900,         # 单条检查命令的超时(秒)
-    "stall_minutes": 20,          # 多久没有新事件算"长时间无进展"
+    "forbidden": [],              # Additional forbidden rules: {"pattern": regex, "why": reason}.
+    "station_copy": [],           # Untracked files to copy when creating a worktree.
+    "network": False,             # Whether the assistant sandbox can access the network.
+    "clean": True,                # Whether Codex ignores user configuration and disables apps and plugins.
+    "check_timeout": 900,         # Timeout for each check command (seconds).
+    "stall_minutes": 20,          # Time without a new event before it counts as stalled.
     "auto_continue": 2,
-    "wait_minutes": 9,           # 等待命令最多等多久先返回(分钟);0 = 一直等。Claude Code 前台 Bash 最长 10 分钟
-    "small_read_lines": 80,        # 单条读命令输出不超过多少行算碎读
-    "context_ratio": DEFAULT_CONTEXT_RATIO,  # 必须小于 1,在自动压缩前换工位,避免压缩丢掉只发送一次的工作规则
+    "wait_minutes": 9,           # Maximum wait before returning while a command runs (minutes); 0 = wait indefinitely. Claude Code foreground Bash runs for at most 10 minutes.
+    "small_read_lines": 80,        # Maximum output lines for a single read command before it counts as fragmented reading.
+    "context_ratio": DEFAULT_CONTEXT_RATIO,  # Must be below 1; switch worktrees before automatic compaction to preserve one-time work rules.
     "handoff_dir": "fusion/handoffs",
-    "max_fix_attempts": 2,        # 检查失败后让助手修的次数
-    "max_change_rounds": 3,       # 同一个任务修改意见的轮数上限,超过要先问用户
+    "max_fix_attempts": 2,        # Number of assistant fix attempts after checks fail.
+    "max_change_rounds": 3,       # Maximum revision rounds per task; ask the user before exceeding it.
     "runs_keep_days": 30,
     "runs_keep_count": 200,
-    "commit_identity": None,      # {"name": ..., "email": ...};默认用仓库自己的 git 配置
+    "commit_identity": None,      # {"name": ..., "email": ...}; use the repository Git configuration by default.
 }
 
 DEFAULT_LOCAL = {
@@ -150,8 +150,8 @@ DEFAULT_LOCAL = {
     "handoff_mode": "write",
     "handoff_tokens": 200000,
     "sidekick": {"model": "gpt-6-luna", "models": {"gpt-6-luna": {"effort": "high", "fast": False}}},
-    "env": {},                    # 给助手和检查命令的额外环境变量
-    "codex": None,                # Codex 命令,列表;默认自动查找
+    "env": {},                    # Additional environment variables for the assistant and check commands.
+    "codex": None,                # Codex command as a list; found automatically by default.
 }
 
 GITIGNORE = "fusion.db\nfusion.db-*\nlocal.json\nruns/\nhandoffs/\ntasks/\n"
@@ -161,7 +161,7 @@ def project_root(start: str | os.PathLike | None = None) -> Path:
     start = Path(start or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
     code, out, _ = git("rev-parse", "--show-toplevel", cwd=start, check=False)
     if code != 0:
-        raise FusionError(f"{start} 不在 git 仓库里。lyfusion 需要 git。")
+        raise FusionError(f"{start} is not in a Git repository. lyfusion requires Git.")
     return Path(out.strip())
 
 
@@ -179,7 +179,7 @@ def _read(path: Path, default: dict) -> dict:
         user = json.loads(path.read_text(encoding="utf-8") or "{}")
         version = user.get("schema_version", 1)
         if not isinstance(version, int) or isinstance(version, bool) or version <= 0:
-            raise FusionError(f"{path.as_posix()} 的 schema_version 已损坏,必须是正整数")
+            raise FusionError(f"{path.as_posix()} has an invalid schema_version; it must be a positive integer")
         if version > SCHEMA:
             raise FormatTooNew(path.as_posix(), version)
         for k, v in user.items():
@@ -330,7 +330,7 @@ def configuration_warnings(cfg: dict) -> list[str]:
     ratio = cfg.get("context_ratio", DEFAULT_CONTEXT_RATIO)
     if not _valid_ratio(ratio):
         warnings.append(
-            f"fusion/config.json 的 context_ratio 无效,按 {DEFAULT_CONTEXT_RATIO} 计算"
+            f"fusion/config.json has an invalid context_ratio; using {DEFAULT_CONTEXT_RATIO}"
         )
     sidekick = cfg.get("local", {}).get("sidekick", {})
     models = sidekick.get("models", {})
@@ -339,7 +339,7 @@ def configuration_warnings(cfg: dict) -> list[str]:
             if (isinstance(model_settings, dict) and "compact" in model_settings
                     and not _valid_compact(model_settings["compact"])):
                 warnings.append(
-                    f"fusion/local.json 的 sidekick.models.{model}.compact 无效,按 {DEFAULT_COMPACT} 计算"
+                    f"fusion/local.json has an invalid sidekick.models.{model}.compact; using {DEFAULT_COMPACT}"
                 )
     return warnings
 
@@ -353,7 +353,7 @@ def save_local(root: Path, local: dict) -> None:
 
 
 def check_hash(cfg: dict) -> str:
-    """检查配置的指纹:变了,旧的检查证据就失效。"""
+    """Return a configuration fingerprint; if it changes, prior check evidence is invalid."""
     import hashlib
     keys = ("test", "lint", "tests_glob", "forbidden", "network")
     blob = json.dumps({k: cfg.get(k) for k in keys}, sort_keys=True, ensure_ascii=False)

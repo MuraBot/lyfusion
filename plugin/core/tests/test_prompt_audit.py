@@ -18,22 +18,22 @@ def test_forbidden_rules_are_shared_and_model_notes_are_loaded(proj):
         assert item in FIXED_RULES
     (proj.root / "fusion/models").mkdir(parents=True)
     (proj.root / "fusion/models/gpt-6-luna.md").write_text(
-        "## 给助手\n项目备注\n\n## 给 lead\nLead 备注\n", encoding="utf-8"
+        "## For the assistant\nProject note\n\n## For the lead\nLead note\n", encoding="utf-8"
     )
     notes = model_notes(proj.root, "gpt-6-luna")
-    assert "删除旧功能时直接删" in notes["sidekick"]
-    assert "项目备注" in notes["sidekick"]
+    assert "When removing an old feature, delete it directly" in notes["sidekick"]
+    assert "Project note" in notes["sidekick"]
     assert "use a prohibition and one checkable criterion" in notes["lead"]
     assert model_notes(proj.root, "../gpt-6-luna") == {"sidekick": "", "lead": ""}
-    assert "全量测试和 lint 只在结束前各跑一次" in FIXED_RULES
-    assert "沙箱不能结束别的进程" in WORK_RULES
+    assert "Run the full test suite and lint once at the end" in FIXED_RULES
+    assert "The sandbox may be unable to terminate other processes" in WORK_RULES
     added_rules = WORK_RULES[WORK_RULES.index("## Brief conventions"):]
     model_text = (Path(__file__).resolve().parents[1] / "fusion_core/prompts/models/gpt-6-luna.md").read_text(encoding="utf-8")
     new_text = "\n".join(FORBIDDEN) + added_rules + model_text
     assert not any(mark in new_text for mark in ("，", "；", "（", "）", "“", "”"))
     source = (Path(__file__).resolve().parents[1] / "fusion_core/prompts.py").read_text(encoding="utf-8")
     assert "_forbidden_section" not in source
-    assert WORK_RULES.count("不调用 Claude") == 1 and FIXED_RULES.count("不调用 Claude") == 1
+    assert WORK_RULES.count("Do not call Claude") == 1 and FIXED_RULES.count("Do not call Claude") == 1
 
 
 def test_model_notes_reach_assistant_and_lead(proj):
@@ -42,18 +42,18 @@ def test_model_notes_reach_assistant_and_lead(proj):
     config_mod.save_local(proj.root, cfg["local"])
     (proj.root / "fusion/models").mkdir(parents=True)
     (proj.root / "fusion/models/gpt-6-luna.md").write_text(
-        "## 给助手\n项目助手备注\n\n## 给 lead\n项目 lead 备注\n", encoding="utf-8"
+        "## For the assistant\nProject assistant note\n\n## For the lead\nProject lead note\n", encoding="utf-8"
     )
     setup_task(proj)
     proj.script([GOOD])
     proj.do(commands.cmd_delegate, plan_farewell(), "T1")
     proj.drain()
-    assert "## 助手 gpt-6-luna 的备注" in proj.calls()[0]["prompt"]
-    assert "项目助手备注" in proj.calls()[0]["prompt"]
-    assert proj.calls()[0]["prompt"].index("## 助手 gpt-6-luna 的备注") > proj.calls()[0]["prompt"].index("## 不能做的事")
-    assert proj.calls()[0]["prompt"].index("## 助手 gpt-6-luna 的备注") < proj.calls()[0]["prompt"].index("## 目标")
+    assert "## Notes for assistant gpt-6-luna" in proj.calls()[0]["prompt"]
+    assert "Project assistant note" in proj.calls()[0]["prompt"]
+    assert proj.calls()[0]["prompt"].index("## Notes for assistant gpt-6-luna") > proj.calls()[0]["prompt"].index("## Do not")
+    assert proj.calls()[0]["prompt"].index("## Notes for assistant gpt-6-luna") < proj.calls()[0]["prompt"].index("## Goal")
     context = hooks.run("session-start", {"cwd": str(proj.root)})
-    assert "项目 lead 备注" in context
+    assert "Project lead note" in context
 
 
 def test_delegate_does_not_write_placeholder_or_overwrite_existing_top_level_result(proj):
@@ -167,7 +167,7 @@ def test_old_test_failure_log_is_safe_when_run_dir_is_missing(proj):
     task = {"id": "T1", "state": "in_review", "latest": "T1.c1", "runs": ["r1"], "signals": [],
             "fix_attempts": 0, "plan": {"goal": "logs"}, "latest_report": {"status": "done", "summary": "", "questions": [], "choices": [], "problems": []}}
     state = {"candidates": {"T1.c1": {"commit": commit, "base": base, "run": "r1", "checks": {
-        "passed": False, "results": [{"name": "旧测试跑新代码", "cmd": "pytest", "passed": False, "exit": 1, "restored": True}]
+        "passed": False, "results": [{"name": "Old tests on new code", "cmd": "pytest", "passed": False, "exit": 1, "restored": True}]
     }}}, "runs": {"r1": {"dir": None}}, "stations": {}}
     initial = aq.review_pack(proj.root, task, state, 1)
     checks = initial.split("## Checks\n", 1)[1].split("\n## ", 1)[0]

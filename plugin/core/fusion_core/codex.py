@@ -1,4 +1,4 @@
-"""启动和解析 Codex 运行。会话编号来自 `thread.started` 事件,由引擎记住,lead 碰不到。"""
+"""Start and parse Codex runs. The engine stores session IDs from `thread.started` events; the lead cannot access them."""
 from __future__ import annotations
 
 import json
@@ -14,7 +14,7 @@ SCHEMA = Path(__file__).with_name("report_schema.json")
 
 
 def user_sandbox_settings() -> dict:
-    """只读取干净模式需要保留的两项用户沙箱设置。"""
+    """Read only the two user sandbox settings required by clean mode."""
     try:
         import tomllib
     except ImportError:
@@ -51,7 +51,7 @@ def find_codex(cfg: dict) -> list[str]:
             exe = Path(loc) / "app" / "resources" / "codex.exe"
             if exe.exists():
                 return [str(exe)]
-    raise FusionError("找不到 Codex 命令行。请安装 Codex,或在 fusion/local.json 里设置 \"codex\"。")
+    raise FusionError("Codex CLI not found. Install Codex or set \"codex\" in fusion/local.json.")
 
 
 def version(cfg: dict, cwd: str | Path) -> str | None:
@@ -95,7 +95,7 @@ def build_args(cfg: dict, station: dict, run_dir: Path, sandbox: str, resume_thr
         common += ["--ephemeral"]
     environment = ["--ignore-user-config", "--disable", "apps", "--disable", "plugins"] if clean else []
     if resume_thread:
-        # S1:resume 没有 -s/-C;沙箱用 -c sandbox_mode,工作目录用子进程的 cwd
+        # S1: resume has no -s/-C; pass sandbox_mode with -c and set the worktree as the subprocess cwd.
         return ["exec", "resume", *environment, *common, "-m", model, *conf, "-c", f'sandbox_mode="{sandbox}"',
                 "--skip-git-repo-check", resume_thread, "-"]
     return ["exec", *environment, *common, "-m", model, *conf, "-s", sandbox, "--skip-git-repo-check",
@@ -157,7 +157,7 @@ def thread_id(events: list[dict]) -> str | None:
 
 
 def summarize(events: list[dict]) -> dict:
-    """用量、命令、上下文估算。turn.completed 的 usage 是整轮合计,上下文只能估。"""
+    """Usage, commands, and context estimates. turn.completed usage covers the whole turn, so context can only be estimated."""
     usage = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "requests": 0}
     commands, messages, last_turn_input = [], 0, 0
     for e in events:

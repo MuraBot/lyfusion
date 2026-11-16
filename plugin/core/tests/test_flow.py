@@ -1,4 +1,4 @@
-"""端到端流程:派工 → 候选 → 检查 → 审查 → 验收,以及各条分支。"""
+"""End-to-end flow: delegation → candidate → checks → review → acceptance, and alternate branches."""
 from __future__ import annotations
 
 import sys
@@ -47,24 +47,24 @@ def test_happy_path(proj):
     assert t["latest"] == "T1.c1"
     cand = proj.state()["candidates"]["T1.c1"]
     assert cand["checks"]["passed"], cand["checks"]
-    # 第一次运行是新会话,带规则;工位记住了会话编号
+    # The first run starts a new session with the rules; the worktree stores its session ID.
     calls = proj.calls()
-    assert calls[0]["resume"] is False and "## 目标" in calls[0]["prompt"]
+    assert calls[0]["resume"] is False and "## Goal" in calls[0]["prompt"]
     st = proj.state()["stations"]["main#1"]
     assert st["thread"] and st["briefed"]
-    # 审查包展示检查结果,不再包含决定债。
+    # The review pack shows check results and no longer includes the decision debt.
     from fusion_core.aq import review_pack
     text = review_pack(proj.root, t, proj.state(), 1)
-    assert "检查" in text and "T1.E1" not in text
+    assert "Checks" in text and "T1.E1" not in text
     proj.do(C.cmd_accept, "T1")
     proj.drain()
     t = proj.task()
     assert t["state"] == "accepted", t.get("integration")
     log = proj.git("log", "-2", "--format=%B", "main")
     assert "Task: T1" in log and "Candidate: T1.c1" in log
-    assert proj.read("app/farewell.py") == FAREWELL  # lead 的目录在 main 上,快进后文件在
+    assert proj.read("app/farewell.py") == FAREWELL  # The lead worktree is on main, so the file is present after fast-forward.
     assert proj.git("branch", "--list", "fusion/T1") == ""
-    # 重复验收返回原结果
+    # Repeated acceptance returns the original result.
     assert proj.do(C.cmd_accept, "T1")["commit"] == t["accepted_commit"]
 
 
@@ -76,7 +76,7 @@ def test_blocked_then_answer_resumes_same_thread(proj):
     proj.drain()
     t = proj.task()
     assert t["state"] == "blocked"
-    assert proj.read("app/farewell.py", proj.station) == "# 半成品\n"  # 半成品留在工位
+    assert proj.read("app/farewell.py", proj.station) == "# 半成品\n"  # Keep the unfinished file in the worktree.
     with pytest.raises(FusionError):
         proj.do(C.cmd_accept, "T1")
     out = proj.do(C.cmd_revise, "T1", "不要")
@@ -84,7 +84,7 @@ def test_blocked_then_answer_resumes_same_thread(proj):
     proj.drain()
     calls = proj.calls()
     assert calls[1]["resume"] and calls[1]["thread"] == proj.state()["stations"]["main#1"]["thread"]
-    assert "不要" in calls[1]["prompt"] and "你是 lyfusion 的助手" not in calls[1]["prompt"]
+    assert "不要" in calls[1]["prompt"] and "You are the lyfusion assistant" not in calls[1]["prompt"]
     assert proj.task()["state"] == "in_review"
 
 
@@ -138,7 +138,7 @@ def test_fix_loop_then_check_failed(proj):
     kinds = [proj.state()["runs"][r]["kind"] for r in t["runs"]]
     assert kinds == ["implement", "fix", "fix"]
     assert any(s["kind"] == "check_failed" for s in t["signals"])
-    assert "## 检查失败" in proj.calls()[1]["prompt"]
+    assert "## Check failures" in proj.calls()[1]["prompt"]
 
 
 def test_fix_succeeds(proj):
@@ -210,7 +210,7 @@ def test_forbidden_command(proj):
     proj.drain()
     chk = proj.state()["candidates"]["T1.c1"]["checks"]
     whys = {v["why"] for v in chk["violations"]}
-    assert "关闭了 git 的证书检查" in whys and "助手执行了 git 写操作" in whys
+    assert "Git certificate verification is disabled" in whys and "The assistant ran a Git write command" in whys
 
 
 def test_integration_conflict_returns_to_review(proj):
@@ -224,7 +224,7 @@ def test_integration_conflict_returns_to_review(proj):
     proj.drain()
     t = proj.task()
     assert t["state"] == "in_review"
-    assert "冲突" in t["integration"]["detail"]
+    assert "conflict" in t["integration"]["detail"]
     assert proj.git("rev-parse", "HEAD", cwd=proj.station) == proj.state()["candidates"]["T1.c1"]["commit"]
 
 
@@ -241,7 +241,7 @@ def test_main_moved_without_conflict_merges(proj):
     assert proj.read("README.md") == "lead 改了别的文件\n" and proj.read("app/farewell.py") == FAREWELL
     squashed = proj.git("log", "--format=%H", "--grep", "Task: T1", "main").split()
     assert len(squashed) == 1
-    assert len(proj.git("log", "-1", "--format=%P", squashed[0]).split()) == 1  # 压成一个提交
+    assert len(proj.git("log", "-1", "--format=%P", squashed[0]).split()) == 1  # Squash to one commit.
 
 
 def test_fast_forward_refused_by_dirty_lead_tree(proj):
@@ -254,7 +254,7 @@ def test_fast_forward_refused_by_dirty_lead_tree(proj):
     proj.drain()
     t = proj.task()
     assert t["state"] == "in_review"
-    assert "未提交" in t["integration"]["detail"]
+    assert "uncommitted changes" in t["integration"]["detail"]
     assert proj.read("app/farewell.py") == "lead 没提交的改动\n"
 
 
@@ -307,7 +307,7 @@ def test_change_rounds_limit(proj):
     for i in range(3):
         proj.do(C.cmd_revise, "T1", f"round {i + 1}")
         proj.drain()
-    with pytest.raises(FusionError, match="先停下来问用户"):
+    with pytest.raises(FusionError, match="Stop and ask the user"):
         proj.do(C.cmd_revise, "T1", "round 4")
     assert "round 1" in proj.calls()[1]["prompt"]
 
@@ -347,7 +347,7 @@ def test_wip_one_line(proj):
     setup_task(proj)
     proj.script([GOOD])
     proj.do(C.cmd_delegate, plan_farewell(), "T1")
-    with pytest.raises(FusionError, match="1 个进行中的任务"):
+    with pytest.raises(FusionError, match="Only one task may be active"):
         proj.do(C.cmd_delegate, plan_farewell(goal="second task"))
 
 
@@ -359,7 +359,7 @@ def test_fix_without_changes_signals(proj):
     proj.drain()
     t = proj.task()
     assert t["state"] == "in_review"
-    assert any(s["kind"] == "check_failed" and "没有改动" in s["detail"] for s in t["signals"])
+    assert any(s["kind"] == "check_failed" and "changed no files" in s["detail"] for s in t["signals"])
 
 
 def test_revise_reads_decisions_file_again(proj):

@@ -62,8 +62,8 @@ def test_stats_counts_whole_command_output_and_recent_commands():
                      "recent": stats["recent"]}
     assert len(stats["recent"]) == 8
     assert "powershell.exe" not in stats["recent"][0].lower()
-    assert "[碎读]" in stats["recent"][0]
-    assert all("pytest" not in row or "[重复]" not in row for row in stats["recent"])
+    assert "[fragmented read]" in stats["recent"][0]
+    assert all("pytest" not in row or "[repeated]" not in row for row in stats["recent"])
 
 
 def test_read_aliases_only_match_at_command_positions():
@@ -104,14 +104,14 @@ def test_run_metrics_are_replayed_and_rendered_in_ledger(proj):
     assert isinstance(run["duration"], (int, float))
     assert run["codex_version"] == "codex fake-1.0"
     ledger = views.ledger(state, tid)
-    assert "运行" in ledger and "codex fake-1.0" in ledger
+    assert "Run" in ledger and "codex fake-1.0" in ledger
     assert "| 3 | 1 | 1 |" in ledger
 
 
 def test_old_run_without_metrics_displays_dashes():
     state = {"tasks": {}, "runs": {"r1": {"id": "r1", "task": "T1", "kind": "implement",
                                                "status": "ended", "result": "ok"}}}
-    assert "| T1 | r1 | 实现 | ok | - | - | - | - | - |" in views.ledger(state)
+    assert "| T1 | r1 | implement | ok | - | - | - | - | - |" in views.ledger(state)
 
 
 def test_watch_threshold_keys_do_not_wake_the_lead(proj, monkeypatch):
@@ -238,7 +238,7 @@ def test_command_time_is_split_by_kind_and_rendered_in_ledger():
     state = {"tasks": {}, "runs": {"r1": {"id": "r1", "task": "T1", "kind": "continue", "status": "ended",
                  "result": "ok", "duration": result["duration"], "codex_version": "codex fake", **result}}}
     ledger = views.ledger(state)
-    assert "| full tests | partial tests | lint | other cmds | thinking |" in ledger
+    assert "| Full tests | Partial tests | Lint | Other commands | Thinking |" in ledger
     assert "continue" in ledger and "0.1 | 0.1 | 0.1 | 0.1 | 0.5" in ledger
 
 
@@ -330,7 +330,7 @@ def test_revise_requests_supervisor_interrupt_and_reuses_its_thread(proj, monkey
     assert killed == [999]
     assert state["runs"]["r1"]["status"] == "interrupted"
     assert state["runs"]["r2"]["kind"] == "changes"
-    assert state["runs"]["r2"]["message"].startswith("你上一轮被 lead 中途停下了")
+    assert state["runs"]["r2"]["message"].startswith("Lead stopped the previous round")
     assert state["runs"]["r2"]["message"].endswith("  finish the remaining work  ")
     assert state["runs"]["r2"]["lead_text"] == "  finish the remaining work  "
     assert state["stations"]["main#1"]["thread"] == "thread-1"
@@ -356,7 +356,7 @@ def test_interrupt_request_after_target_finished_starts_plain_revision(proj, mon
     assert state["tasks"][tid]["change_rounds"] == 1
     assert state["runs"]["r2"]["status"] == "requested"
     assert state["runs"]["r2"]["message"] == "continue from the current result"
-    assert "中途停下" not in state["runs"]["r2"]["message"]
+    assert "stopped" not in state["runs"]["r2"]["message"]
 
 
 def test_interrupt_request_for_cancelled_task_is_dropped_and_wakes_waiter(proj):
@@ -369,7 +369,7 @@ def test_interrupt_request_for_cancelled_task_is_dropped_and_wakes_waiter(proj):
     with store.transaction(proj.sup.conn):
         store.append(proj.sup.conn, [{"type": "cancelled", "task": tid,
                                      "data": {"reason": "lead cancelled"}}], "test")
-    with pytest.raises(FusionError, match="修改意见没有生效:任务已取消") as error:
+    with pytest.raises(FusionError, match="Revision had no effect: Task cancelled") as error:
         cli._wait(proj.root, tid)
     assert error.value.code == 2
     state = proj.state()
@@ -379,7 +379,7 @@ def test_interrupt_request_for_cancelled_task_is_dropped_and_wakes_waiter(proj):
 
 def test_revise_during_explore_exits_with_error(proj, monkeypatch):
     monkeypatch.setattr(cli, "_existing_run", lambda root, kinds: ("T1", True, "explore"))
-    with pytest.raises(FusionError, match="探索还在运行") as error:
+    with pytest.raises(FusionError, match="Exploration is still running") as error:
         cli._do_revise(Namespace(source="-", task="T1"), proj.root)
     assert error.value.code == 1
 
@@ -429,15 +429,15 @@ def test_revise_continue_wait_message_explains_matching_opinion(proj, monkeypatc
     monkeypatch.setattr(cli.aq, "next_step_text", lambda task, checks: "next")
     cli._do_revise(Namespace(source="-", task="T1"), proj.root)
     output = capsys.readouterr().out
-    assert "修改意见和正在做的这一轮相同,接着等它" in output
-    assert "这次的输入没有用" not in output
+    assert "Revision matches the current round; keep waiting." in output
+    assert "This input was not used" not in output
 
 
 def test_work_and_explore_prompts_repeat_code_read_rules():
     prompt = explore_prompt("question", "decisions")
     for text in (WORK_RULES, FIXED_RULES):
-        assert "整份文件或大段" in text
-        assert "不要反复跑" in text
+        assert "whole files or large sections" in text
+        assert "or repeat a command" in text
     assert "Read whole files or large sections" in prompt
     assert "Do not repeat the same command" in prompt
     assert "do not call Claude" in prompt and "auth.json" in prompt

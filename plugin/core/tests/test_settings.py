@@ -32,7 +32,7 @@ def test_effort_and_fast_are_isolated_by_model(proj, capsys):
     command("model", "haiku-5.5")
     before = (proj.root / "fusion" / "local.json").read_bytes()
     assert main(["--project", str(proj.root), "config", "fast", "on"]) == 1
-    assert "haiku-5.5 \u4e0d\u652f\u6301 Fast Mode" in capsys.readouterr().err
+    assert "haiku-5.5 does not support Fast Mode" in capsys.readouterr().err
     assert (proj.root / "fusion" / "local.json").read_bytes() == before
     changed = json.loads(before)
     assert changed["sidekick"]["models"]["gpt-6-luna"] == {"effort": "low", "fast": True}
@@ -53,10 +53,10 @@ def test_unregistered_model_uses_codex_defaults_and_status_reports_current_model
     assert "model_reasoning_effort=high" not in args
     assert not any("service_tier" in arg for arg in args)
     shown = views.status(proj.root, cfg, {"tasks": {}})
-    assert "助手: haiku-5.5 · effort 默认 · fast 不支持 · 压缩 400000" in shown
-    assert "· 压缩 400000" in shown
-    assert "Codex 环境: 干净(不读 ~/.codex/config.toml,关 apps、plugins)(项目设置 fusion/config.json 的 clean)" in shown
-    assert "换工位: 上下文超过 240000(压缩上限 400000 × 60%)" in shown
+    assert "Assistant: haiku-5.5 · effort default · fast unsupported · compact 400000" in shown
+    assert "· compact 400000" in shown
+    assert "Codex environment: clean (does not read ~/.codex/config.toml; apps and plugins disabled)(set in fusion/config.json)" in shown
+    assert "Station rotation: context exceeds 240000(compact limit 400000 × 60%)" in shown
 
 
 def test_config_get_set_and_station_rotation_behavior_remain(proj, capsys):
@@ -225,22 +225,22 @@ def test_invalid_compact_and_ratio_fall_back_and_warn(proj):
 
     cfg = config.load(proj.root)
     shown = views.status(proj.root, cfg, {"tasks": {}})
-    ratio_warning = "fusion/config.json 的 context_ratio 无效,按 0.6 计算"
-    compact_warning = "fusion/local.json 的 sidekick.models.gpt-6-luna.compact 无效,按 400000 计算"
+    ratio_warning = "fusion/config.json has an invalid context_ratio; using 0.6"
+    compact_warning = "fusion/local.json has an invalid sidekick.models.gpt-6-luna.compact; using 400000"
     assert ratio_warning in shown and compact_warning in shown
-    assert "换工位: 上下文超过 240000(压缩上限 400000 × 60%)" in shown
+    assert "Station rotation: context exceeds 240000(compact limit 400000 × 60%)" in shown
 
     checks = cli._preflight(proj.root)["checks"]
-    warnings = [row["detail"] for row in checks if row["check"] == "配置警告"]
+    warnings = [row["detail"] for row in checks if row["check"] == "Configuration warning"]
     assert ratio_warning in warnings and compact_warning in warnings
 
 
 def test_preflight_codex_clean_flags_available(proj):
     result = cli._preflight(proj.root)
     rows = {row["check"]: row for row in result["checks"]}
-    sandbox_check = "沙箱里能跑命令"
+    sandbox_check = "Sandbox command execution"
     assert rows["Codex"]["ok"] and "codex fake-1.0" in rows["Codex"]["detail"]
-    assert rows["干净模式参数"]["ok"]
+    assert rows["Clean mode options"]["ok"]
     assert rows[sandbox_check]["ok"]
     assert str(proj.root).replace("\\", "/").lower() in rows[sandbox_check]["detail"].replace("\\", "/").lower()
 
@@ -250,7 +250,7 @@ def test_preflight_detects_command_rejected_inside_sandbox(proj):
     local["env"]["FAKE_CODEX_SANDBOX_FAIL"] = "1"
     config.save_local(proj.root, local)
     result = cli._preflight(proj.root)
-    row = next(row for row in result["checks"] if row["check"] == "沙箱里能跑命令")
+    row = next(row for row in result["checks"] if row["check"] == "Sandbox command execution")
     assert not row["ok"]
     assert row["detail"] == "rejected: blocked by policy"
 
@@ -260,9 +260,9 @@ def test_preflight_detects_missing_resume_flag(proj):
     local["env"]["FAKE_CODEX_RESUME_HELP_MISSING"] = "--ignore-user-config"
     config.save_local(proj.root, local)
     result = cli._preflight(proj.root)
-    row = next(row for row in result["checks"] if row["check"] == "干净模式参数")
+    row = next(row for row in result["checks"] if row["check"] == "Clean mode options")
     assert not row["ok"]
-    assert "exec resume --help 缺少 --ignore-user-config" in row["detail"]
+    assert "exec resume --help missing --ignore-user-config" in row["detail"]
 
 
 def test_preflight_requires_exact_apps_feature_name(proj):
@@ -270,9 +270,9 @@ def test_preflight_requires_exact_apps_feature_name(proj):
     local["env"]["FAKE_CODEX_FEATURES"] = "apps_mcp_path_override\nplugins"
     config.save_local(proj.root, local)
     result = cli._preflight(proj.root)
-    row = next(row for row in result["checks"] if row["check"] == "干净模式参数")
+    row = next(row for row in result["checks"] if row["check"] == "Clean mode options")
     assert not row["ok"]
-    assert "features list 缺少 apps" in row["detail"]
+    assert "features list missing apps" in row["detail"]
 
 
 def test_preflight_failure_is_advisory_when_clean_mode_is_off(proj):
@@ -284,9 +284,9 @@ def test_preflight_failure_is_advisory_when_clean_mode_is_off(proj):
     project["clean"] = False
     project_path.write_text(json.dumps(project), encoding="utf-8")
     result = cli._preflight(proj.root)
-    row = next(row for row in result["checks"] if row["check"] == "干净模式参数")
+    row = next(row for row in result["checks"] if row["check"] == "Clean mode options")
     assert row["ok"]
-    assert "项目没开干净模式,仅供参考" in row["detail"]
+    assert "clean mode is off for this project; informational only" in row["detail"]
 
 
 def test_station_rotation_threshold_uses_model_compact(proj):
@@ -302,7 +302,7 @@ def test_station_rotation_threshold_uses_model_compact(proj):
     rotated, events, _ = proj.sup._station_for(state(), cfg, {"runs": [], "plan": {"scope": []}})
     assert rotated["name"] == "main#2"
     retired = next(event for event in events if event["type"] == "station_retired")
-    assert retired["data"]["reason"] == "当前上下文约 601 token,超过换工位阈值 600(压缩上限 1000 × 60%)"
+    assert retired["data"]["reason"] == "Current context is about 601 tokens, above the station rotation threshold 600 (compact limit 1000 × 60%)"
 
     cfg["local"]["sidekick"]["models"]["gpt-6-luna"]["compact"] = 2000
     kept, events, _ = proj.sup._station_for(state(), cfg, {"runs": [], "plan": {"scope": []}})
@@ -347,7 +347,7 @@ def test_model_capabilities_and_effort_validation(proj, capsys):
 
 def test_compact_model_upper_bound(proj, capsys):
     assert main(["--project", str(proj.root), "config", "compact", "900000"]) == 1
-    assert "上下文上限不能超过 gpt-6-luna 的 872000" in capsys.readouterr().err
+    assert "Context limit cannot exceed 872000 for gpt-6-luna" in capsys.readouterr().err
     assert main(["--project", str(proj.root), "config", "compact", "1"]) == 0
     capsys.readouterr()
     assert main(["--project", str(proj.root), "config", "model", "unknown"]) == 0

@@ -43,11 +43,11 @@ def test_config_enabled_only_changes_switch_and_initializes_on_artifacts(proj, c
     assert config.load(proj.root)["local"]["enabled"] is False
     assert (proj.root / "fusion" / "fusion.db").exists()
     assert (proj.root / "fusion" / "decisions.md").exists()
-    assert capsys.readouterr().out == "Fusion 已关闭\n"
+    assert capsys.readouterr().out == "Fusion disabled\n"
 
     assert cli.main(["--project", str(proj.root), "config", "enabled", "on"]) == 0
     assert config.load(proj.root)["local"]["enabled"] is True
-    assert capsys.readouterr().out == "Fusion 已打开\n"
+    assert capsys.readouterr().out == "Fusion is enabled\n"
     assert cli.main(["--project", str(proj.root), "config", "enabled", "maybe"]) == 1
 
 
@@ -97,7 +97,7 @@ def test_lead_usage_snapshots_pair_pre_and_post_create_explore_and_use_latest(pr
     assert all("at" in event["data"] for event in state["lead_usage_events"])
     assert state["lead_usage"]["T1"]["data"]["cost_usd"] == 6.1
     rendered = views.ledger(state, "T1")
-    assert "本任务 $0.50 · 验收时 上下文 150k/434k · 5h 84% · 周 12%" in rendered
+    assert "This task $0.50 · At acceptance Context 150k/434k · 5h 84% · 7d 12%" in rendered
 
 
 def test_lead_usage_cross_session_has_no_guessed_cost_delta(proj, monkeypatch, capsys):
@@ -113,7 +113,7 @@ def test_lead_usage_cross_session_has_no_guessed_cost_delta(proj, monkeypatch, c
                        {"startedAt": 1763100000001, "cost": {"usd": 9.0}},
                        "accept", "--task", "T1") == 0
     capsys.readouterr()
-    assert "本任务 -" in views.ledger(proj.state(), "T1")
+    assert "This task -" in views.ledger(proj.state(), "T1")
 
 
 def test_lead_usage_tool_call_delta_and_invalid_counts(proj, monkeypatch, capsys):
@@ -143,28 +143,28 @@ def test_lead_usage_default_task_and_invalid_input_leave_no_event(proj, monkeypa
     finally:
         conn.close()
     assert _lead_usage(proj, monkeypatch, capsys, {"context": {"tokens": 1}}, "accept") == 0
-    assert capsys.readouterr().out == "已记录 T1 的 lead 用量\n"
+    assert capsys.readouterr().out == "Recorded lead usage for T1\n"
     before = len(proj.events("lead_usage"))
     monkeypatch.setattr(cli.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(b"[]")))
     assert cli.main(["--project", str(proj.root), "lead-usage", "--at", "accept", "-"]) == 1
-    assert "JSON 对象" in capsys.readouterr().err
+    assert "JSON object" in capsys.readouterr().err
     assert len(proj.events("lead_usage")) == before
 
 
 def test_lead_usage_requires_review_task_with_exit_two(proj, monkeypatch, capsys):
     monkeypatch.setattr(cli.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(b"{}")))
     assert cli.main(["--project", str(proj.root), "lead-usage", "--at", "accept", "-"]) == 2
-    assert "找不到" in capsys.readouterr().err
+    assert "No task found" in capsys.readouterr().err
 
 
 def test_lead_usage_invalid_json_has_specific_error(proj, monkeypatch, capsys):
     monkeypatch.setattr(cli.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(b"{bad")))
     assert cli.main(["--project", str(proj.root), "lead-usage", "--at", "explore", "-"]) == 1
-    assert capsys.readouterr().err.strip() == "lead-usage 的输入不是合法 JSON"
+    assert capsys.readouterr().err.strip() == "lead-usage input is not valid JSON"
 
 
 def test_lead_usage_rejects_unknown_at_value(proj, monkeypatch, capsys):
     monkeypatch.setattr(cli.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(b"{}")))
     assert cli.main(["--project", str(proj.root), "lead-usage", "--at", "revise", "-"]) == 1
-    assert "只能是 explore 或 accept" in capsys.readouterr().err
+    assert "must be explore or accept" in capsys.readouterr().err
 

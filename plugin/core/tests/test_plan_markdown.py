@@ -27,16 +27,16 @@ def test_reserved_section_in_middle_and_fence():
 
 def test_json_still_first():
     assert aq.parse_plan('  \n{"goal": "g", "brief": "b"}') == as_json({"goal": "g", "brief": "b"})
-    with pytest.raises(FusionError, match="计划不是合法的 JSON"):
+    with pytest.raises(FusionError, match="Plan is not valid JSON"):
         aq.parse_plan("{bad")
 
 
 @pytest.mark.parametrize("md, words", [
-    ("目标\n正文", '"# 一句话目标"'),
-    ("## 小标题\n正文", '"# 一句话目标"'),
+    ("目标\n正文", '"# One-line goal"'),
+    ("## 小标题\n正文", '"# One-line goal"'),
     ("# g\nb\n## scope\nsrc/**\n", "## scope"),
     ("# g\nb\n## checks\n- ``\n", "## checks"),
-    ("# g\nb\n## scope\n- a\n## scope\n- b\n", "只能写一次"),
+    ("# g\nb\n## scope\n- a\n## scope\n- b\n", "section may appear only once"),
 ])
 def test_markdown_errors(md, words):
     with pytest.raises(FusionError) as err:

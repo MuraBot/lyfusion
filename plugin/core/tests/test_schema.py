@@ -153,11 +153,11 @@ def test_newer_config_and_database_rejected_and_preflight_reports_them(tmp_path)
     cfg["schema_version"] = 3
     config_path.write_text(json.dumps(cfg), encoding="utf-8")
     result = cli(root, "status")
-    assert result.returncode == 2 and "升级插件" in result.stderr and "config.json" in result.stderr
+    assert result.returncode == 2 and "Ask the user to upgrade the plugin" in result.stderr and "config.json" in result.stderr
     preflight_result = cli(root, "preflight")
     assert preflight_result.returncode == 0, preflight_result.stderr
     preflight = json.loads(preflight_result.stdout)
-    format_row = next(row for row in preflight["checks"] if row["check"] == "状态格式")
+    format_row = next(row for row in preflight["checks"] if row["check"] == "State format")
     assert not format_row["ok"] and "config.json" in format_row["detail"]
     cfg["schema_version"] = 2
     config_path.write_text(json.dumps(cfg), encoding="utf-8")
@@ -167,11 +167,11 @@ def test_newer_config_and_database_rejected_and_preflight_reports_them(tmp_path)
     local["schema_version"] = 3
     local_path.write_text(json.dumps(local), encoding="utf-8")
     result = cli(root, "status")
-    assert result.returncode == 2 and "升级插件" in result.stderr and "local.json" in result.stderr
+    assert result.returncode == 2 and "Ask the user to upgrade the plugin" in result.stderr and "local.json" in result.stderr
     preflight_result = cli(root, "preflight")
     assert preflight_result.returncode == 0, preflight_result.stderr
     preflight = json.loads(preflight_result.stdout)
-    format_row = next(row for row in preflight["checks"] if row["check"] == "状态格式")
+    format_row = next(row for row in preflight["checks"] if row["check"] == "State format")
     assert not format_row["ok"] and "local.json" in format_row["detail"]
     local["schema_version"] = 2
     local_path.write_text(json.dumps(local), encoding="utf-8")
@@ -186,7 +186,7 @@ def test_newer_config_and_database_rejected_and_preflight_reports_them(tmp_path)
     conn.close()
     before = db_path.read_bytes()
     result = cli(root, "status")
-    assert result.returncode == 2 and "升级插件" in result.stderr and "fusion.db" in result.stderr
+    assert result.returncode == 2 and "Ask the user to upgrade the plugin" in result.stderr and "fusion.db" in result.stderr
     conn = sqlite3.connect(db_path)
     assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
     assert conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 4
@@ -195,7 +195,7 @@ def test_newer_config_and_database_rejected_and_preflight_reports_them(tmp_path)
     preflight_result = cli(root, "preflight")
     assert preflight_result.returncode == 0, preflight_result.stderr
     preflight = json.loads(preflight_result.stdout)
-    format_row = next(row for row in preflight["checks"] if row["check"] == "状态格式")
+    format_row = next(row for row in preflight["checks"] if row["check"] == "State format")
     assert not format_row["ok"] and "fusion.db" in format_row["detail"]
 
 
@@ -209,7 +209,7 @@ def test_newer_event_version_defensively_rejected(tmp_path):
     conn.commit()
     conn.close()
     result = cli(root, "status")
-    assert result.returncode == 2 and "升级插件" in result.stderr
+    assert result.returncode == 2 and "Ask the user to upgrade the plugin" in result.stderr
 
 
 def test_hook_reports_newer_format_without_usage_guide(tmp_path):
@@ -229,4 +229,4 @@ def test_hook_reports_newer_format_without_usage_guide(tmp_path):
     )
     assert result.returncode == 0
     context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
-    assert "升级 lyfusion-plugin" in context and "只做 4 件事" not in context
+    assert "Upgrade lyfusion-plugin" in context and "four actions" not in context

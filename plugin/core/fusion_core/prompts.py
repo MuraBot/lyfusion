@@ -17,9 +17,9 @@ def model_notes(root, model: str) -> dict[str, str]:
             continue
         section = None
         for line in path.read_text(encoding="utf-8").splitlines():
-            if line.strip() == "## 给助手":
+            if line.strip() == "## For the assistant":
                 section = "sidekick"
-            elif line.strip() == "## 给 lead":
+            elif line.strip() == "## For the lead":
                 section = "lead"
             elif line.startswith("## "):
                 section = None
@@ -33,68 +33,67 @@ CONTINUE_PROMPT = ("You reported blocked but listed no blocking question. If not
 
 def continue_prompt() -> str:
     return CONTINUE_PROMPT + "\n" + REPORT_REMINDER
-# 续用同一个会话时(自动修、修改意见、补报告)只重申的短规则;完整的做法在 WORK_RULES,派工时发一次
-FIXED_RULES = """固定规则:
-- 一口气做完本次任务。
-- 读代码时一次读整份文件或大段,可以一条命令读几个文件;不要每次只读几十行。同一条命令不要反复跑,改了代码后重跑测试和 lint 除外。
-- 中途只跑和改动有关的测试(单个文件或单个用例),沿用项目测试命令里的参数,比如并行;全量测试和 lint 只在结束前各跑一次。
-- 最终回复只输出 JSON 报告(status/summary/questions/choices/problems)。"""
+
+# When continuing the same session (auto-fix, revision, or report retry), repeat only these short rules.
+# The full workflow is in WORK_RULES and is sent once with the task.
+FIXED_RULES = """Fixed rules:
+- Complete the task in one go.
+- Read whole files or large sections; one command may read several files. Do not reread only a few dozen lines at a time or repeat a command, except rerunning tests and lint after code changes.
+- Mid-task, run only relevant tests (one file or one test), using the project's test options. Run the full test suite and lint once at the end.
+- Return only a JSON report (status/summary/questions/choices/problems)."""
 
 FORBIDDEN = [
-    '只在当前工位目录工作;不提交、不推送、不切分支,提交由引擎做。',
-    '不改弱、不删除原有测试来让自己通过;不改检查命令。环境错误原样重跑,不要关闭证书检查或绕过检查/钩子(--no-verify)。',
-    '不调用 Claude,不读 ~/.claude/、AppData 里 Claude 的文件夹和 Codex 的 auth.json;不替用户接受协议,不下载和任务无关的文件。',
+    'Work only in the current station directory. Do not commit, push, or switch branches; the engine handles commits.',
+    'Do not weaken or delete existing tests to make them pass, and do not change check commands. Rerun environment errors as-is; do not disable certificate checks or bypass checks or hooks (--no-verify).',
+    'Do not call Claude or read ~/.claude/, Claude folders under AppData, or Codex auth.json. Do not accept agreements for the user or download unrelated files.',
 ]
 
-FIXED_RULES += "\n\n不能做的事:\n" + "\n".join(f"- {item}" for item in FORBIDDEN)
+FIXED_RULES += "\n\nDo not:\n" + "\n".join(f"- {item}" for item in FORBIDDEN)
 
+# The complete workflow sent with every task brief.
+WORK_RULES = """You are lyfusion's assistant. The lead handles design and decisions; implement the task brief below. Do not communicate with the lead during the task. Return only code changes and the final report.
 
-# 派工时给助手的完整做法(来自 v4 的 sidekick.md)。只给助手看,lead 不为它付调用和上下文
-WORK_RULES = """你是 lyfusion 的助手。lead 负责设计和判断,你按下面的任务单实现。途中不和 lead 通信,你交回的只有代码改动和最终报告。
+## Workflow
+1. Complete the brief from start to finish, moving to the next step as soon as one is done. Stop only when all work is complete or a stop condition below applies.
+2. Write tests, implement the code, and run tests yourself. Before finishing, run both the project's test and lint commands and all check commands. Verify the test count: some frameworks return 0 after skipping an entire test batch, so an unexpected count is a failure. Compilation without execution is not a test.
+   Read whole files or large sections; one command may read several files. Do not read only a few dozen lines at a time or repeat a command, except rerunning tests and lint after code changes.
+3. Preserve existing behavior (error text, handling of null and blank lines, numbering, and output format) unless the brief asks to change it.
+   Do not format the whole project or untouched files (ruff format, black, etc.). Change only what the task needs. Fix lint findings; do not bypass them with noqa.
+4. Follow the brief's decisions and prohibitions. If they conflict with evidence, do not change direction; explain the conflict and evidence in problems.
+5. You may choose internal structure, names, and test cases the brief leaves open; check framework source for constants and defaults. Create files implied by the brief's goal.
+6. After you finish, the engine reruns tests, lint, and checks. If any fail, it will return the output for you to fix.
 
-## 怎么做
-1. 一口气做完:按 Brief 从头做到尾,一步做完直接做下一步。只在两种情况结束:全部做完;遇到下面"停下"的情况。
-2. 自己写测试、自己写代码、自己跑测试。结束前把"项目的测试和 lint"和"检查命令"都跑一遍,核对通过的测试数量:有的框架跳过整批测试也返回 0,数量不对就是失败。只编译不运行不算测试。
-   读代码时一次读整份文件或大段,可以一条命令读几个文件;不要每次只读几十行。同一条命令不要反复跑,改了代码后重跑测试和 lint 除外。
-3. 改造现有代码时,原有行为(报错文字、空值和空行的处理、编号规则、输出格式)保持不变,除非 Brief 要求改。
-   不要对整个项目或没改的文件跑格式化器(ruff format、black 等),只改任务需要的地方;lint 只修报出来的问题,不要加 `noqa` 绕过。
-4. Brief 里的决定和"不要做的事"照做。发现和事实冲突时不改方向,在 problems 里写清冲突和证据。
-5. 可以自己定:Brief 没定的内部结构、命名、测试用例;框架的常数和默认值(查框架源码确认);Brief 目标隐含要生成的文件。
-6. 你结束后,引擎会再跑测试、lint 和检查命令,不通过会把输出交给你接着修。
+## When uncertain
+- If a wrong guess has low cost, proceed with your recommendation and record it in questions (blocking=false), including your choice and alternatives.
+- If a wrong guess has high cost (changing a public interface or data format, deleting user data, conflicting with the brief or decisions.md, or requiring new permissions or downloads), do independent work first, then stop with status=blocked and a blocking=true question.
+- For environment or network errors, rerun as-is, increase the timeout, and reuse the cache. Do not disable certificate checks or skip hooks (--no-verify).
 
-## 不确定时
-- 猜错代价小:按你的推荐做完,写进 questions(blocking=false),写清你选了什么、还有哪些选项。
-- 猜错代价大(要改公开接口或数据格式、要删用户的数据、和 Brief 或 decisions.md 冲突、需要新的权限或下载):先做不依赖它的部分,然后停下,questions 里写 blocking=true,status 写 blocked。
-- 环境或网络错误:原样重跑、加长超时、复用缓存。不要关证书检查,不要跳过钩子(--no-verify)。
+## Final report (JSON)
+Include only information that cannot be seen in the repository; the lead can inspect the diff and engine check results.
+- summary: one or two sentences describing what you completed.
+- questions: questions for the lead, with options and your recommendation.
+- choices: decisions you made that were not specified and may matter to users or other modules. Explain what you chose and why, including alternatives you did not choose. Use an empty list if there are none.
+- problems: unfinished work, known problems, and any existing tests changed with the reason.
 
-## 最终报告(JSON)
-只写仓库里看不到的。改了什么、测试过没过,lead 看 diff 和引擎的检查结果。
-- summary:一两句话,做成了什么
-- questions:要 lead 回答的问题,写清选项和你的推荐
-- choices:没人要求、你自己定下的、用户或其他模块可能在意的做法。what 写选了什么,why 写理由和没选的做法。没有就写空列表
-- problems:没做完的、已知的问题;改了哪些原有测试、为什么
-
-"""
-
-WORK_RULES += "\n\n## 不能做的事\n" + "\n".join(f"- {item}" for item in FORBIDDEN)
-WORK_RULES += """
+## Do not
+""" + "\n".join(f"- {item}" for item in FORBIDDEN) + """
 
 ## Brief conventions
 - The brief gives constraints, edge cases, done criteria, behaviour that must not change and exact test assertions. Follow its decisions; treat anything marked as a guess as a suggestion: with contrary evidence you may deviate, record it in choices with a reason.
-- Before the final report, reread the brief and your work item's `git diff` item by item, then fill `brief_check` with one entry per decision, constraint and done criterion. Use `met`, `differs` (and explain why), or `not_done`; `where` must be `file:line` or empty.
+- Before the final report, reread the brief and your work item's git diff item by item, then fill brief_check with one entry per decision, constraint and done criterion. Use met, differs (and explain why), or not_done; where must be file:line or empty.
 - If the brief gives stop conditions, stop when one is met (status blocked).
 
-## 测试跑法
-- 中途只跑和改动有关的测试(单个文件或单个用例),沿用项目测试命令里的参数,比如并行;全量测试和 lint 只在结束前各跑一次。
-- 沙箱不能结束别的进程,也可能写不了系统临时目录;这类测试在你那里过不了时,在 problems 写明是沙箱限制,引擎会在沙箱外再跑检查;不要把临时目录(例如 pytest 的 --basetemp)放在工位里会被提交的位置。"""
+## Test instructions
+- Mid-task, run only relevant tests (one file or one test), using the project's options such as parallelism. Run the full suite and lint once at the end.
+- The sandbox may be unable to terminate other processes or write to the system temp directory. If a test fails for either reason, explain the sandbox limitation in problems; the engine will rerun checks outside the sandbox. Do not put temporary directories (such as pytest's --basetemp) in a location that will be committed from the station."""
 
 def _checks(plan: dict) -> str:
     return (
         "\n".join(
-            f"- `{item['run']}` (期望 {item.get('expect', 0)})"
+            f"- `{item['run']}` (expected exit {item.get('expect', 0)})"
             for item in plan.get("checks", [])
         )
-        or "- (无)"
+        or "- (none)"
     )
 
 
@@ -105,27 +104,27 @@ def task_prompt(
     plan = task["plan"]
     parts = [WORK_RULES]
     if model_note:
-        parts.append(f"## 助手 {model} 的备注\n{model_note}")
+        parts.append(f"## Notes for assistant {model}\n{model_note}")
     if handoff:
-        parts.append("## 上一个工位交接摘要\n" + handoff)
+        parts.append("## Previous station handoff summary\n" + handoff)
     cmds = [c for c in project_cmds or [] if c]
     parts += [
-        f"## 目标\n{plan['goal']}",
+        f"## Goal\n{plan['goal']}",
         f"## Brief\n{plan['brief']}",
-        "## 项目的测试和 lint\n" + ("\n".join(f"- `{c}`" for c in cmds) or "- (未配置)"),
-        "## 检查命令和期望\n" + _checks(plan),
-        "## 文件范围\n"
-        + ("\n".join(f"- {g}" for g in plan.get("scope", [])) or "- (未指定)"),
-        "## fusion/decisions.md 全文\n" + decisions,
+        "## Project tests and lint\n" + ("\n".join(f"- `{c}`" for c in cmds) or "- (not configured)"),
+        "## Check commands and expected results\n" + _checks(plan),
+        "## File scope\n"
+        + ("\n".join(f"- {g}" for g in plan.get("scope", [])) or "- (unspecified)"),
+        "## Full text of fusion/decisions.md\n" + decisions,
     ]
     return "\n\n".join(parts)
 
 
 def fix_prompt(failures: str, decisions: str, model_note: str = "") -> str:
     return (
-        "## 检查失败\n"
+        "## Check failures\n"
         + failures
-        + "\n\n## fusion/decisions.md 全文\n"
+        + "\n\n## Full text of fusion/decisions.md\n"
         + decisions
         + "\n\n"
         + FIXED_RULES
@@ -137,9 +136,9 @@ def fix_prompt(failures: str, decisions: str, model_note: str = "") -> str:
 
 def changes_prompt(text: str, decisions: str, model_note: str = "") -> str:
     return (
-        "## lead 的修改意见(原文)\n"
+        "## Lead revision request (verbatim)\n"
         + text
-        + "\n\n## fusion/decisions.md 全文\n"
+        + "\n\n## Full text of fusion/decisions.md\n"
         + decisions
         + "\n\n"
         + FIXED_RULES
@@ -163,9 +162,9 @@ def minor_fix_prompt(text: str, files: list[str]) -> str:
 def report_prompt(previous_error: str, decisions: str) -> str:
     return (
         "Before returning the report, reread the brief and the work item's git diff item by item. Fill `brief_check` with one entry per decision, constraint and done criterion, using `met`, `differs` (explain why), or `not_done`; `where` must be `file:line` or empty.\n"
-        "## 补交最终报告\n上次运行未返回有效报告。不要再改代码。\n"
+        "## Return the final report\nThe previous run did not return a valid report. Do not change the code again.\n"
         + previous_error
-        + "\n\n## fusion/decisions.md 全文\n"
+        + "\n\n## Full text of fusion/decisions.md\n"
         + decisions
         + "\n\n"
         + FIXED_RULES
@@ -191,9 +190,9 @@ def explore_prompt(original: str, decisions: str) -> str:
     )
 
 def handoff_summary(state: dict, old: dict) -> str:
-    lines = [f"上一个工位 {old['name']} 做过的任务:{', '.join(old['tasks']) or '(无)'}"]
+    lines = [f"Previous station {old['name']} tasks: {', '.join(old['tasks']) or '(none)'}"]
     if old.get("files"):
-        lines.append("改过的文件:" + ", ".join(old["files"][:60]))
+        lines.append("Files changed: " + ", ".join(old["files"][:60]))
     for task_id in old["tasks"][-3:]:
         task = state["tasks"].get(task_id)
         if task:
@@ -203,6 +202,6 @@ def handoff_summary(state: dict, old: dict) -> str:
             for run_id in task["runs"][-1:]:
                 report = state["runs"][run_id].get("report") or {}
                 lines.extend(
-                    f"  已知问题:{problem}" for problem in report.get("problems") or []
+                    f"  Known problem: {problem}" for problem in report.get("problems") or []
                 )
     return "\n".join(lines)

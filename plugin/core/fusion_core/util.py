@@ -1,4 +1,4 @@
-"""小工具:时间、JSON、glob 匹配、子进程。"""
+"""Utilities: time, JSON, glob matching, and subprocesses."""
 from __future__ import annotations
 
 import ctypes
@@ -15,7 +15,7 @@ IS_WIN = os.name == "nt"
 
 
 class FusionError(Exception):
-    """给 lead 看的错误:原因写清楚,lead 当场能改。"""
+    """Errors for the lead: explain the cause so it can be fixed immediately."""
 
     def __init__(self, message: str, code: int = 1):
         super().__init__(message)
@@ -31,9 +31,9 @@ class FormatTooNew(FusionError):
         self.path = path
         self.version = version
         super().__init__(
-            f"{path} 的格式版本是 {version},这个插件({VERSION})只认到 {SCHEMA}:"
-            "这个项目用过更新版本的 lyfusion-plugin。请让用户升级插件后再用;"
-            "不要手改版本号,也不要删除 fusion/ 里的文件。",
+            f"{path} has format version {version}; this plugin ({VERSION}) supports up to {SCHEMA}: "
+            "This project has used a newer version of lyfusion-plugin. Ask the user to upgrade the plugin before continuing; "
+            "do not edit the version manually or delete files in fusion/.",
             code=2,
         )
 
@@ -56,7 +56,7 @@ def dumps(obj) -> str:
 
 
 def norm(path: str) -> str:
-    """统一成正斜杠的相对路径。"""
+    """Normalize a relative path to forward slashes."""
     p = path.replace("\\", "/")
     while p.startswith("./"):
         p = p[2:]
@@ -95,7 +95,7 @@ def any_match(path: str, patterns) -> bool:
 
 
 def globs_overlap(a, b) -> bool:
-    """两组 glob 是否可能指向同一个文件(保守判断)。"""
+    """Whether two glob patterns might match the same file (conservative check)."""
     for x in a or []:
         for y in b or []:
             x2, y2 = norm(x), norm(y)
@@ -108,14 +108,14 @@ def globs_overlap(a, b) -> bool:
 
 
 def clean_env(extra: dict | None = None) -> dict:
-    """去掉 CLAUDE*、ANTHROPIC* 环境变量,Codex 和检查命令都用它。"""
+    """Remove CLAUDE* and ANTHROPIC* environment variables; use this for Codex and check commands."""
     env = {k: v for k, v in os.environ.items() if not k.upper().startswith(("CLAUDE", "ANTHROPIC"))}
     env.update({k: str(v) for k, v in (extra or {}).items()})
     return env
 
 
 def run(cmd, cwd, timeout=600, env=None, shell=False, out_file: Path | None = None) -> dict:
-    """跑一个命令。输出写文件(避免 Windows 上管道挂住),返回退出码和输出。"""
+    """Run one command. Write output to a file (to avoid Windows pipe hangs) and return the exit code and output."""
     started = time.time()
     if out_file is None:
         try:
@@ -124,7 +124,7 @@ def run(cmd, cwd, timeout=600, env=None, shell=False, out_file: Path | None = No
             out = p.stdout.decode("utf-8", "replace") + p.stderr.decode("utf-8", "replace")
             code = p.returncode
         except subprocess.TimeoutExpired as e:
-            out = (e.stdout or b"").decode("utf-8", "replace") + f"\n[超时 {timeout} 秒]"
+            out = (e.stdout or b"").decode("utf-8", "replace") + f"\n[timed out after {timeout} seconds]"
             code = -9
         return {"exit": code, "output": out, "seconds": round(time.time() - started, 1)}
     out_file.parent.mkdir(parents=True, exist_ok=True)
@@ -137,7 +137,7 @@ def run(cmd, cwd, timeout=600, env=None, shell=False, out_file: Path | None = No
             code = -9
     out = out_file.read_bytes().decode("utf-8", "replace")
     if code == -9:
-        out += f"\n[超时 {timeout} 秒]"
+        out += f"\n[timed out after {timeout} seconds]"
     return {"exit": code, "output": out, "seconds": round(time.time() - started, 1)}
 
 
@@ -145,14 +145,14 @@ def git(*args, cwd, check=True) -> str:
     p = subprocess.run(["git", *args], cwd=cwd, stdin=subprocess.DEVNULL, check=False, capture_output=True)
     out = p.stdout.decode("utf-8", "replace")
     if check and p.returncode != 0:
-        raise FusionError(f"git {' '.join(args)} 失败:{p.stderr.decode('utf-8', 'replace').strip()}")
+        raise FusionError(f"git {' '.join(args)} failed:{p.stderr.decode('utf-8', 'replace').strip()}")
     return out.strip() if check else (p.returncode, out, p.stderr.decode("utf-8", "replace"))
 
 
 def spawn_detached(cmd, cwd, env, stdin_path: Path, stdout_path: Path, stderr_path: Path) -> int:
-    """启动独立的子进程:只继承三个文件,不继承调用者的标准输入输出(那可能是 MCP 通道)。
+    """Start an independent subprocess: inherit only three files, not the caller standard streams (which may be an MCP channel).
 
-    Codex exec 必须把提示文件作为 stdin,否则会等待管道的额外输入。
+    Codex exec must receive the prompt file as stdin or it will wait for more pipe input.
     """
     with open(stdin_path, "rb") as fi, open(stdout_path, "wb") as fo, open(stderr_path, "wb") as fe:
         kwargs = {"cwd": cwd, "env": env, "stdin": fi, "stdout": fo, "stderr": fe, "close_fds": True}
@@ -213,21 +213,21 @@ def python_exe() -> str:
     return sys.executable or "python"
 
 
-# lead 在 Bash 里运行引擎的命令。插件不能带 bin/(claude.ai 托管的插件不允许),
-# 所以写安装目录里 fusion-core.py 的绝对路径;SessionStart 注入的使用说明和各命令的"下一步"都用它
+# Commands for the lead to run the engine in Bash. Plugins cannot include bin/ (not allowed for claude.ai hosted plugins),
+# so use the absolute path to fusion-core.py in the install directory; SessionStart instructions and command next steps use it.
 CMD = f'python "{(Path(__file__).resolve().parent.parent / "fusion-core.py").as_posix()}"'
 
 
-# ---- 脱敏:写进 runs/ 的日志按常见的密钥格式遮掉。做不到完美,所以 runs/ 永远不进 git ----
+# ---- Redaction: mask common secret formats in runs/ logs. This is imperfect, so runs/ is never tracked by Git. ----
 _SECRETS = [
-    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"), "[已遮掉的私钥]"),
-    (re.compile(r"(?i)(authorization[\"']?\s*[:=]\s*[\"']?(?:bearer|basic|token)\s+)[^\s\"',]+"), r"\1[已遮掉]"),
-    (re.compile(r"\b(?:sk|rk)-[A-Za-z0-9_\-]{20,}"), "[已遮掉的密钥]"),
-    (re.compile(r"\b(?:ghp|gho|ghs|ghu|ghr)_[A-Za-z0-9]{30,}"), "[已遮掉的令牌]"),
-    (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{30,}"), "[已遮掉的令牌]"),
-    (re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"), "[已遮掉的令牌]"),
-    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[已遮掉的密钥]"),
-    (re.compile(r"\bAIza[0-9A-Za-z\-_]{35}\b"), "[已遮掉的密钥]"),
+    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"), "[redacted private key]"),
+    (re.compile(r"(?i)(authorization[\"']?\s*[:=]\s*[\"']?(?:bearer|basic|token)\s+)[^\s\"',]+"), r"\1[redacted]"),
+    (re.compile(r"\b(?:sk|rk)-[A-Za-z0-9_\-]{20,}"), "[redacted secret]"),
+    (re.compile(r"\b(?:ghp|gho|ghs|ghu|ghr)_[A-Za-z0-9]{30,}"), "[redacted token]"),
+    (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{30,}"), "[redacted token]"),
+    (re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"), "[redacted token]"),
+    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[redacted secret]"),
+    (re.compile(r"\bAIza[0-9A-Za-z\-_]{35}\b"), "[redacted secret]"),
 ]
 
 

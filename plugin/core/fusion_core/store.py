@@ -1,4 +1,4 @@
-"""事件库:`fusion/fusion.db`,sqlite3 WAL。所有写入都经过 `transaction()`。"""
+"""Event store: `fusion/fusion.db`, SQLite WAL. All writes go through `transaction()`."""
 from __future__ import annotations
 
 import json
@@ -48,7 +48,7 @@ def connect(root: Path) -> sqlite3.Connection:
 
 @contextmanager
 def transaction(conn: sqlite3.Connection):
-    """写事务:BEGIN IMMEDIATE 先拿写锁,读状态、校验、追加事件在同一个事务里完成。"""
+    """Write transaction: BEGIN IMMEDIATE acquires the write lock; state read, validation, and event append happen in one transaction."""
     for attempt in range(50):
         try:
             conn.execute("BEGIN IMMEDIATE")
@@ -58,7 +58,7 @@ def transaction(conn: sqlite3.Connection):
                 raise
             time.sleep(0.1 * (attempt + 1))
     else:
-        raise sqlite3.OperationalError("事件库一直被锁住")
+        raise sqlite3.OperationalError("Event store remained locked")
     try:
         yield conn
         conn.execute("COMMIT")
@@ -68,7 +68,7 @@ def transaction(conn: sqlite3.Connection):
 
 
 def append(conn: sqlite3.Connection, events: list[dict], actor: str) -> list[dict]:
-    """在已开始的事务里追加事件,返回带 seq 的事件。"""
+    """Append an event inside an existing transaction and return it with seq."""
     out = []
     for e in events:
         ts = now()
@@ -89,7 +89,7 @@ def read(conn: sqlite3.Connection, after: int = 0) -> list[dict]:
 
 
 def upgrade(event: dict) -> dict:
-    """按事件格式版本升级旧事件。目前只有版本 1。"""
+    """Upgrade old events by event schema version. Currently only version 1 exists."""
     if event.get("v", 1) > SCHEMA:
         raise FormatTooNew("fusion/fusion.db", event["v"])
     return event
@@ -102,7 +102,7 @@ def export_jsonl(conn: sqlite3.Connection, path: Path) -> int:
     return len(events)
 
 
-# ---- 监督权:同一个项目只能有一个 serve 监督助手运行 ----
+# ---- Supervisor lease: only one serve supervisor may run per project ----
 
 def take_lease(conn: sqlite3.Connection, holder: str, ttl: float = 30.0) -> bool:
     with transaction(conn):

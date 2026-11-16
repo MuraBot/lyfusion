@@ -1,4 +1,4 @@
-"""校验器、工位、MCP、钩子、事件库、对账。"""
+"""Validators, worktrees, MCP, hooks, event store, and reconciliation."""
 from __future__ import annotations
 
 import json
@@ -14,20 +14,20 @@ from fusion_core.supervisor import Supervisor
 from fusion_core.util import FusionError, glob_match, globs_overlap, norm
 from test_flow import GOOD, plan_farewell, setup_task
 
-# ---------------- 校验器 ----------------
+# ---------------- Validators ----------------
 
 def test_plan_validation_errors(proj):
     with pytest.raises(FusionError) as e:
         proj.do(C.cmd_delegate, {"goal": "x", "items": []})
     msg = str(e.value)
-    assert "只允许字段" in msg and "items" in msg
+    assert "unexpected: items" in msg and "items" in msg
 
 
 def test_wrong_state_rejected(proj):
     setup_task(proj)
-    with pytest.raises(FusionError, match="不能修改"):
+    with pytest.raises(FusionError, match="cannot be revised"):
         proj.do(C.cmd_revise, "T1", "a")
-    with pytest.raises(FusionError, match="不存在"):
+    with pytest.raises(FusionError, match="does not exist"):
         proj.do(C.cmd_revise, "T9", "a")
 
 
@@ -40,7 +40,7 @@ def test_globs():
     assert norm("./.github/x") == ".github/x"
 
 
-# ---------------- 工位 ----------------
+# ---------------- Worktrees ----------------
 
 def test_explore_creates_station_then_implement_reuses_thread(proj):
     proj.script([{"text": "app/greet.py 第 1 行定义了 hello"}, GOOD])
@@ -56,7 +56,7 @@ def test_explore_creates_station_then_implement_reuses_thread(proj):
     proj.drain()
     calls = proj.calls()
     assert calls[1]["resume"] and calls[1]["thread"] == thread
-    assert "核对通过的测试数量" in calls[1]["prompt"]  # 派工时发完整的 WORK_RULES
+    assert "Verify the test count" in calls[1]["prompt"]  # Send the full WORK_RULES when delegating.
     assert 'sandbox_mode="workspace-write"' in calls[1]["args"]
     assert "r1" in views.status(proj.root, {}, proj.state(), "r1")
 
@@ -78,7 +78,7 @@ def test_station_rotates_on_model_change_with_handoff(proj):
     assert s["stations"]["main#1"]["status"] == "retired"
     assert s["stations"]["main#2"]["predecessor"] == "main#1"
     call = proj.calls()[1]
-    assert not call["resume"] and "上一个工位交接摘要" in call["prompt"] and "gpt-6-astra" in call["args"]
+    assert not call["resume"] and "Previous station handoff summary" in call["prompt"] and "gpt-6-astra" in call["args"]
 
 
 def test_resume_failure_retires_station(proj):
@@ -91,28 +91,28 @@ def test_resume_failure_retires_station(proj):
     proj.drain()
     s = proj.state()
     assert s["stations"]["main#1"]["status"] == "retired"
-    assert any(x["kind"] == "stalled" and "续用失败" in x["detail"] for x in s["tasks"]["T1"]["signals"])
-    # 之后再派(修改意见)会开新工位,并带上完整任务单
+    assert any(x["kind"] == "stalled" and "could not resume" in x["detail"] for x in s["tasks"]["T1"]["signals"])
+    # A later revision starts a new worktree and includes the full task brief.
     assert s["tasks"]["T1"]["state"] == "in_review"
     proj.do(C.cmd_revise, "T1", "继续做完")
     proj.drain()
     s = proj.state()
     assert "main#2" in s["stations"]
     call = proj.calls()[2]
-    assert not call["resume"] and "## 目标" in call["prompt"] and "继续做完" in call["prompt"]
+    assert not call["resume"] and "## Goal" in call["prompt"] and "继续做完" in call["prompt"]
 
 
-# ---------------- 对账 ----------------
+# ---------------- Reconciliation ----------------
 
 def test_supervisor_restart_picks_up_finished_run(proj):
     setup_task(proj)
     proj.script([dict(GOOD, sleep=1.5)])
     proj.do(C.cmd_delegate, plan_farewell(), "T1")
-    proj.sup.tick()  # 启动运行
+    proj.sup.tick()  # Start the run.
     assert proj.state()["runs"]["r1"]["status"] == "started"
     proj.sup.conn.close()
     import time
-    time.sleep(3)  # 监督者"不在"的时候,助手跑完了
+    time.sleep(3)  # The assistant finishes while the supervisor is away.
     proj.sup = Supervisor(proj.root, poll=0.05)
     proj.drain()
     assert proj.task()["state"] == "in_review" and proj.task()["latest"] == "T1.c1"
@@ -122,7 +122,7 @@ def test_lease_only_one_supervisor(proj):
     a, b = store.connect(proj.root), store.connect(proj.root)
     assert store.take_lease(a, "A")
     assert not store.take_lease(b, "B")
-    assert store.take_lease(a, "A")  # 续约
+    assert store.take_lease(a, "A")  # Renew the lease.
     store.release_lease(a, "A")
     assert store.take_lease(b, "B")
     a.close()
@@ -143,7 +143,7 @@ def test_concurrent_writers(proj):
     assert s["usage"]["_"]["sidekick"]["input"] == 120
 
 
-# ---------------- 钩子 ----------------
+# ---------------- Hooks ----------------
 
 def test_hooks_inject_within_limits(proj):
     setup_task(proj)
@@ -178,7 +178,7 @@ def test_hook_process_outputs_json(proj):
     assert out["hookSpecificOutput"]["hookEventName"] == "SessionStart"
 
 
-# ---------------- 通知和台账 ----------------
+# ---------------- Notifications and ledger ----------------
 
 def test_questions_visible_in_ledger(proj):
     setup_task(proj)
@@ -217,7 +217,7 @@ def test_old_database_event_types_are_ignored():
 
 
 def test_v5a_database_with_task_planned_replays():
-    """v5.0.0-a 的真实库用 task_planned 建任务,后面跟着 run_requested;重放不能崩,编号要接着往下排。"""
+    """The v5.0.0-a database used task_planned to create tasks, followed by run_requested; replay must work and continue numbering."""
     from fusion_core.state import empty, replay
     events = [
         {"seq": 1, "type": "task_planned", "task": "T1", "ts": "t1",

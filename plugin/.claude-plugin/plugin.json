@@ -1,7 +1,7 @@
 {
   "name": "lyfusion-plugin",
   "version": "5.0.0-rc.1.1",
-  "description": "专为 Claude Code 做的双代理协作插件(Lily 的个人项目,不是 Anthropic 官方产品)。Claude 当 lead:探索、计划、审查、验收;Codex CLI 当助手:写代码、跑测试和 lint。助手支持 Codex CLI 能用的模型,默认 gpt-6-luna(high),用 /fusion model 切换。需要本机装好 Python 3、git 和已登录的 Codex CLI。",
+  "description": "A dual-agent collaboration plugin for Claude Code. Lily's personal project, not an official Anthropic product. Claude acts as lead for exploration, planning, review, and acceptance; Codex CLI acts as the assistant for coding, tests, and lint. Supports models available in Codex CLI, defaults to gpt-6-luna (high), and switches models with /fusion model. Requires Python 3, Git, and an authenticated Codex CLI installation.",
   "author": {
     "name": "MuraBot"
   },

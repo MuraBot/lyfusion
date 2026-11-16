@@ -1,4 +1,4 @@
-"""fusion-core 的启动脚本:不依赖安装,直接用插件目录里的代码。"""
+"""fusion-core launcher: no installation required; runs code directly from the plugin directory."""
 import os
 import sys
 

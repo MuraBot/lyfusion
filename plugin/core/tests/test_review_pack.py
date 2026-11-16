@@ -56,7 +56,7 @@ def test_brief_check_deviations_lead_and_invalid_checks_are_lenient(proj):
 def test_old_tests_run_is_never_listed_as_a_check(proj):
     _, _, pack = make_pack(proj, {"app/change.py": "VALUE = 1\n"}, checks={
         "passed": True,
-        "results": [{"name": "旧测试跑新代码", "cmd": "pytest", "exit": 0,
+        "results": [{"name": "Old tests on new code", "cmd": "pytest", "exit": 0,
                      "passed": True, "restored": True}],
         "violations": [],
     })

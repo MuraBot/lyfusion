@@ -1,5 +1,5 @@
 {
-  "description": "lyfusion:SessionStart 在新会话注入 4 个动作的使用说明(项目没打开 Fusion 时什么都不输出);modules 是 Fusion 栏 mod(输入框下方的 ● Fusion 和面板,accept 时记 lead 用量)",
+  "description": "lyfusion: SessionStart injects instructions for the four workflow actions in new sessions (outputs nothing when Fusion is disabled for the project); modules is the Fusion panel module (the ● Fusion button below the input and its panel, which records lead usage during accept)",
   "modules": ["./register.tsx"],
   "hooks": {
     "SessionStart": [

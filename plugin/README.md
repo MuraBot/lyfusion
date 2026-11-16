@@ -1,34 +1,34 @@
 # lyfusion-plugin(v5.0.0-rc.1.1)
 
-专为 Claude Code 做的双代理协作插件,是 Lily 的个人项目,不是 Anthropic 官方产品。Claude 当 lead,Codex CLI 当助手。lead 通过 `explore`、`delegate`、`revise`、`accept` 四个阻塞命令工作;任务状态和检查由本地 Python 引擎管理。
+An agent collaboration plugin for Claude Code. Lily's personal project, not an official Anthropic product. Claude acts as lead and Codex CLI as assistant. The lead uses four blocking commands: `explore`, `delegate`, `revise`, and `accept`; a local Python engine manages task state and checks.
 
-## 组成
+## Components
 
-| 部分 | 位置 | 做什么 |
+| Component | Location | Purpose |
 |---|---|---|
-| 引擎 fusion-core | `core/` | Python 标准库和 sqlite;运行 Codex、检查候选并集成 |
-| SessionStart 钩子 | `hooks/hooks.json` | Fusion 开启时注入简短使用说明 |
-| Fusion 栏(mod) | `hooks/register.tsx`、`types/index.d.ts` | 输入框下方、模型选择器旁边的"● Fusion"(开 = Claude 橙,关 = 灰);点开在输入框上方展开面板,改开关、助手模型、思考强度、Fast Mode、上下文上限,都调用 `fusion-core config`。lead 跑 explore、accept 时把用量快照交给 `fusion-core lead-usage`,台账按任务显示。会话中途开关,下一条消息起生效(在消息旁附上 lead 使用说明或"已关"一句,不改系统提示)。只在打开过 Fusion 的项目里出现;新会话发出第一条消息后才显示 |
-| 技能 `/fusion` | `skills/fusion/SKILL.md` | `/fusion on`、`off`、`status`、`model`、`effort`、`fast`、`compact`、`test`;只由用户手动运行(`disable-model-invocation`),也可以写成 `/lyfusion-plugin:fusion` |
+| fusion-core engine | `core/` | Python standard library and SQLite; runs Codex, checks candidates, and integrates changes |
+| SessionStart hook | `hooks/hooks.json` | Injects brief instructions when Fusion is enabled |
+| Fusion panel (mod) | `hooks/register.tsx`, `types/index.d.ts` | The "● Fusion" button below the input beside the model picker (orange when on, gray when off). Opens a panel to configure the switch, assistant model, reasoning effort, Fast Mode, and context limit through `fusion-core config`. On explore and accept, it sends a usage snapshot to `fusion-core lead-usage`, and the ledger shows usage by task. Mid-session changes take effect with the next message and add a short usage note or "off" beside it without changing the system prompt. Appears only in enabled projects, after the first message in a new session. |
+| `/fusion` skill | `skills/fusion/SKILL.md` | `/fusion on`, `off`, `status`, `model`, `effort`, `fast`, `compact`, and `test`; run manually by the user (`disable-model-invocation`). It can also be invoked as `/lyfusion-plugin:fusion`. |
 
-插件不带 `bin/`(claude.ai 托管的插件不允许):lead 用 `python "<安装目录>/core/fusion-core.py" <子命令>` 运行引擎,完整路径由 SessionStart 注入的使用说明给出;`/fusion` 用 `${CLAUDE_PLUGIN_ROOT}`。
+The plugin does not include `bin/` (not allowed for claude.ai hosted plugins). The lead runs the engine with `python "<install directory>/core/fusion-core.py" <subcommand>`; SessionStart instructions provide the full path. `/fusion` uses `${CLAUDE_PLUGIN_ROOT}`.
 
 The lead runs the four workflow commands in the foreground. Each command waits for its result and writes it under `fusion/tasks/T*/` (`explore.md` or `review-N.md`). Cross-task design decisions are stored in `fusion/decisions.md`.
 
-## 支持什么
-- lead:Claude Code 里的 Claude(桌面应用的 Code 标签或命令行)。在普通聊天里钩子不加载,插件不起作用
-- 助手:OpenAI 的 Codex CLI(`codex exec`)。Codex CLI 能用的模型都可以用 `/fusion model 名字` 切换,每个模型各记各的 effort、fast 和 compact。干净模式是项目设置,在 `fusion/config.json` 的 `clean` 里改(干净模式下从 Codex 的 `config.toml` 只读 `windows.sandbox` 和 `sandbox_workspace_write.network_access` 两项传下去,别的不读);引擎内置 gpt-6-luna、gpt-6-astra 能用的思考强度和是否支持 Fast Mode,不支持时 fast 当关;换工位比例是 `context_ratio`。默认 gpt-6-luna、effort high、fast 关;实际任务里测过的是 gpt-6-luna,gpt-6-astra 只试过切换
-- 需要:Python 3(只用标准库,在 3.12 上测过)、git、已登录的 Codex CLI。项目要是 git 仓库
+## Requirements and support
+- Lead: Claude in Claude Code (the desktop app Code tab or the command line). The hook does not load in regular chat, so the plugin has no effect there.
+- Assistant: OpenAI Codex CLI (`codex exec`). Select any available model with `/fusion model <name>`; effort, fast, and compact settings are stored per model. Clean mode is configured in `fusion/config.json` under `clean`. In clean mode, only `windows.sandbox` and `sandbox_workspace_write.network_access` are read from Codex `config.toml` and passed through. The engine includes reasoning effort and Fast Mode support defaults for gpt-6-luna and gpt-6-astra; fast is off when unsupported. Worktree rotation uses `context_ratio`. Defaults are gpt-6-luna, high effort, and fast off. gpt-6-luna has been tested in real tasks; gpt-6-astra has only been tested for switching.
+- Requires Python 3 (standard library only; tested on 3.12), Git, and an authenticated Codex CLI. The project must be a Git repository.
 
-## 隐私和安全
+## Privacy and security
 
-- 不调用 Claude API,不读取 Claude 配置或 Codex 登录文件。Codex 的 `config.toml` 只在干净模式下读两项沙箱设置(见上)。
-- 启动 Codex 前清除 `CLAUDE*`、`ANTHROPIC*` 环境变量;Codex 只在独立工位中工作。
-- 运行日志按常见密钥格式脱敏,`fusion/runs/` 不进 git。
-- Fusion 栏的 lead 用量来自 Claude Code 给插件的 `$.session.usage()`(上下文、额度百分比、本会话花费),不读 `~/.claude/`;只记进本项目的 `fusion/fusion.db`。mod 不写 `fusion/` 下的文件(引擎命令失败时只读 `fusion/local.json` 显示开关和助手模型),也不用定时器开启回合。
+- Does not call the Claude API or read Claude configuration or Codex login files. Codex `config.toml` is read only for the two sandbox settings in clean mode (see above).
+- Clears `CLAUDE*` and `ANTHROPIC*` environment variables before starting Codex. Codex works only in a separate worktree.
+- Redacts common secret formats in run logs. `fusion/runs/` is not tracked by Git.
+- Lead usage in the Fusion panel comes from Claude Code's `$.session.usage()` plugin API (context, quota percentage, and session cost); it does not read `~/.claude/` and stores usage only in this project's `fusion/fusion.db`. The mod does not write files under `fusion/` (if an engine command fails, it only reads `fusion/local.json` to show the switch and assistant model), and it does not use a timer to start turns.
 
-## 测试
+## Tests
 
-运行 `cd core && python -m pytest -q tests -n 6`(开发要装 `core/requirements-dev.txt` 里的 pytest、pytest-xdist;插件本身只用标准库)。测试使用假 Codex,不会调用真实 Codex。mod 没有自动测试,改了要在桌面端深色、浅色主题下各看一次。
+Run `cd core && python -m pytest -q tests -n 6` (install pytest and pytest-xdist from `core/requirements-dev.txt` for development; the plugin itself uses only the standard library). Tests use a fake Codex and never call the real Codex. The mod has no automated tests; inspect it in both dark and light desktop themes after changes.
 
-打包运行 `python ../v5/build_plugin.py --claude <桌面端自带的 claude.exe>`(先跑 `plugin validate`,没过不打包),生成 `../v5/dist/lyfusion-plugin-5.0.0-rc.1.1.zip`。未打开过 Fusion 的项目里钩子不输出。
+To package, run `python ../v5/build_plugin.py --claude <claude.exe bundled with the desktop app>` (run `plugin validate` first; do not package if validation fails). This creates `../v5/dist/lyfusion-plugin-5.0.0-rc.1.1.zip`. The hook outputs nothing in projects where Fusion has not been enabled.

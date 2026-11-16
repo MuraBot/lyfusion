@@ -1,4 +1,4 @@
-"""git 操作:工位目录(worktree)、任务分支、候选提交、集成、快进。全部由引擎执行,助手碰不到 .git。"""
+"""Git operations: worktrees, task branches, candidate commits, integration, and fast-forward. The engine handles these; the assistant cannot access .git."""
 from __future__ import annotations
 
 import os
@@ -29,7 +29,7 @@ def ensure_station(root: Path, cfg: dict, line: str = "main") -> Path:
     base = cfg["base_branch"]
     if not (wt / ".git").exists():
         if wt.exists() and any(wt.iterdir()):
-            raise FusionError(f"工位目录 {wt} 已存在但不是 git worktree,请先处理")
+            raise FusionError(f"Worktree path {wt} already exists but is not a Git worktree; resolve it first")
         git("worktree", "prune", cwd=root)
         git("worktree", "add", "--detach", str(wt), base, cwd=root)
         for rel in cfg.get("station_copy") or []:
@@ -45,7 +45,7 @@ def ensure_station(root: Path, cfg: dict, line: str = "main") -> Path:
 
 
 def clean(wt: Path) -> None:
-    """丢掉工位里没提交的改动(工位目录只归引擎和助手)。"""
+    """Discard uncommitted worktree changes (the worktree belongs to the engine and assistant)."""
     git("reset", "--hard", "-q", cwd=wt)
     git("clean", "-fdq", "-e", "fusion-keep", cwd=wt)
 
@@ -59,10 +59,10 @@ def current_branch(wt: Path) -> str:
 
 
 def prepare_branch(wt: Path, branch: str, base_branch: str, fresh: bool) -> str:
-    """切到任务分支,返回分支的起点提交。
+    """Switch to the task branch and return its starting commit.
 
-    fresh=True:任务第一次开工,丢掉工位里的残留,从 base_branch 开新分支(同名旧分支会被重置)。
-    fresh=False:续做(回答问题、修复、修改意见),已经在分支上就什么都不动,保留没提交的半成品。
+    fresh=True: first run; discard worktree leftovers and create a branch from base_branch (an old branch with the same name is reset).
+    fresh=False: resume (answer questions, fix, or revise); if already on the branch, preserve all uncommitted work.
     """
     if fresh:
         clean(wt)
@@ -73,7 +73,7 @@ def prepare_branch(wt: Path, branch: str, base_branch: str, fresh: bool) -> str:
         return git("merge-base", branch, base_branch, cwd=wt)
     code, _, _ = git("rev-parse", "--verify", "-q", f"refs/heads/{branch}", cwd=wt, check=False)
     if code != 0:
-        raise FusionError(f"任务分支 {branch} 不见了,无法续做。可以退回任务后重新计划")
+        raise FusionError(f"Task branch {branch} is missing, so it cannot resume. Return the task and plan again.")
     clean(wt)
     git("switch", "-q", branch, cwd=wt)
     return git("merge-base", branch, base_branch, cwd=wt)
@@ -94,7 +94,7 @@ def worktree_dirty(wt: Path) -> bool:
 
 
 def commit_all(wt: Path, message: str, identity: dict | None = None) -> str | None:
-    """把工位里的改动提交成候选。没有改动返回 None。"""
+    """Commit worktree changes as a candidate. Return None if there are no changes."""
     if not worktree_dirty(wt):
         return None
     git("add", "-A", cwd=wt)
@@ -111,12 +111,12 @@ def diff_text(cwd: Path, a: str, b: str, paths: list[str] | None = None, max_cha
         args += ["--", *paths]
     out = git(*args, cwd=cwd)
     if len(out) > max_chars:
-        out = out[:max_chars] + f"\n…(diff 太长,截断在 {max_chars} 字;完整内容看第 3 层)"
+        out = out[:max_chars] + f"\n…(diff is too long; truncated at {max_chars} characters. See layer 3 for the full diff)"
     return out
 
 
 def added_lines(cwd: Path, a: str, b: str) -> list[tuple[str, str]]:
-    """diff 里新增的行:(文件, 内容)。"""
+    """Added diff lines: (file, content)."""
     out = git("diff", "-U0", a, b, cwd=cwd)
     cur, rows = None, []
     for line in out.splitlines():
@@ -128,7 +128,7 @@ def added_lines(cwd: Path, a: str, b: str) -> list[tuple[str, str]]:
 
 
 def restore_old_tests(wt: Path, base: str, files: list[dict]) -> list[str]:
-    """把派工前的测试文件放回工位(只改工作区,不提交)。返回放回的文件。"""
+    """Restore test files from before delegation to the worktree (working tree only, no commit). Return restored files."""
     restored = []
     for f in files:
         path = f["old"] if f["status"] == "R" else f["path"]
@@ -139,9 +139,9 @@ def restore_old_tests(wt: Path, base: str, files: list[dict]) -> list[str]:
 
 
 def merge_base_into(wt: Path, base_branch: str, identity: dict | None = None) -> tuple[bool, str]:
-    """在工位里把 base_branch 合进任务分支。冲突时放弃合并,返回 (False, 冲突文件)。"""
+    """Merge base_branch into the task branch in the worktree. Abort on conflict and return (False, conflicting files)."""
     if git("merge-base", "--is-ancestor", base_branch, "HEAD", cwd=wt, check=False)[0] == 0:
-        return True, "main 没有前进,不用合并"
+        return True, "main has not advanced; no merge needed"
     args = []
     if identity:
         args = ["-c", f"user.name={identity['name']}", "-c", f"user.email={identity['email']}"]
@@ -150,11 +150,11 @@ def merge_base_into(wt: Path, base_branch: str, identity: dict | None = None) ->
         conflicts = git("diff", "--name-only", "--diff-filter=U", cwd=wt, check=False)[1]
         git("merge", "--abort", cwd=wt, check=False)
         return False, conflicts.strip() or (out + err).strip()
-    return True, "已合并 main"
+    return True, "Merged main"
 
 
 def squash_onto(wt: Path, base_branch: str, message: str, identity: dict | None = None) -> str:
-    """用当前树做一个父提交是 base_branch 的提交(不动任何工作目录)。"""
+    """Create a commit from the current tree with base_branch as its parent (without changing any working directory)."""
     tree = git("rev-parse", "HEAD^{tree}", cwd=wt)
     parent = head(wt, base_branch)
     env = dict(os.environ)
@@ -164,22 +164,22 @@ def squash_onto(wt: Path, base_branch: str, message: str, identity: dict | None 
     p = subprocess.run(["git", "commit-tree", tree, "-p", parent, "-F", "-"], cwd=wt, input=message.encode("utf-8"),
                        check=False, capture_output=True, env=env)
     if p.returncode != 0:
-        raise FusionError("git commit-tree 失败:" + p.stderr.decode("utf-8", "replace"))
+        raise FusionError("git commit-tree failed:" + p.stderr.decode("utf-8", "replace"))
     return p.stdout.decode().strip()
 
 
 def fast_forward(root: Path, base_branch: str, commit: str) -> tuple[bool, str]:
-    """让 base_branch 快进到 commit。lead 的目录正在 base_branch 上就用 merge --ff-only(保护未提交改动)。"""
+    """Fast-forward base_branch to commit. If the lead worktree is on base_branch, use merge --ff-only to protect uncommitted changes."""
     current = git("rev-parse", "--abbrev-ref", "HEAD", cwd=root)
     if current == base_branch:
         code, out, err = git("merge", "--ff-only", "-q", commit, cwd=root, check=False)
         if code != 0:
-            return False, ("lead 的工作目录里有未提交的改动和这次合并冲突,git 拒绝了快进。"
-                           "请先提交或暂存这些改动,再验收一次。\n" + (out + err).strip())
-        return True, "已快进"
+            return False, ("The lead worktree has uncommitted changes that conflict with this merge; Git refused to fast-forward. "
+                           "Commit or stash these changes, then accept again.\n" + (out + err).strip())
+        return True, "Fast-forwarded"
     old = head(root, base_branch)
     code, _, err = git("update-ref", f"refs/heads/{base_branch}", commit, old, cwd=root, check=False)
-    return (code == 0), ("已快进" if code == 0 else err)
+    return (code == 0), ("Fast-forwarded" if code == 0 else err)
 
 
 def delete_branch(root: Path, branch: str) -> None:

@@ -1,3 +1,3 @@
-# 开发和测试用的依赖(插件本身只用 Python 标准库,运行时不需要这些)
+# Development and test dependencies (the plugin itself uses only the Python standard library and does not need these at runtime).
 pytest
-pytest-xdist>=3.8  # 测试命令用 -n 6 并行,全量约 23 秒
+pytest-xdist>=3.8  # Use -n 6 to run tests in parallel; the full suite takes about 23 seconds.

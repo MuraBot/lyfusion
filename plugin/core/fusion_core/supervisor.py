@@ -1,7 +1,7 @@
-"""监督者:根据事件做真正的动作(启动 Codex、提交候选、跑检查、合并、清理),再把结果写成事件。
+"""The supervisor performs actions from events (starting Codex, committing candidates, running checks, merging, and cleanup), then records the results as events.
 
-命令只写"想要什么"(例如 run_requested),监督者负责"去做"。这样命令很快、可以重复调用;
-动作做到一半崩溃了,下次启动时按状态对账接着做。
+Commands only record what should happen (for example, run_requested); the supervisor performs it. This keeps commands fast and safe to repeat.
+If an action crashes partway through, reconcile state and resume on the next start.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ class Supervisor:
         self._turn_exit_seen: dict[str, float] = {}
         self._last_error: str | None = None
 
-    # ---------- 基础 ----------
+    # ---------- Setup ----------
     def cfg(self) -> dict:
         return config_mod.load(self.root)
 
@@ -76,9 +76,9 @@ class Supervisor:
     def wt(self) -> Path:
         return gitops.station_dir(self.root)
 
-    # ---------- 循环 ----------
+    # ---------- Main loop ----------
     def prune_runs(self) -> int:
-        """runs/ 保留最近 runs_keep_count 次,或 runs_keep_days 天内的运行;只删已经结束的运行。"""
+        """Keep the latest runs_keep_count runs or runs from the last runs_keep_days days in runs/; delete only completed runs."""
         import shutil
 
         cfg, s = self.cfg(), self.state()
@@ -146,7 +146,7 @@ class Supervisor:
                 pass
 
     def tick(self) -> int:
-        """做一件能做的事,返回 1;没事可做返回 0。"""
+        """Perform one available action and return 1; return 0 if there is nothing to do."""
         s = self.state()
         cfg = self.cfg()
         for run in s["runs"].values():
@@ -212,7 +212,7 @@ class Supervisor:
         return 0
 
     def drain(self, limit: int = 400, wait: float = 0.1) -> None:
-        """测试和基准用:一直做到没有事可做、也没有在跑的运行。"""
+        """For tests and benchmarks: keep working until there is nothing to do and no run is active."""
         for _ in range(limit):
             n = self.tick()
             s = self.state()
@@ -223,7 +223,7 @@ class Supervisor:
                 return
             if n == 0:
                 time.sleep(wait)
-        raise FusionError("drain 超过次数上限")
+        raise FusionError("drain exceeded its iteration limit")
 
     @staticmethod
     def _station_busy(s) -> bool:
@@ -231,7 +231,7 @@ class Supervisor:
             r["status"] == "started" and r.get("station") for r in s["runs"].values()
         )
 
-    # ---------- 工位 ----------
+    # ---------- Stations ----------
     def _new_station(self, s, cfg, pred: str | None) -> tuple[dict, dict]:
         sk = cfg["local"]["sidekick"]
         n = s["station_seq"].get("main", 0) + 1
@@ -266,7 +266,7 @@ class Supervisor:
         return st, ev
 
     def _station_for(self, s, cfg, task) -> tuple[dict, list[dict], str | None]:
-        """找到或换一个工位。返回 (工位, 要写的事件, 交接摘要)。"""
+        """Find or rotate to a station. Return (station, event to write, handoff summary)."""
         events, handoff, pred = [], None, None
         sk = cfg["local"]["sidekick"]
         st = current_station(s, "main")
@@ -280,11 +280,11 @@ class Supervisor:
             limit = int(compact * ratio)
             reason = None
             if st.get("model") != sk["model"]:
-                reason = f"换了助手模型({st.get('model')} → {sk['model']})"
+                reason = f"Assistant model changed ({st.get('model')} → {sk['model']})"
             elif st.get("ctx_est", 0) > limit:
                 reason = (
-                    f"当前上下文约 {st['ctx_est']} token,超过换工位阈值 {limit}"
-                    f"(压缩上限 {compact} × {int(ratio * 100)}%)"
+                    f"Current context is about {st['ctx_est']} tokens, above the station rotation threshold {limit}"
+                    f" (compact limit {compact} × {int(ratio * 100)}%)"
                 )
             if reason:
                 events.append(
@@ -304,11 +304,11 @@ class Supervisor:
             events.append(ev)
         return st, events, handoff
 
-    # ---------- 启动运行 ----------
+    # ---------- Start runs ----------
     def start_run(self, s, cfg, run) -> None:
         if gitops.in_temp(self.wt):
             raise FusionError(
-                "项目在系统临时目录里:Codex 的沙箱在那里挡不住目录外的写入。请把项目放到别处。"
+                "Project is in a system temp directory: Codex's sandbox cannot prevent writes outside the project there. Move the project elsewhere."
             )
         if run["kind"] == "explore":
             return self._start_explore(s, cfg, run)
@@ -330,18 +330,18 @@ class Supervisor:
                 note, st["model"],
             )
             if run.get("message"):
-                prompt += "\n\n## lead 这次派工的说明\n" + str(run["message"])
+                prompt += "\n\n## Lead's notes for this task\n" + str(run["message"])
         else:
             if kind == "fix":
                 body = prompts.fix_prompt(
                     run["message"] or "", aq.decisions_text(self.root),
-                    f"## 助手 {st['model']} 的备注\n{note}" if note else "",
+                    f"## Notes for assistant {st['model']}\n{note}" if note else "",
                 )
             elif kind == "changes":
                 m = run["message"] or {}
                 body = prompts.changes_prompt(
                     m, aq.decisions_text(self.root),
-                    f"## 助手 {st['model']} 的备注\n{note}" if note else "",
+                    f"## Notes for assistant {st['model']}\n{note}" if note else "",
                 )
             elif kind == "minor_fix":
                 minor = task.get("minor_fix") or {}
@@ -353,9 +353,9 @@ class Supervisor:
             elif kind == "continue":
                 body = prompts.continue_prompt()
             else:
-                raise FusionError(f"未知的运行类型 {kind}")
+                raise FusionError(f"Unknown run kind: {kind}")
             prompt = body
-            if need_brief:  # 新工位接手进行中的任务:先给完整任务单
+            if need_brief:  # A new station taking over an active task gets the full brief first.
                 prompt = (
                     prompts.task_prompt(
                         task, aq.decisions_text(self.root), handoff,
@@ -447,7 +447,7 @@ class Supervisor:
             )
         self.emit(events)
 
-    # ---------- 运行结束 ----------
+    # ---------- Finish runs ----------
     def _run_metrics(self, run, cfg, evs):
         return runstats.metrics(evs, run.get("started"), run.get("codex_version"), cfg)
 
@@ -461,7 +461,7 @@ class Supervisor:
             self.emit([{"type": "run_ended", "data": {"run": request["id"], "result": "dropped"}}])
             return
         if task["state"] in TERMINAL:
-            self._drop_revise_request(request, task, "任务已取消" if task["state"] == "cancelled" else "任务已验收")
+            self._drop_revise_request(request, task, "Task cancelled" if task["state"] == "cancelled" else "Task accepted")
             return
         if task["state"] in ("in_review", "blocked"):
             self._activate_revise_request(request, task, request.get("lead_text") or "")
@@ -472,8 +472,8 @@ class Supervisor:
             evs = codex.read_events(Path(target["dir"]))
             lead_text = request.get("lead_text") or ""
             prompted = (
-                "你上一轮被 lead 中途停下了,工位里的改动都还在;先看 `git status` 了解做到哪,"
-                "再按下面的意见接着做\n\n" + lead_text
+                "Lead stopped the previous round; changes in the station are still present. First inspect `git status` to see the current state, "
+                "then continue with the notes below.\n\n" + lead_text
             )
             events = []
             thread = codex.thread_id(evs)
@@ -488,9 +488,9 @@ class Supervisor:
             self.emit(events)
             return
         if task["state"] in ("running", "exploring"):
-            reason = "任务正在运行另一轮操作"
+            reason = "Another operation for this task is already running"
         else:
-            reason = f"目标运行已结束,任务当前状态为 {task['state']}"
+            reason = f"The target run ended; the task is currently {task['state']}"
         self._drop_revise_request(request, task, reason)
 
     def _revise_activation_events(self, request, task, message: str) -> list[dict]:
@@ -557,8 +557,8 @@ class Supervisor:
                                 "task": run["task"],
                                 "data": {
                                     "kind": "stalled",
-                                    "detail": f"{run['id']} 已经 {int(idle // 60)} 分钟没有新事件。"
-                                    f"可以重新运行同一命令继续等,或运行 {CMD} cancel",
+                                    "detail": f"{run['id']} has had no new events for {int(idle // 60)} minutes. "
+                                    f"Run the same command again to keep waiting, or run {CMD} cancel",
                                 },
                             }
                         ]
@@ -593,11 +593,12 @@ class Supervisor:
             st and run.get("resumed") and not codex.thread_id(evs) and not text
         )
         if resume_failed:
-            # 续用失败(会话找不到等):这个工位作废,下次换新工位并带交接摘要
+            # Resume failed (for example, the session was not found): retire this station.
+            # The next run will use a new station and include a handoff summary.
             events.append(
                 {
                     "type": "station_retired",
-                    "data": {"station": st["name"], "reason": "续用失败"},
+                    "data": {"station": st["name"], "reason": "resume failed"},
                 }
             )
             if tid:
@@ -607,7 +608,7 @@ class Supervisor:
                         "task": tid,
                         "data": {
                             "kind": "stalled",
-                            "detail": f"工位 {st['name']} 续用失败,下次会换新工位。日志:{rdir / 'stderr.log'}",
+                            "detail": f"Station {st['name']} could not resume; the next run will use a new station. Log: {rdir / 'stderr.log'}",
                         },
                     }
                 )
@@ -619,7 +620,7 @@ class Supervisor:
                     "data": {
                         "run": run["id"],
                         "answer": text
-                        or f"(探索没有返回内容,看 {rdir / 'stderr.log'})",
+                        or f"(Exploration returned no content; see {rdir / 'stderr.log'})",
                     },
                 }
             )
@@ -656,7 +657,7 @@ class Supervisor:
         raw = codex.parse_report(text)
         wt = self.wt
         if raw is None and text and run["kind"] != "report" and not resume_failed:
-            # 有回复但不是 JSON 报告:续用一次让助手补报告(不算修复次数)
+            # The assistant replied without a JSON report: resume once to request it (not a fix attempt).
             rid = f"r{s['next_run']}"
             events.append(
                 {
@@ -678,7 +679,7 @@ class Supervisor:
                     "data": {
                         "run": rid,
                         "kind": "report",
-                        "message": "最终回复解析不出 JSON 报告",
+                        "message": "Could not parse a JSON report from the final response",
                     },
                 }
             )
@@ -686,7 +687,7 @@ class Supervisor:
             self.emit(events)
             return
         rep, problems = (
-            validate.report(raw) if raw is not None else (None, ["没有收到 JSON 报告"])
+            validate.report(raw) if raw is not None else (None, ["No JSON report received"])
         )
         blocking = [
             q
@@ -774,7 +775,7 @@ class Supervisor:
                     "task": tid,
                     "data": {
                         "kind": "stalled",
-                        "detail": f"{run['id']} 没有交回有效的报告({';'.join(problems)})。日志在 {rdir}",
+                        "detail": f"{run['id']} did not return a valid report ({'; '.join(problems)}). Logs: {rdir}",
                     },
                 }
             )
@@ -822,7 +823,7 @@ class Supervisor:
                         "data": {
                             "kind": "check_failed",
                             "cand": task["latest"],
-                            "detail": f"助手的修复运行 {run['id']} 没有改动任何文件,检查仍然失败",
+                            "detail": f"Assistant fix run {run['id']} changed no files; checks still fail",
                         },
                     }
                 )
@@ -840,7 +841,7 @@ class Supervisor:
                 auto_fix=(result == "ok" and run["kind"] != "minor_fix"),
             )
 
-    # ---------- 检查 ----------
+    # ---------- Checks ----------
     def _task_commands(self, s, task) -> list[dict]:
         out = []
         for rid in task["runs"]:
@@ -854,7 +855,8 @@ class Supervisor:
     ) -> None:
         wt = self.wt
         if git("rev-parse", "HEAD", cwd=wt) != cand["commit"]:
-            # 工位已经不在这个候选上(例如有人手动动过工位目录):不在别的代码上出证据
+            # The station is no longer on this candidate (for example, someone changed its worktree manually).
+            # Do not collect evidence from different code.
             self.emit(
                 [
                     {
@@ -871,7 +873,7 @@ class Supervisor:
                             "out_of_scope": [],
                             "suspicious": [],
                             "urls": [],
-                            "failures": "工位目录不在这个候选提交上,检查没有运行",
+                            "failures": "Station is not on this candidate commit; checks were not run",
                             "plan_version": task["version"],
                             "check_hash": config_mod.check_hash(cfg),
                             "recheck": recheck,
@@ -922,9 +924,9 @@ class Supervisor:
                 )
             else:
                 why = (
-                    f"助手修了 {task['fix_attempts']} 次,检查仍然失败"
+                    f"Assistant made {task['fix_attempts']} fix attempts; checks still fail"
                     if auto_fix
-                    else "这次运行没有正常结束,候选的检查没通过"
+                    else "This run did not finish normally; candidate checks failed"
                 )
                 events.append(
                     {
@@ -939,7 +941,7 @@ class Supervisor:
                 )
         self.emit(events)
 
-    # ---------- 验收和集成 ----------
+    # ---------- Acceptance and integration ----------
     def finish_minor_fix(self, s, task, candidate, minor) -> None:
         previous = s["candidates"][minor["previous"]]
         changed = gitops.changed_files(self.wt, previous["commit"], candidate["commit"])
@@ -992,7 +994,7 @@ class Supervisor:
                         "task": tid,
                         "data": {
                             "ok": False,
-                            "detail": f"工位目录不在候选 {cand['cand']} 上,请重新审查最新候选",
+                            "detail": f"Station is not on candidate {cand['cand']}; review the latest candidate again",
                         },
                     }
                 ]
@@ -1008,7 +1010,7 @@ class Supervisor:
                         "data": {
                             "ok": False,
                             "conflicts": msg,
-                            "detail": f"合并 {base_branch} 时有冲突:{msg}。用 {CMD} revise 让助手在最新的主分支上解决",
+                            "detail": f"Merge {base_branch} has a conflict: {msg}. Use {CMD} revise to resolve it on the latest base branch.",
                         },
                     }
                 ]
@@ -1017,16 +1019,16 @@ class Supervisor:
         results = []
         if cfg.get("test"):
             results.append(
-                checks.run_one("集成:测试", cfg["test"], wt, cfg, rdir / "test.log")
+                checks.run_one("Integration: tests", cfg["test"], wt, cfg, rdir / "test.log")
             )
         if cfg.get("lint"):
             results.append(
-                checks.run_one("集成:lint", cfg["lint"], wt, cfg, rdir / "lint.log")
+                checks.run_one("Integration: lint", cfg["lint"], wt, cfg, rdir / "lint.log")
             )
         for i, c in checks.plan_checks(cfg, task["plan"]):
             results.append(
                 checks.run_one(
-                    f"集成:检查 {i}",
+                    f"Integration: check {i}",
                     c["run"],
                     wt,
                     cfg,
@@ -1038,7 +1040,7 @@ class Supervisor:
         if failed and not (task.get("waive") and all(r["env_error"] for r in failed)):
             git(
                 "reset", "--hard", "-q", cand["commit"], cwd=wt
-            )  # 撤回这次合并,工位回到候选
+            )  # Revert this merge; return the station to the candidate.
             self.emit(
                 [
                     {
@@ -1047,8 +1049,8 @@ class Supervisor:
                         "data": {
                             "ok": False,
                             "results": results,
-                            "detail": f"合并 {base_branch} 之后检查没通过:"
-                            + "、".join(r["name"] for r in failed),
+                            "detail": f"Checks failed after merging {base_branch}: "
+                            + ", ".join(r["name"] for r in failed),
                         },
                     }
                 ]
@@ -1095,7 +1097,7 @@ class Supervisor:
         gitops.detach_station(wt, base_branch)
         gitops.delete_branch(self.root, f"fusion/{tid}")
 
-    # ---------- 取消 ----------
+    # ---------- Cancellation ----------
     def _stop_active(self, s, task) -> list[dict]:
         events = []
         for rid in task["runs"]:

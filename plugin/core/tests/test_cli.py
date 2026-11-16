@@ -109,7 +109,7 @@ def test_minor_fix_failed_check_names_the_check(proj):
     start_minor_task(proj, {"write": {"app/greet.py": broken}, "report": report(status="done")})
     result = cli(proj, "accept", "--minor-fix", "Break the greeting")
     assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
-    assert "checks failed: 测试" in result.stdout.decode("utf-8")
+    assert "checks failed: Tests" in result.stdout.decode("utf-8")
 
 
 def test_minor_fix_without_a_candidate_is_rejected(proj):
@@ -191,14 +191,14 @@ def test_explore_stdin_utf8_writes_artifacts(proj):
         encoding="utf-8"
     )
     assert "任务原话：修改问候。" in artifact and "代码在 app/greet.py。" in artifact
-    assert artifact.splitlines()[0] == "任务编号:T1"
-    assert artifact.splitlines()[1].startswith("助手会话编号:")
+    assert artifact.splitlines()[0] == "Task ID: T1"
+    assert artifact.splitlines()[1].startswith("Assistant session ID: ")
     assert not (proj.root / "fusion/explore.md").exists()
     assert not (proj.root / "fusion/review.md").exists()
     assert p.stdout.decode("utf-8").splitlines()[0] == "Result: fusion/tasks/T1/explore.md"
     assert "plan as Markdown" in p.stdout.decode("utf-8")
     stdout = p.stdout.decode("utf-8")
-    assert "## 助手回答" in stdout and "代码在 app/greet.py。" in stdout
+    assert "## Assistant response" in stdout and "代码在 app/greet.py。" in stdout
     assert stdout.count("Next:") == 1
     gitignore = (proj.root / "fusion/.gitignore").read_text(encoding="utf-8")
     assert "explore.md" not in gitignore and "review.md" not in gitignore
@@ -215,7 +215,7 @@ def test_wait_limit_releases_lease_and_resumes_explore_and_delegate(proj):
     assert p.returncode == 3
     output = p.stdout.decode("utf-8")
     assert "Sidekick still working" in output and 'fusion-core.py" wait' in output
-    assert "下一步:" not in output
+    assert "Next:" not in output
     conn = store.connect(proj.root)
     try:
         assert store.take_lease(conn, "test-holder")
@@ -226,7 +226,7 @@ def test_wait_limit_releases_lease_and_resumes_explore_and_delegate(proj):
     p = cli(proj, "wait")
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
     output = p.stdout.decode("utf-8")
-    assert "延迟后的探索结论" in output and "## 助手回答" in output
+    assert "延迟后的探索结论" in output and "## Assistant response" in output
     assert (proj.root / "fusion/tasks/T1/explore.md").exists()
     assert not (proj.root / "fusion/explore.md").exists()
     assert output.count("Next:") == 1
@@ -245,7 +245,7 @@ def test_wait_limit_releases_lease_and_resumes_explore_and_delegate(proj):
 def test_wait_with_no_run_reports_status(proj):
     p = cli(proj, "wait")
     assert p.returncode == 0
-    assert "没有要等的" in p.stdout.decode("utf-8")
+    assert "Nothing to wait for" in p.stdout.decode("utf-8")
 
 
 def test_wait_picks_up_integration_without_active_run(proj):
@@ -264,7 +264,7 @@ def test_wait_picks_up_integration_without_active_run(proj):
     assert task["state"] == "integrating" and task["active_run"] is None
     waited = cli(proj, "wait")
     assert waited.returncode == 0, waited.stderr.decode("utf-8", "replace")
-    assert "提交:" in waited.stdout.decode("utf-8")
+    assert "Commit:" in waited.stdout.decode("utf-8")
 
 
 def test_old_test_failure_is_not_counted_or_shown_as_check(proj):
@@ -284,7 +284,7 @@ def test_old_test_failure_is_not_counted_or_shown_as_check(proj):
     result = cli(proj, "delegate", "-", input_text=json.dumps(plan))
     assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
     stdout = result.stdout.decode("utf-8")
-    assert "检查: 1/1 通过" in stdout
+    assert "Checks: 1/1 passed" in stdout
     candidate = proj.state()["candidates"][proj.task()["latest"]]
     assert candidate["checks"]["passed"]
     old_test = next(row for row in candidate["checks"]["results"] if row.get("restored") is not None)
@@ -343,7 +343,7 @@ def test_delegate_four_field_plan_and_resumes_explore(proj):
     assert (proj.root / "fusion/tasks/T1/review-1.md").exists()
     calls = proj.calls()
     assert calls[0]["resume"] is False and calls[1]["resume"] is True
-    assert "fusion/decisions.md 全文" in calls[1]["prompt"]
+    assert "Full text of fusion/decisions.md" in calls[1]["prompt"]
 
 
 def test_delegate_markdown_plan(proj):
@@ -359,7 +359,7 @@ def test_delegate_markdown_plan(proj):
 
     assert state["tasks"]["T1"]["plan"] == aq.parse_plan(json.dumps(expected, ensure_ascii=False))
     prompt = (proj.root / "fusion/runs/r2/prompt.txt").read_text(encoding="utf-8")
-    assert "## 目标\n加模块" in prompt
+    assert "## Goal\n加模块" in prompt
     assert "加 app/new.py" in prompt
 
 
@@ -382,12 +382,12 @@ def test_codex_stdin_is_prompt_file_for_explore_and_resume(proj):
 
 def test_plan_validation_and_regex_expect(proj):
     for bad, expected in [
-        ({"brief": "正文"}, "goal 要是非空的一行文字"),
+        ({"brief": "正文"}, "goal must be a non-empty single line of text"),
         (
             {"goal": "x", "brief": "正文", "checks": [{"run": "echo"}, {"run": ""}]},
             "checks[1].run",
         ),
-        ({"goal": "x", "brief": "正文", "extra": True}, "只允许字段"),
+        ({"goal": "x", "brief": "正文", "extra": True}, "unexpected: extra"),
     ]:
         p = cli(proj, "delegate", "-", input_text=json.dumps(bad))
         assert p.returncode == 1 and expected in p.stderr.decode("utf-8")
@@ -413,7 +413,7 @@ def test_revise_reuses_session_and_fourth_round_stops(proj):
         p = cli(proj, "revise", "-", input_text=f"第 {i + 1} 轮修改")
         assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
     p = cli(proj, "revise", "-", input_text="第 4 轮")
-    assert p.returncode == 2 and "3 轮" in p.stderr.decode("utf-8", "replace")
+    assert p.returncode == 2 and "3 revision rounds" in p.stderr.decode("utf-8", "replace")
     assert "review-4.md" in {p.name for p in (proj.root / "fusion/tasks/T1").iterdir()}
     assert all(call["resume"] for call in proj.calls()[1:])
 
@@ -460,7 +460,7 @@ def test_accept_refuses_forbidden_command_without_waive(proj):
     )
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
     p = cli(proj, "accept")
-    assert p.returncode == 1 and "违规" in p.stderr.decode("utf-8")
+    assert p.returncode == 1 and "Violations were found" in p.stderr.decode("utf-8")
 
 
 def test_review_pack_sections_scope_and_stdout(proj):
@@ -497,7 +497,7 @@ def test_review_omits_violation_section_and_large_diff(proj):
     )
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
     text = (proj.root / "fusion/tasks/T1/review-1.md").read_text(encoding="utf-8")
-    assert "## 违规" not in text
+    assert "## Violations" not in text
     assert "```diff" not in text and "app/new.py" in text
     assert "Diff omitted (" in text and "git diff " in text
     assert "workstation path" not in text and "Auto-fix attempts" not in text
@@ -526,13 +526,13 @@ def test_existing_exploration_is_resumed_and_new_input_ignored(proj):
 def test_on_restores_config_and_decision_defaults(proj):
     p = cli(proj, "on", "--test", "python -m unittest", "--lint", "ruff check .")
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
-    assert "Fusion 已在" in p.stdout.decode("utf-8")
+    assert "Fusion is already enabled" in p.stdout.decode("utf-8")
     cfg = json.loads((proj.root / "fusion" / "config.json").read_text(encoding="utf-8"))
     assert cfg["test"] == "python -m unittest" and cfg["lint"] == "ruff check ."
     decisions = (proj.root / "fusion" / "decisions.md").read_text(encoding="utf-8")
     assert decisions.splitlines() == [
-        "# 设计决定",
-        "> lead 直接编辑这个文件。每次派工,引擎把全文带给助手。只写所有任务都要守的决定。",
+        "# Design decisions",
+        "> lead edits this file directly. The engine includes the full text in every task handoff. Record only decisions that apply to every task.",
     ]
 
 
@@ -543,7 +543,7 @@ def test_preflight_has_original_check_names(proj):
     assert {row["check"] for row in preflight["checks"]} >= {
         "git",
         "Codex",
-        "工位目录不在临时目录",
+        "Station directory is outside the temp directory",
     }
 
 
@@ -641,7 +641,7 @@ def test_accept_conflict_error_gives_revise_action(proj):
     accepted = cli(proj, "accept")
     assert accepted.returncode == 2
     assert (
-        f"合并冲突,已退回审查:用 {CMD} revise 让助手在最新的主分支上解决"
+        f"Merge conflict; returned to review. Use {CMD} revise to have the assistant resolve it on the latest base branch"
         in accepted.stderr.decode("utf-8")
     )
 
@@ -657,7 +657,7 @@ def test_accept_dirty_lead_tree_error_gives_cleanup_action(proj):
     accepted = cli(proj, "accept")
     assert accepted.returncode == 2
     assert (
-        f"lead 工作目录有没提交的改动,快进会冲突:先提交或撤销,再运行 {CMD} accept"
+        f"Lead working tree has uncommitted changes; fast-forward would conflict. Commit or discard them, then run {CMD} accept"
         in accepted.stderr.decode("utf-8")
     )
 
@@ -669,17 +669,17 @@ def test_task_prompt_carries_v4_work_rules_and_project_commands():
                      "checks": [{"run": "python -m unittest", "expect": 0}], "scope": []}}
     prompt = task_prompt(task, "# Decisions", None, ["python -m pytest -q", None])
     for phrase in (
-        "核对通过的测试数量",  # 自己跑测试并核对数量
-        "原有行为",  # 改造现有代码时保持原有行为
-        "可以自己定",
+        "Verify the test count",  # Run tests and verify the count.
+        "existing behavior",  # Preserve existing behavior when changing code.
+        "You may choose",
         "blocking=true",
-        "choices:没人要求、你自己定下的",
-        "`python -m pytest -q`",  # 项目的测试命令进了提示
+        "choices: decisions you made that were not specified",
+        "`python -m pytest -q`",  # The project test command is included in the prompt.
         "放在 textkit/truncate.py",
         "# Decisions",
     ):
         assert phrase in prompt, phrase
-    # 续用同一个会话时只重申短规则,不重复整套做法
+    # When resuming the same session, repeat only the short rules, not the full workflow.
     for follow_up in (fix_prompt("失败输出", "# D"), changes_prompt("改一下", "# D")):
-        assert "核对通过的测试数量" not in follow_up
-        assert "最终回复只输出 JSON 报告" in follow_up
+        assert "Verify the test count" not in follow_up
+        assert "Return only a JSON report" in follow_up

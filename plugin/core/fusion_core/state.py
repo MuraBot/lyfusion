@@ -313,7 +313,7 @@ def _engine_error(s, e, d, tid):
 
 
 def _legacy_task_planned(s, e, d, tid):
-    """v5.0.0-a 的库用 task_planned 建任务。只留 aq 计划的 4 个字段,让后面的旧事件和编号接得上。"""
+    """The v5.0.0-a database used task_planned to create tasks. Keep only the four aq plan fields so later legacy events and numbering remain compatible."""
     old = d.get("plan") or {}
     plan = {"goal": str(old.get("goal") or ""), "brief": str(old.get("notes") or ""), "checks": [], "scope": []}
     _task_created(s, e, {"plan": plan, "state": "planned"}, tid)

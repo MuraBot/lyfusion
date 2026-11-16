@@ -68,10 +68,10 @@ def test_ledger_shows_usage_in_millions_and_each_run_model_settings():
                                 "data": {"at": "accept", "cost_usd": 1.0}}],
     }
     ledger = views.ledger(state, "T1")
-    assert "Lead(验收时)" in ledger and "本任务 -" in ledger
+    assert "Lead (at acceptance)" in ledger and "This task -" in ledger
     assert "2.000 / 0.600 / 0.400" in ledger
     assert "gpt-6-luna / high / off" in ledger
-    assert "haiku-5.5 / 默认 / on" in ledger
+    assert "haiku-5.5 / default / on" in ledger
 
 
 def test_run_event_records_model_effort_and_fast(proj):
@@ -108,8 +108,8 @@ def test_conflict_detail_recommends_revise_on_latest_base(proj, monkeypatch):
     proj.do(cmd_accept, "T1")
     proj.drain()
     detail = proj.task()["integration"]["detail"]
-    assert f"用 {CMD} revise 让助手在最新的主分支上解决" in detail
-    assert "接" + "管" not in detail and "take" + "over" not in detail
+    assert f"Use {CMD} revise to resolve it on the latest base branch" in detail
+    assert "take" + "over" not in detail
 
 
 def test_blocked_review_has_one_status_line_and_no_duplicate_summary(proj):

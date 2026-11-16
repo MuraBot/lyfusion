@@ -99,7 +99,7 @@ def test_unusable_cache_warns_and_falls_back_without_writing(proj, capsys, paylo
     status = views.status(proj.root, config.load(proj.root), {"tasks": {}})
     assert warning[0] in status
     checks = cli._preflight(proj.root)["checks"]
-    assert warning[0] in [row["detail"] for row in checks if row["check"] == "配置警告"]
+    assert warning[0] in [row["detail"] for row in checks if row["check"] == "Configuration warning"]
     assert {item.name for item in path.parent.iterdir()} == home_before
     assert {item.relative_to(proj.root).as_posix()
             for item in (proj.root / "fusion").rglob("*")} == fusion_before

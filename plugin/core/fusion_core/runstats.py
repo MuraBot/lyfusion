@@ -61,9 +61,9 @@ def summarize(events: list[dict], config: dict | None = None) -> dict:
         small_reads += int(small)
         summary = _unwrap(command).replace("\r", " ").replace("\n", " ")
         summary = re.sub(r"\s+", " ", summary)[:140]
-        tags = ("[碎读]" if small else "") + ("[重复]" if repeated else "")
+        tags = ("[fragmented read]" if small else "") + ("[repeated]" if repeated else "")
         recent.append(
-            f"{tags}{summary}(退出码 {item.get('exit_code')},输出 {output_lines} 行)"
+            f"{tags}{summary}(exit code {item.get('exit_code')}, {output_lines} output lines)"
         )
     return {"commands": commands, "small_reads": small_reads, "repeats": repeats, "recent": recent[-8:]}
 
