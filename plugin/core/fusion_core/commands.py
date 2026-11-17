@@ -220,13 +220,15 @@ def cmd_takeover(ctx: Ctx, task_id: str | None = None) -> dict:
         raise FusionError(f"{task['id']} is integrating and cannot be taken over")
     cand_id = task.get("latest")
     candidate = state["candidates"].get(cand_id or "")
+    status = git("status", "--porcelain", "--untracked-files=no", cwd=ctx.root)
+    if status:
+        raise FusionError("Lead working tree has uncommitted changes to tracked files; commit or discard them first, "
+                          f"or use {CMD} cancel (it saves the sidekick's diff as evidence in fusion/runs/).")
+    active_run = state.get("runs", {}).get(task.get("active_run") or "")
+    was_running = bool(active_run and active_run.get("status") in ("requested", "started", "interrupt_requested"))
     files = []
     failed_checks = []
     if candidate:
-        status = git("status", "--porcelain", "--untracked-files=no", cwd=ctx.root)
-        if status:
-            raise FusionError("Lead working tree has uncommitted changes to tracked files; commit or discard them first, "
-                              f"or use {CMD} cancel (it saves the sidekick's diff as evidence in fusion/runs/).")
         patch = subprocess.run(["git", "diff", "--binary", candidate["base"], candidate["commit"]],
                                cwd=ctx.root, stdin=subprocess.DEVNULL, capture_output=True, check=False)
         if patch.returncode:
@@ -252,9 +254,10 @@ def cmd_takeover(ctx: Ctx, task_id: str | None = None) -> dict:
     signals = struggle_signals(task, state, ctx.cfg)
     _emit(ctx, [{"type": "taken_over", "task": task["id"],
                  "data": {"cand": cand_id, "signals": signals,
-                          "failed_checks": failed_checks, "files": files}}])
+                          "failed_checks": failed_checks, "files": files, "was_running": was_running}}])
     return {"task": task["id"], "candidate": cand_id, "files": files, "failed_checks": failed_checks,
-            "signals": signals, "test": ctx.cfg.get("test"), "lint": ctx.cfg.get("lint")}
+            "signals": signals, "test": ctx.cfg.get("test"), "lint": ctx.cfg.get("lint"),
+            "was_running": was_running}
 
 
 def cmd_lead_session(ctx: Ctx, session_id: str | None, source: str | None) -> None:

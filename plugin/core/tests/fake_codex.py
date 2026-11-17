@@ -2,6 +2,7 @@
 
 The script is a JSON list; each invocation takes the next step (the counter is stored beside the script). A step can include:
   write: {path: content}    write a file in the working directory
+  write_first: {path: content}  write files before sleeping
   delete: [path]
   commands: [{"command": "...", "exit": 0}]
   report: {...}             final reply (JSON report); or text: "..." to output verbatim
@@ -68,6 +69,10 @@ def main():
         sys.exit(1)
     emit({"type": "thread.started", "thread_id": thread or str(uuid.uuid4())})
     emit({"type": "turn.started"})
+    for path, content in (step.get("write_first") or {}).items():
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
     if step.get("sleep"):
         time.sleep(step["sleep"])
     for path, content in (step.get("write") or {}).items():

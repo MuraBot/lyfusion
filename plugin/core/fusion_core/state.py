@@ -289,7 +289,10 @@ def _taken_over(s, e, d, tid):
 
 
 def _cleaned(s, e, d, tid):
-    _task(s, tid).update(cleaned=True, branch=None)
+    task = _task(s, tid)
+    task.update(cleaned=True, branch=None)
+    if d.get("evidence"):
+        task["evidence"] = d["evidence"]
 
 
 def _usage(s, e, d, tid):

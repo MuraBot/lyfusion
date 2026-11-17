@@ -7,6 +7,7 @@ If an action crashes partway through, reconcile state and resume on the next sta
 from __future__ import annotations
 
 import sqlite3
+import subprocess
 import threading
 import time
 import traceback
@@ -1134,16 +1135,40 @@ class Supervisor:
             )[0]
             == 0
         )
+        evidence = None
         if exists and task["base"]:
             suffix = "cancelled" if task["state"] == "cancelled" else task["state"]
             out = self.root / "fusion" / "runs" / f"{task['id']}-{suffix}.diff"
             out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_text(
-                git("diff", task["base"], branch, cwd=self.root), encoding="utf-8"
-            )
+            if (wt / ".git").exists() and gitops.current_branch(wt) == branch:
+                deadline = time.monotonic() + 10
+                while True:
+                    added = subprocess.run(["git", "add", "-A"], cwd=wt, capture_output=True, check=False)
+                    if added.returncode == 0:
+                        break
+                    if time.monotonic() >= deadline:
+                        message = (added.stderr or added.stdout).decode("utf-8", "replace").strip()
+                        raise FusionError(f"Could not stage station changes for evidence: {message}")
+                    time.sleep(0.2)
+                patch = subprocess.run(["git", "diff", "--cached", "--binary", task["base"]],
+                                       cwd=wt, capture_output=True, check=False)
+                names = subprocess.run(["git", "diff", "--cached", "--name-only", task["base"]],
+                                       cwd=wt, capture_output=True, check=False)
+            else:
+                patch = subprocess.run(["git", "diff", "--binary", task["base"], branch],
+                                       cwd=self.root, capture_output=True, check=False)
+                names = subprocess.run(["git", "diff", "--name-only", task["base"], branch],
+                                       cwd=self.root, capture_output=True, check=False)
+            if patch.returncode or names.returncode:
+                result = patch if patch.returncode else names
+                message = (result.stderr or result.stdout).decode("utf-8", "replace").strip()
+                raise FusionError(f"Could not save task changes as evidence: {message}")
+            out.write_bytes(patch.stdout)
+            evidence = {"path": out.relative_to(self.root).as_posix(),
+                        "files": names.stdout.decode("utf-8", "replace").splitlines()}
         if (wt / ".git").exists():
             gitops.detach_station(wt, cfg["base_branch"])
         if exists:
             gitops.delete_branch(self.root, branch)
-        events.append({"type": "cleaned", "task": task["id"], "data": {}})
+        events.append({"type": "cleaned", "task": task["id"], "data": {"evidence": evidence}})
         self.emit(events)

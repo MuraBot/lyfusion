@@ -473,10 +473,10 @@ def test_takeover_cli_prints_handoff_and_finishes_cleanup(proj):
                             encoding="utf-8")
     assert result.returncode == 0, result.stderr
     assert "Taken over: T1" in result.stdout
-    assert "Candidate: T1.c1" in result.stdout
+    assert "Placed: latest candidate T1.c1" in result.stdout
     assert "- app/farewell.py +2 -0" in result.stdout
     assert result.stdout.rstrip().endswith(
-        "Finish it yourself, run the tests and lint, and commit; the engine no longer manages this task."
+        "Next: run the project test and lint yourself, then commit. This task is finished in Fusion; do not run accept."
     )
     assert proj.task()["state"] == "taken_over" and proj.task()["cleaned"]
 
@@ -511,6 +511,132 @@ def test_takeover_cli_stops_a_running_sidekick(proj):
         if not pid_alive(pid):
             pytest.skip("Codex sandbox cannot terminate processes; the engine reruns this test outside the sandbox")
     assert not pid_alive(pid)
+
+
+def _start_running_writes(proj, writes, *, candidate=False):
+    import time
+
+    setup_task(proj)
+    if candidate:
+        proj.script([GOOD, {"write_first": writes, "sleep": 30, "report": report()}])
+        proj.do(C.cmd_delegate, plan_farewell(), "T1")
+        proj.drain()
+        proj.do(C.cmd_revise, "T1", "Continue the task")
+    else:
+        proj.script([{"write_first": writes, "sleep": 30, "report": report()}])
+        proj.do(C.cmd_delegate, plan_farewell(), "T1")
+    for _ in range(100):
+        proj.sup.tick()
+        state = proj.state()
+        run = state["runs"].get(state["tasks"]["T1"].get("active_run"))
+        if run and run["status"] == "started" and all((proj.station / path).exists() for path in writes):
+            return run["pid"]
+        time.sleep(0.05)
+    raise AssertionError("The fake sidekick did not start and write its station files")
+
+
+def _run_task_cli(proj, action):
+    import subprocess
+
+    from conftest import CORE
+
+    return subprocess.run([sys.executable, str(CORE / "fusion-core.py"), "--project", str(proj.root),
+                           action, "--task", "T1"], check=False, capture_output=True, text=True,
+                          encoding="utf-8")
+
+
+def _assert_process_stopped_or_skip(pid):
+    from fusion_core.util import pid_alive
+
+    if pid_alive(pid) and os.environ.get("FUSION_SANDBOX") == "1":
+        deadline = time.monotonic() + 40
+        while pid_alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        if not pid_alive(pid):
+            pytest.skip("Codex sandbox cannot terminate processes; the engine reruns this test outside the sandbox")
+    assert not pid_alive(pid)
+
+
+def test_takeover_running_without_candidate_places_station_changes(proj):
+    writes = {"app/greet.py": "def hello(name):\n    return 'station hello'\n",
+              "app/farewell.py": "def bye(name):\n    return 'station goodbye'\n",
+              ".fusion-tmp/junk.txt": "ignored temp\n"}
+    pid = _start_running_writes(proj, writes)
+    head = proj.git("rev-parse", "HEAD")
+    result = _run_task_cli(proj, "takeover")
+    assert result.returncode == 0, result.stderr
+    assert proj.read("app/greet.py") == writes["app/greet.py"]
+    assert proj.read("app/farewell.py") == writes["app/farewell.py"]
+    assert proj.git("status", "--porcelain") == "M app/greet.py\n?? app/farewell.py"
+    assert proj.git("rev-parse", "HEAD") == head
+    evidence = proj.read("fusion/runs/T1-taken_over.diff")
+    assert evidence and ".fusion-tmp" not in evidence
+    assert "the sidekick's unfinished changes" in result.stdout
+    assert "app/greet.py" in result.stdout and "app/farewell.py" in result.stdout
+    assert result.stdout.rstrip().endswith(
+        "Next: run the project test and lint yourself, then commit. This task is finished in Fusion; do not run accept."
+    )
+    assert proj.task()["evidence"]["files"] == ["app/farewell.py", "app/greet.py"]
+    assert proj.state()["runs"]["r1"]["result"] == "cancelled"
+    _assert_process_stopped_or_skip(pid)
+
+
+def test_cancel_running_saves_station_evidence_without_copying(proj):
+    writes = {"app/greet.py": "def hello(name):\n    return 'station hello'\n",
+              "app/farewell.py": "def bye(name):\n    return 'station goodbye'\n"}
+    pid = _start_running_writes(proj, writes)
+    result = _run_task_cli(proj, "cancel")
+    assert result.returncode == 0, result.stderr
+    evidence = proj.read("fusion/runs/T1-cancelled.diff")
+    assert "app/farewell.py" in evidence
+    assert not (proj.station / "app" / "farewell.py").exists()
+    assert proj.git("status", "--porcelain") == ""
+    assert "Sidekick changes saved: fusion/runs/T1-cancelled.diff (2 files)" in result.stdout
+    assert proj.task()["evidence"]["files"] == ["app/farewell.py", "app/greet.py"]
+    assert proj.state()["runs"]["r1"]["result"] == "cancelled"
+    _assert_process_stopped_or_skip(pid)
+
+
+def test_takeover_running_refuses_dirty_lead_tree_without_side_effects(proj):
+    writes = {"app/farewell.py": "def bye(name):\n    return 'station goodbye'\n"}
+    pid = _start_running_writes(proj, writes)
+    proj.write("app/greet.py", "lead dirty\n")
+    with pytest.raises(FusionError, match="Lead working tree has uncommitted changes to tracked files"):
+        proj.do(C.cmd_takeover, "T1")
+    assert proj.task()["state"] == "running"
+    assert proj.state()["runs"]["r1"]["status"] == "started"
+    assert (proj.station / "app/farewell.py").exists()
+    assert not proj.events("taken_over", "T1")
+    proj.do(C.cmd_cancel, "T1")
+    proj.drain()
+    _assert_process_stopped_or_skip(pid)
+
+
+def test_takeover_running_conflict_prints_evidence_apply_command(proj):
+    writes = {"app/greet.py": "def hello(name):\n    return 'station version'\n",
+              "app/farewell.py": "def bye(name):\n    return 'station goodbye'\n"}
+    pid = _start_running_writes(proj, writes)
+    proj.write("app/greet.py", "def hello(name):\n    return 'lead version'\n")
+    proj.commit("lead conflicting change")
+    result = _run_task_cli(proj, "takeover")
+    assert result.returncode == 0, result.stderr
+    assert "Evidence saved: " + str(proj.root / "fusion/runs/T1-taken_over.diff").replace("\\", "/") in result.stdout
+    assert 'git -C "' in result.stdout and ' apply "' in result.stdout
+    assert "Files in saved evidence:" in result.stdout and "app/greet.py" in result.stdout
+    assert "No candidate: nothing was copied" not in result.stdout
+    assert proj.task()["state"] == "taken_over" and proj.task()["cleaned"]
+    _assert_process_stopped_or_skip(pid)
+
+
+def test_candidate_takeover_reports_newer_changes_from_active_revise(proj):
+    writes = {"app/greet.py": "def hello(name):\n    return 'newer station version'\n"}
+    pid = _start_running_writes(proj, writes, candidate=True)
+    result = _run_task_cli(proj, "takeover")
+    assert result.returncode == 0, result.stderr
+    assert "Placed: latest candidate T1.c1" in result.stdout
+    assert "holds newer changes that have not been checked" in result.stdout
+    assert "T1-taken_over.diff" in result.stdout
+    _assert_process_stopped_or_skip(pid)
 
 
 def test_takeover_without_candidate_closes_blocked_task(proj):

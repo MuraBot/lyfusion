@@ -7,6 +7,7 @@ import json
 import math
 import re
 import sqlite3
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -564,6 +565,43 @@ def _do_accept(args, root):
     _report_accept(root, task)
 
 
+def _wait_for_cleanup(root: Path, task_id: str, action: str) -> dict:
+    sup = Supervisor(root, poll=0.2)
+    deadline = time.monotonic() + 60
+    try:
+        while time.monotonic() < deadline:
+            if store.take_lease(sup.conn, sup.holder):
+                sup.tick()
+                store.release_lease(sup.conn, sup.holder)
+            task = sup.state()["tasks"][task_id]
+            if task.get("cleaned"):
+                return task
+            time.sleep(0.2)
+        raise FusionError(f"{action} cleanup did not finish within 60 seconds; run {CMD} status to inspect the task")
+    finally:
+        try:
+            store.release_lease(sup.conn, sup.holder)
+        except sqlite3.Error:
+            pass
+        sup.conn.close()
+
+
+def _do_cancel(args, root):
+    ctx = Ctx(root)
+    try:
+        out = cmd_cancel(ctx, args.task, "Lead cancelled")
+    finally:
+        ctx.close()
+    task = _wait_for_cleanup(root, out["task"], "Cancel")
+    evidence = task.get("evidence")
+    print(f"Cancelled: {out['task']}")
+    if evidence and evidence.get("files"):
+        print(f"Sidekick changes saved: {evidence['path']} ({len(evidence['files'])} files)")
+    else:
+        print("No sidekick changes to save.")
+    print(f"Next: {CMD} status")
+
+
 def _do_takeover(args, root):
     ctx = Ctx(root)
     try:
@@ -579,38 +617,51 @@ def _do_takeover(args, root):
                 stats[item["path"]] = f"+{added} -{deleted}"
     finally:
         ctx.close()
-    sup = Supervisor(root, poll=0.2)
-    deadline = time.monotonic() + 60
-    try:
-        while time.monotonic() < deadline:
-            if store.take_lease(sup.conn, sup.holder):
-                sup.tick()
-                store.release_lease(sup.conn, sup.holder)
-            if sup.state()["tasks"][out["task"]].get("cleaned"):
-                break
-            time.sleep(0.2)
+    task = _wait_for_cleanup(root, out["task"], "Takeover")
+    evidence = task.get("evidence")
+    evidence_path = root / evidence["path"] if evidence and evidence.get("path") else None
+    evidence_files = evidence.get("files", []) if evidence else []
+    evidence_applied = False
+    if not out["candidate"] and evidence_path and evidence_path.exists() and evidence_path.stat().st_size:
+        patch = evidence_path.read_bytes()
+        checked = subprocess.run(["git", "apply", "--check"], cwd=root, input=patch,
+                                 capture_output=True, check=False)
+        if checked.returncode == 0:
+            applied = subprocess.run(["git", "apply"], cwd=root, input=patch, capture_output=True, check=False)
         else:
-            raise FusionError(f"Takeover cleanup did not finish within 60 seconds; run {CMD} status to inspect the task")
-    finally:
-        try:
-            store.release_lease(sup.conn, sup.holder)
-        except sqlite3.Error:
-            pass
-        sup.conn.close()
+            applied = checked
+        if applied.returncode:
+            absolute_evidence = evidence_path.resolve().as_posix()
+            print(f"Evidence saved: {absolute_evidence}")
+            print(f'Apply it later: git -C "{root.resolve().as_posix()}" apply "{absolute_evidence}"')
+        else:
+            out["files"] = evidence["files"]
+            evidence_applied = True
     print(f"Taken over: {out['task']}")
     if out["candidate"]:
-        print(f"Candidate: {out['candidate']}")
+        print(f"Placed: latest candidate {out['candidate']}")
+        if out.get("was_running") and evidence_path:
+            print(f"Evidence saved: {evidence_path.resolve().as_posix()} holds newer changes that have not been checked.")
     else:
-        print("No candidate: nothing was copied; do the task yourself from the start.")
-    print("Files placed in your working tree (uncommitted):")
-    for path in out["files"] or ["none"]:
+        if out["files"]:
+            print("Placed: the sidekick's unfinished changes (checks have not run)")
+        elif evidence_files:
+            print("Not placed: the sidekick's unfinished changes (the evidence patch did not apply)")
+        else:
+            print("No candidate: nothing was copied; do the task yourself from the start.")
+    if out["candidate"] or out["files"] or evidence_files:
+        heading = "Files placed in your working tree (uncommitted):" if out["candidate"] or evidence_applied else (
+            "Files in saved evidence:"
+        )
+        print(heading)
+    for path in out["files"] or evidence_files or ["none"]:
         print(f"- {path} {stats.get(path, '')}".rstrip())
     print("Failed checks on that candidate:")
     for check in out["failed_checks"] or [None]:
         print(f"- {check['name']}: {check['cmd']}" if check else "- none")
     print(f"Project test: {out['test'] or '(not configured)'}")
     print(f"Project lint: {out['lint'] or '(not configured)'}")
-    print("Finish it yourself, run the tests and lint, and commit; the engine no longer manages this task.")
+    print("Next: run the project test and lint yourself, then commit. This task is finished in Fusion; do not run accept.")
 
 
 def _print_minor_fix_diff(root, task, state):
@@ -862,12 +913,7 @@ def main(argv=None) -> int:
         elif args.cmd == "wait":
             _do_wait(args, root)
         elif args.cmd == "cancel":
-            ctx = Ctx(root)
-            try:
-                out = cmd_cancel(ctx, args.task, "Lead cancelled")
-                print(f"Cancelled: {out['task']}\nNext: {CMD} status")
-            finally:
-                ctx.close()
+            _do_cancel(args, root)
         elif args.cmd == "takeover":
             _do_takeover(args, root)
         elif args.cmd == "status":
