@@ -402,4 +402,5 @@
 - (C9 lead 的意见)验收脚本能放哪没写：放项目 `_tmp/` 用绝对路径可以，但工位里看不到;按文件运行时 `sys.path[0]` 是脚本目录不是工位根，要自己插 cwd。`--minor-fix` 的"本任务改过的文件"包不包括测试文件没写。"一两次 wait"和提示里的 `wait --task T1` 有点重复;decisions.md 那句对单任务没用
 - 审查包"Changed test expectations"把全部断言都贴出来，测试多时太长(C8 lead 的意见)
 - 卡住时自动重启或续跑助手
+- 候选新功能(Lily 2026-11-17 问，定为 v5.1.0 候选，不进 v5.0.0):用自然语言让 Claude 在新会话里开 Fusion,并指定 lead 和助手的模型、强度(就像 Claude 开 rcN-lead 和 fusion-bench 测试会话那样)。现在插件没有这个功能：靠的是桌面端的 `start_session`(工作目录、模型、强度、权限，开完可提到顶层)加上 Claude 记忆里的做法(工作目录设项目根、提示词加"引擎命令在前台跑"、测试会话开完提到前台);`/fusion` 是 `disable-model-invocation`,Claude 不会自己调。做法：一份 Claude 能调用的技能(比如 `fusion-launch`),写明先在目标项目 preflight + `on` + 设助手，再 `start_session`,不改引擎代码。要先想清：只有桌面端能用(命令行只能 `claude -p`,违反"不无人值守跑 Claude");只在用户亲口要求时开;是放开 `/fusion` 的限制还是另做技能。按 v5.1.0 的原则，先看平时这样开会话的次数再定
 - 清理时 `git add -A` 10 秒内一直失败会报错、任务停在没清理(不会丢改动，但要手动处理);目前没遇到
