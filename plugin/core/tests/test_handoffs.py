@@ -23,8 +23,8 @@ def test_guide_renders_handoff_modes_and_wait_setting(proj):
     guide = views.lead_guide(cfg)
     assert "Handoff:" not in guide
     assert "clear_session" not in guide
-    assert "implementation usually takes longer" in guide
-    assert "exit code 3 is not an error" in guide
+    assert "an implementation usually needs one or two" in guide
+    assert guide.splitlines()[2].startswith("Exit code 3 is normal, not an error")
     assert "however large the change" in guide
     assert "do not yet know where the change goes" in guide
     assert "Anything bigger than A" in guide

@@ -58,5 +58,11 @@ def test_guide_and_rules_carry_lily_decisions():
     assert "fusion-core wait" in LEAD_GUIDE
     assert "queued" in LEAD_GUIDE
     assert len(LEAD_GUIDE.splitlines()) <= 24
+    # rc.8 wording: reading code is still tier B, long checks go in a script, minor-fix fallback, decisions commit
+    for phrase in ("reading the code yourself to write the brief is still B", "1. Explore (C only)",
+                   'put a long one in a script file and list - python "<absolute path>"',
+                   "otherwise you get a review pack, then revise or accept as usual",
+                   "delegate and revise commit it on its own first"):
+        assert phrase in LEAD_GUIDE, phrase
     assert "Brief conventions" in WORK_RULES
     assert "Do not format the whole project or untouched files" in WORK_RULES
