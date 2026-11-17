@@ -6,7 +6,7 @@
     {
       "name": "lyfusion",
       "source": "./plugin",
-      "description": "lyfusion v5:Claude lead + Codex 助手的双代理协作(开发中)"
+      "description": "lyfusion v5:Claude lead + Codex 助手的双代理协作"
     },
     {
       "name": "fusion-probe",

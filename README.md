@@ -1,53 +1,40 @@
 # lyfusion
 
-Lily 的多 agent 协作与调度技能(Fusion 模式),也是对这套模式的研究记录。
-1 个 Claude lead 加 1 个 Codex 助手(v4,少调用)。lead 先选独做或搭档。
-搭档时助手先探索代码,lead 读片段写计划,一条命令派工。助手写代码和测试,脚本跑测试和 lint、打交接包。lead 读交接包审查,一条命令验收。每次交换,lead 只花 1 次调用。
-建立在 LiEC 技能(`C:\AI WithMe\LiEC`)的项目之上。2026-11-02 从 lilys-project-flow 拆出,之前的历史在那个仓库的标签 `final-before-split`。
+Lily 的多 agent 协作插件 `lyfusion-plugin`(Fusion 模式),也是对这套模式的研究记录。
+当前版本 v5.0.0(2026-11-17):Claude Code 插件。Claude 当 lead,负责计划、审查和验收;Codex 当助手，写代码和测试;本地的 Python 引擎 fusion-core 管任务状态、跑检查、合并改动。
+- 用法和安装：见 `plugin/README.md`。
+- 开发 lyfusion 本身：先读 `CLAUDE.md`。
+
+v4 及以前是一个技能(`SKILL.md` + `addon/`,装在 LiEC 的项目模板上),已经被 v5 插件取代，文件只留作历史。2026-11-02 从 lilys-project-flow 拆出，更早的历史在那个仓库的标签 `final-before-split`。
 
 ## 里面有什么
 | 路径 | 作用 |
 |---|---|
-| `SKILL.md` | 技能本体。保存技能时用的就是它 |
-| `addon/` | 装进项目的文件,目录结构和项目相同 |
-| `addon/prompts/` | lead 工作说明 `dispatch.md`,助手工作说明 `sidekick.md`,各模型的备注 `models/` |
-| `addon/tools/` | 派工台账 `ledger.py`、Codex 派工脚本 `codex-dispatch.ps1`(含探索、验收、退回命令)和它的启动器 `run_logged.py`、提交检查 `commit_check.py` 和钩子 `hooks/`、最终报告格式 `schemas/` |
-| `addon/ledger.jsonl` | 空台账。派工脚本每次运行自动记一行,只增不改 |
-| `viewer/pareto-viewer.html` | 帕累托查看器:读实验文件夹里各组的 `ledger.jsonl`,画花费和分数 |
-| `tests/` | 测试。`fake_codex/` 是假的 Codex,不联网、不耗额度 |
-| `suggestions/` | 试点数据、复盘、协议草案,按日期存放 |
-| `updates/` | 每次更新的简报和迁移说明 |
-| `plugin/` | v5 的 Claude Code 插件(当前 v5.0.0-aq):引擎 fusion-core、SessionStart 钩子、`/fusion` 命令。说明见 `plugin/README.md` |
-| `design/` | 设计文档。v5.0.0-aq 的改动见 `design/v5.0.0-aq.md` |
-| `v5/` | v5 的进度 `progress.md`、预研 `spikes.md`、打包脚本 `build_plugin.py`、aq 迭代的派工证据 `aq-run/` |
+| `plugin/` | v5 插件:引擎 `core/`、SessionStart 钩子和 Fusion 卡片 `hooks/`、`/fusion` 命令 `skills/`。说明见 `plugin/README.md` |
+| `fusion/` | 用 Fusion 迭代 lyfusion 本身时的项目设置(`config.json`、`decisions.md`);`tasks/`、`runs/`、`fusion.db` 是运行数据，不提交 |
+| `lint/` | 检查清单和 `check.py`(本仓库 lint 命令的一部分) |
+| `design/` | 设计文档，各版本的改动见 `design/v5.0.0-*.md` |
+| `v5/` | 进度 `progress.md`(含"留给 v5.1.0"的清单)、各 rc 的任务说明 `rc*-brief.md`、交接 `rc2-handoffs/`、打包脚本 `build_plugin.py`(包在 `dist/`,不提交)、预研和证据 |
+| `.claude-plugin/marketplace.json` | 本机用的插件市场，开发时加载 `plugin/`,不发布 |
+| `suggestions/`、`updates/` | 试点数据、复盘、更新简报(大多是 v4 及以前的) |
+| `SKILL.md`、`addon/`、`tests/`、`viewer/` | v4 技能的历史文件:技能本体、装进项目的派工脚本和台账、测试、帕累托查看器 |
 
-## 安装到项目
-见 `SKILL.md` 的"安装到项目"。装好后项目里多出:台账 `ledger.jsonl`、派工日志和证据 `dispatch-logs/`(不提交)。
-
-## lint
-派工脚本的"项目设置"里填 `$LintCommand`,工具要先装好。下面是各语言的推荐命令,都是常用的现成工具:
-| 语言 | 工具 | `$LintCommand` |
+## lint 推荐命令
+打开 Fusion 时用 `--lint` 填写(例如 `/fusion on --test "<测试命令>" --lint "<lint 命令>"`),工具要先装好。lint 是检查，只报错、不改文件，所以用不带自动修复的写法:
+| 语言 | 工具 | lint 命令 |
 |---|---|---|
-| Python | ruff(`pip install ruff`) | `python -m ruff check --fix --no-cache .`;老项目先用 `--select E4,E7,E9,F`,只查真错误 |
+| Python | ruff(`pip install ruff`) | `python -m ruff check --no-cache .`;老项目先加 `--select E4,E7,E9,F`,只查真错误 |
 | Godot(GDScript) | gdtoolkit(`pip install gdtoolkit`) | `gdlint .` |
-| Java(Gradle) | Spotless 或 Checkstyle 插件 | `gradlew.bat spotlessApply checkstyleMain` |
-| JavaScript / TypeScript | Biome | `npx @biomejs/biome check --write .` |
-| C#(.NET) | dotnet format | `dotnet format` |
+| Java(Gradle,比如 Minecraft 模组) | Spotless 或 Checkstyle 插件 | `gradlew.bat spotlessCheck checkstyleMain` |
+| JavaScript / TypeScript | Biome | `npx @biomejs/biome check .` |
+| C#(.NET) | dotnet format | `dotnet format --verify-no-changes` |
 
-一个项目里有多种语言时,改用 pre-commit 统一入口:`$LintCommand` 写成 `pre-commit run --all-files`。不用 `pre-commit install`,LiEC 项目的钩子目录已经设了 `core.hooksPath`。缓存目录用 `PRE_COMMIT_HOME` 指到工作区里。
+一个项目里有多种语言时，用 pre-commit 统一入口:`--lint "pre-commit run --all-files"`,缓存目录用 `PRE_COMMIT_HOME` 指到工作区里。
 
 ## 改了之后
-```
-python tests/test_fusion.py
-python tests/test_dispatch.py
-python tests/test_budget.py --show
-```
-测试用旁边文件夹里 LiEC 的模板加上 `addon/` 建项目。LiEC 在别处时,设置环境变量 `LIEC_HOME`。
-`test_dispatch.py` 只在 Windows 上运行。规则文档有行数上限,提高上限要 Lily 同意。
-
-## 依赖 LiEC 的部分
-lyfusion 现在装在 LiEC 的项目模板上,用到 LiEC 的:计划模板 `tasks/T0-template.md`、`tools/brief.py`(派工前检查计划)、`tools/progress.py`(登记进度)、`tools/check.py` 和 `doc-rules.json`(文档检查),以及模板的 `AGENTS.md`、`CLAUDE.md`、`learning.md`。v5 要把 lyfusion 拆成能单独用的(Lily 2026-11-06),这一节是拆分的起点。
+测试、lint、mod 测试和打包的命令见 `CLAUDE.md` 的 "Developing"。
 
 ## 需要
-- Python 3(只用标准库)、git、Windows PowerShell 5.1。
-- Codex CLI:在 Codex 桌面应用的安装包里,派工脚本自己找,不需要在 PATH 里。
+- Claude Code(桌面应用的 Code 标签页或命令行)。
+- Python 3(只用标准库)和 Git。项目要是 git 仓库;v5 不依赖 LiEC。
+- 登录好的 Codex CLI。它可能装在 WindowsApps 下带版本号的路径里，由引擎自己找。
