@@ -51,4 +51,4 @@ lyfusion is the Claude Code plugin `lyfusion-plugin`: Claude is the lead and Cod
 - Talk with Lily in Chinese. She often uses voice input: when a word is unclear, ask instead of guessing. She is not a professional programmer and wants Claude to raise opinions, risks and better designs on its own.
 - Decide small things yourself; go to Lily for environment or permission problems, or when the same thing fails twice. When the usage quota is nearly full, stop and write down progress.
 
-Current state: v5.0.0 released (2026-11-17); see `v5/progress.md` (the "留给 v5.1.0" lists) and `v5/rc9-brief.md`, `v5/progress.md`, and the newest file in `v5/rc2-handoffs/`.
+Current state: v5.0.0 released (2026-11-17). Read `v5/progress.md` (its "留给 v5.1.0" lists), `v5/rc9-brief.md`, and the newest file in `v5/rc2-handoffs/`.
