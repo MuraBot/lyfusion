@@ -395,7 +395,11 @@
 - 任务 3 `on` 措辞(A 档,`16b0467`):"Fusion is already enabled in …" → "Fusion is enabled in …",第一次和再次打开都对
 - 任务 4 版本和打包(lead 做):版本 `5.0.0-rc.9`(五处 + decisions 第 6 条;mod 测试假引擎版本 rc.9,"更新提示"那条用 rc.10);`CLAUDE.md` 的 `taken_over` 说明补上"没有候选时放工位里没跑完的改动",最后一行指向 `v5/rc9-brief.md`
 
+### H2 测试 C9(2026-11-17,rc.9):没有退步
+- 100 分,lead 14 次工具调用、13 次请求，约 15.5 分钟，台账 lead $1.20(C7:100 分、12 次、17.5 分钟、$1.14),Codex 255 万输入。B 档，自己写验收脚本当检查;派工 1、wait 1、修改 0、`--minor-fix` 1;lead 修了大小写缓存。没卡住，没用到 takeover。详细数据在 fusion-bench `results/`
+
 ### 留给 v5.1.0
+- (C9 lead 的意见)验收脚本能放哪没写：放项目 `_tmp/` 用绝对路径可以，但工位里看不到;按文件运行时 `sys.path[0]` 是脚本目录不是工位根，要自己插 cwd。`--minor-fix` 的"本任务改过的文件"包不包括测试文件没写。"一两次 wait"和提示里的 `wait --task T1` 有点重复;decisions.md 那句对单任务没用
 - 审查包"Changed test expectations"把全部断言都贴出来，测试多时太长(C8 lead 的意见)
 - 卡住时自动重启或续跑助手
 - 清理时 `git add -A` 10 秒内一直失败会报错、任务停在没清理(不会丢改动，但要手动处理);目前没遇到
