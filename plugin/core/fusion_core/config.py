@@ -129,7 +129,7 @@ DEFAULT_CONFIG = {
     "network": False,             # Whether the assistant sandbox can access the network.
     "clean": True,                # Whether Codex ignores user configuration and disables apps and plugins.
     "check_timeout": 900,         # Timeout for each check command (seconds).
-    "stall_minutes": 20,          # Time without a new event before it counts as stalled.
+    "stall_minutes": 10,          # Time without a new event before it counts as stalled (normal gaps are at most ~2 min).
     "auto_continue": 2,
     "wait_minutes": 9,           # Maximum wait before returning while a command runs (minutes); 0 = wait indefinitely. Claude Code foreground Bash runs for at most 10 minutes.
     "small_read_lines": 80,        # Maximum output lines for a single read command before it counts as fragmented reading.

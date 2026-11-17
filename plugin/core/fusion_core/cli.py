@@ -179,7 +179,9 @@ def _wait(root: Path, task_id: str, *, explore: bool = False) -> dict:
             for signal in new_signals:
                 if signal["kind"] == "stalled":
                     raise FusionError(
-                        f"{signal['detail']}\nRun the same command again to keep waiting, or run {CMD} cancel --task {task_id}",
+                        f"{signal['detail']}\nRun the same command again to keep waiting, run {CMD} takeover --task {task_id} "
+                        "to finish it yourself (the sidekick's unfinished changes are copied into your working tree), "
+                        f"or run {CMD} cancel --task {task_id}",
                         code=2,
                     )
             time.sleep(0.2)
@@ -656,9 +658,10 @@ def _do_takeover(args, root):
         print(heading)
     for path in out["files"] or evidence_files or ["none"]:
         print(f"- {path} {stats.get(path, '')}".rstrip())
-    print("Failed checks on that candidate:")
-    for check in out["failed_checks"] or [None]:
-        print(f"- {check['name']}: {check['cmd']}" if check else "- none")
+    if out["candidate"]:
+        print("Failed checks on that candidate:")
+        for check in out["failed_checks"] or [None]:
+            print(f"- {check['name']}: {check['cmd']}" if check else "- none")
     print(f"Project test: {out['test'] or '(not configured)'}")
     print(f"Project lint: {out['lint'] or '(not configured)'}")
     print("Next: run the project test and lint yourself, then commit. This task is finished in Fusion; do not run accept.")
@@ -926,7 +929,7 @@ def main(argv=None) -> int:
             if args.cmd == "on":
                 _setup_project(root, args.test, args.lint)
                 print(
-                    f"Fusion is already enabled in {root}. Project settings are in fusion/config.json; the toggle and assistant model are in fusion/local.json."
+                    f"Fusion is enabled in {root}. Project settings are in fusion/config.json; the toggle and assistant model are in fusion/local.json."
                 )
                 print(views.lead_guide(config_mod.load(root)))
             elif not config_mod.is_fusion_project(root):

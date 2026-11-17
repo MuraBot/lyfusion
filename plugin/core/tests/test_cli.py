@@ -530,7 +530,7 @@ def test_existing_exploration_is_resumed_and_new_input_ignored(proj):
 def test_on_restores_config_and_decision_defaults(proj):
     p = cli(proj, "on", "--test", "python -m unittest", "--lint", "ruff check .")
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
-    assert "Fusion is already enabled" in p.stdout.decode("utf-8")
+    assert "Fusion is enabled in " in p.stdout.decode("utf-8")
     cfg = json.loads((proj.root / "fusion" / "config.json").read_text(encoding="utf-8"))
     assert cfg["test"] == "python -m unittest" and cfg["lint"] == "ruff check ."
     decisions = (proj.root / "fusion" / "decisions.md").read_text(encoding="utf-8")

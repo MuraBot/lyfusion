@@ -548,7 +548,7 @@ class Supervisor:
             last = ev_path.stat().st_mtime if ev_path.exists() else time.time()
             idle = time.time() - last
             if (
-                idle > cfg.get("stall_minutes", 20) * 60
+                idle > cfg.get("stall_minutes", 10) * 60
                 and run["id"] not in self._stall_flagged
             ):
                 self._stall_flagged.add(run["id"])
@@ -560,8 +560,7 @@ class Supervisor:
                                 "task": run["task"],
                                 "data": {
                                     "kind": "stalled",
-                                    "detail": f"{run['id']} has had no new events for {int(idle // 60)} minutes. "
-                                    f"Run the same command again to keep waiting, or run {CMD} cancel",
+                                    "detail": f"{run['id']} has had no new events for {int(idle // 60)} minutes; the sidekick may be stuck.",
                                 },
                             }
                         ]
