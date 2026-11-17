@@ -314,14 +314,15 @@ def test_delegate_truncated_stdout_points_to_written_pack(proj):
 def test_review_stdout_drops_diff_and_met_list_before_truncating(monkeypatch):
     from fusion_core.cli import _review_stdout
 
-    text = ("## Sidekick\n" + "x" * 220 + "\nBrief check: met - met item\n"
-            + "```diff\n" + "diff line\n" * 250 + "```\n")
-    monkeypatch.setattr(cli_module, "STDOUT_CHARS", 200)
+    text = ("## Sidekick\n" + "x" * 75 + "\nBrief check: met - met item\n"
+            + "```diff\ndiff --git a/sample.py b/sample.py\n" + "diff line\n" * 250 + "```\n")
+    monkeypatch.setattr(cli_module, "STDOUT_CHARS", 160)
     output = _review_stdout(text, pack_path="fusion/tasks/T1/review-1.md")
-    assert len(output) <= 200
+    assert len(output) <= 160
     assert "```diff" not in output
     assert "Brief check: met -" not in output
-    assert output.endswith("Full pack: fusion/tasks/T1/review-1.md")
+    assert "Not printed: sample.py (full pack: fusion/tasks/T1/review-1.md)" in output
+    assert output.endswith("Not printed: sample.py (full pack: fusion/tasks/T1/review-1.md)\n")
 
 def test_delegate_four_field_plan_and_resumes_explore(proj):
     (proj.root / "fusion" / "decisions.md").write_text(

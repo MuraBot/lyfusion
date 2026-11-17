@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 from . import gitops, validate
-from .util import CMD, FusionError, any_match, git
+from .util import CMD, STDOUT_CHARS, FusionError, any_match, git
 
 REVIEW_DIFF_BUDGET = 600
 
@@ -140,6 +140,25 @@ def _diff(root: Path, base: str, commit: str, *args: str) -> str:
     else:
         command = (*args, base, commit)
     return git("diff", *command, cwd=root)
+
+
+def _doc_path(path: str) -> bool:
+    parts = path.replace("\\", "/").split("/")
+    return Path(path).suffix.lower() in (".md", ".rst", ".txt", ".adoc") or any(
+        part.lower() in ("doc", "docs") for part in parts
+    )
+
+
+def _diff_command(root: Path, candidate: dict, skipped: list[dict]) -> str:
+    renamed = any(item["status"] == "R" for item in skipped)
+    args = ["git", "-C", f'"{root.resolve().as_posix()}"', "diff"]
+    if renamed:
+        args.append("-M")
+    args.extend((candidate["base"], candidate["commit"], "--"))
+    for item in skipped:
+        paths = (item["old"], item["path"]) if item["status"] == "R" else (item["path"],)
+        args.extend(f'"{path}"' if " " in path else path for path in paths)
+    return " ".join(args)
 
 
 def _changed_line_kinds(diff: str) -> list[str]:
@@ -411,25 +430,54 @@ def review_pack(root: Path, task: dict, state: dict, round_no: int, cfg: dict | 
             fold = f" {fact['fold']}" if fact["fold"] else ""
             lines.append(f"- {fact['path']} +{fact['added']} -{fact['deleted']}{fact['suffix']}{fold}")
         fact_by_path = {fact["path"]: fact for fact in facts}
-        added_files = [path for path in diff_files if fact_by_path[path]["item"]["status"] == "A"]
-        ordered_files = added_files + [path for path in diff_files if path not in added_files]
-        remaining = REVIEW_DIFF_BUDGET
+        doc_files = [path for path in diff_files if _doc_path(path)]
+        modified_files = [path for path in diff_files
+                          if not _doc_path(path) and fact_by_path[path]["item"]["status"] != "A"]
+        added_files = [path for path in diff_files
+                       if not _doc_path(path) and fact_by_path[path]["item"]["status"] == "A"]
+        ordered_files = (sorted(modified_files) + sorted(added_files) + sorted(doc_files))
+        remaining_lines = REVIEW_DIFF_BUDGET
+        chars_available = max(0, STDOUT_CHARS - len("\n".join(lines) + "\n") - 1500)
+        remaining_chars = chars_available
+        attached = {}
         skipped = []
         for path in ordered_files:
             item = fact_by_path[path]["item"]
             diff_args = ("-M", "--", item["old"], path) if item["status"] == "R" else ("--", path)
-            selected = _diff(root, candidate["base"], candidate["commit"], "-W", *diff_args)
-            if len(selected.splitlines()) > remaining:
-                selected = _diff(root, candidate["base"], candidate["commit"], *diff_args)
-            count = len(selected.splitlines())
-            if count > remaining:
-                skipped.append(f"Not attached: {path} (+{fact_by_path[path]['added']} -{fact_by_path[path]['deleted']}): "
-                               f"git diff {candidate['base']} {candidate['commit']} -- {path}")
+            plain = _diff(root, candidate["base"], candidate["commit"], *diff_args)
+            block = f"\n```diff\n{plain.rstrip()}\n```" if plain else ""
+            count = len(plain.splitlines())
+            if count > remaining_lines or len(block) > remaining_chars:
+                skipped.append(item)
                 continue
-            if selected:
-                lines.extend(["", "```diff", selected.rstrip(), "```"])
-                remaining -= count
-        lines.extend(skipped)
+            attached[path] = (plain, count, len(block))
+            remaining_lines -= count
+            remaining_chars -= len(block)
+
+        for path in ordered_files:
+            if path not in attached:
+                continue
+            item = fact_by_path[path]["item"]
+            diff_args = ("-M", "--", item["old"], path) if item["status"] == "R" else ("--", path)
+            plain, plain_lines, plain_chars = attached[path]
+            wide = _diff(root, candidate["base"], candidate["commit"], "-W", *diff_args)
+            wide_block = f"\n```diff\n{wide.rstrip()}\n```" if wide else ""
+            extra_lines = len(wide.splitlines()) - plain_lines
+            extra_chars = len(wide_block) - plain_chars
+            if extra_lines <= remaining_lines and extra_chars <= remaining_chars:
+                attached[path] = (wide, len(wide.splitlines()), len(wide_block))
+                remaining_lines -= extra_lines
+                remaining_chars -= extra_chars
+        for path in ordered_files:
+            if path in attached:
+                selected = attached[path][0]
+                if selected:
+                    lines.extend(["", "```diff", selected.rstrip(), "```"])
+        for item in skipped:
+            path = item["path"]
+            lines.append(f"Not attached: {path} (+{fact_by_path[path]['added']} -{fact_by_path[path]['deleted']})")
+        if skipped:
+            lines.append("Diff of files not attached: " + _diff_command(root, candidate, skipped))
     elif failed:
         lines.append(f"Candidate was not created: {failed.get('detail', '')}")
         lines.append(f"Next: {CMD} revise - (describe the fix) or {CMD} cancel")

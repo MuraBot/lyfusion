@@ -25,10 +25,9 @@ from .commands import (
 )
 from .state import active_task, replay
 from .supervisor import Supervisor
-from .util import CMD, FormatTooNew, FusionError, clean_env, git
+from .util import CMD, STDOUT_CHARS, FormatTooNew, FusionError, clean_env, git
 
 USAGE = views.lead_guide()
-STDOUT_CHARS = 26000
 _WAIT_TIMEOUT = "__fusion_wait_timeout__"
 
 
@@ -263,7 +262,7 @@ def _review_stdout(text: str, limit: int | None = None, *, pack_path: str) -> st
             break
         path_match = re.search(r"(?m)^diff --git a/.+ b/(.+)$", block.group(1))
         path = path_match.group(1) if path_match else "unknown"
-        replacement = f"Not printed (in the full pack): {path}"
+        replacement = f"Not printed: {path} (full pack: {pack_path})"
         text = text[:block.start()] + replacement + text[block.end():]
     if len(text) > limit:
         text = re.sub(r"(?m)^Brief check: met - .*?(?:\n|$)", "", text)

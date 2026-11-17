@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+
 from fusion_core import aq, validate
 from fusion_core.util import CMD
 
@@ -123,7 +125,8 @@ def test_review_diff_limit_and_stdout_full_pack_location(proj):
         "app/a-small.py": "VALUE = 1\n",
     })
     assert "app/a-small.py" in large and "```diff" in large
-    assert "Not attached: app/z-large.py (+700 -0): git diff " in large
+    assert "Not attached: app/z-large.py (+700 -0)" in large
+    assert "Diff of files not attached: git -C " in large
     assert "Diff omitted" not in large
     text = ("## Sidekick\n" + "x" * 20500 + "\n```diff\ndiff --git a/first.py b/first.py\nx\n```\n"
             + "```diff\ndiff --git a/last.py b/last.py\n" + "x\n" * 50 + "```\n")
@@ -132,7 +135,76 @@ def test_review_diff_limit_and_stdout_full_pack_location(proj):
     assert len(output) <= len(text) - 30
     assert "```diff\ndiff --git a/first.py b/first.py" in output
     assert "```diff\ndiff --git a/last.py b/last.py" not in output
-    assert "Not printed (in the full pack): last.py" in output
+    assert "Not printed: last.py (full pack: fusion/tasks/T1/review-1.md)" in output
+
+
+def test_diff_blocks_follow_modified_added_document_order_and_copyable_command(proj, tmp_path):
+    proj.write("app/b_mod.py", "VALUE = 1\n")
+    proj.write("app/c_mod.py", "VALUE = 1\n")
+    proj.commit("review baseline")
+    long_added = "".join(f"VALUE_{i} = '{'x' * 180}'\n" for i in range(500))
+    _, _, pack = make_pack(proj, {
+        "app/b_mod.py": "VALUE = 2\n",
+        "app/c_mod.py": "VALUE = 2\n",
+        "app/a_new.py": long_added,
+        "README.md": "# Updated\n",
+    })
+    b = pack.index("diff --git a/app/b_mod.py")
+    c = pack.index("diff --git a/app/c_mod.py")
+    readme = pack.index("diff --git a/README.md")
+    assert b < c < readme
+    assert "Not attached: app/a_new.py" in pack
+    command = next(line.split(": ", 1)[1] for line in pack.splitlines()
+                   if line.startswith("Diff of files not attached:"))
+    other = tmp_path / "different-working-directory"
+    other.mkdir()
+    result = subprocess.run(command, check=False, shell=True, cwd=other, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert "diff --git a/app/a_new.py" in result.stdout
+    assert "diff --git a/app/b_mod.py" not in result.stdout
+    assert "diff --git a/app/c_mod.py" not in result.stdout
+    assert "diff --git a/README.md" not in result.stdout
+
+
+def test_plain_diffs_attach_before_optional_function_context_expansion(proj):
+    original = "def compute():\n" + "".join(f"    value_{i} = '{'x' * 100}'\n" for i in range(150))
+    changed = original.replace("value_75 =", "value_75 = 1 +", 1)
+    for path in ("app/one.py", "app/two.py", "app/three.py"):
+        proj.write(path, original)
+    proj.commit("large functions baseline")
+    _, _, pack = make_pack(proj, {path: changed for path in (
+        "app/one.py", "app/two.py", "app/three.py")})
+    assert all(f"diff --git a/{path}" in pack for path in ("app/one.py", "app/two.py", "app/three.py"))
+    assert "Not attached:" not in pack
+
+
+def test_char_budget_skips_large_plain_diffs_without_stdout_fallback(proj):
+    from fusion_core import util
+    from fusion_core.cli import _review_stdout
+
+    long_line = "VALUE = '" + "x" * 3500 + "'\n"
+    _, _, pack = make_pack(proj, {
+        f"app/long_{index}.py": long_line.replace("VALUE", f"VALUE_{index}") for index in range(10)
+    })
+    assert len(pack) <= util.STDOUT_CHARS
+    output = _review_stdout(pack, pack_path="fusion/tasks/T1/review-1.md")
+    assert "Not printed:" not in output
+    command = next(line for line in pack.splitlines() if line.startswith("Diff of files not attached:"))
+    assert "app/long_" in command
+
+
+def test_unattached_path_with_space_is_quoted_in_copyable_command(proj, tmp_path):
+    _, _, pack = make_pack(proj, {
+        "app/with space.py": "VALUE = 1\n" + "".join(f"VALUE_{i} = {i}\n" for i in range(700))
+    })
+    command = next(line.split(": ", 1)[1] for line in pack.splitlines()
+                   if line.startswith("Diff of files not attached:"))
+    assert '"app/with space.py"' in command
+    other = tmp_path / "space-command-cwd"
+    other.mkdir()
+    result = subprocess.run(command, check=False, shell=True, cwd=other, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert "diff --git a/app/with space.py b/app/with space.py" in result.stdout
 
 
 def test_import_only_and_renamed_files_are_folded(proj):

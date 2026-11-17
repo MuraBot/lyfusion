@@ -12,6 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 
 IS_WIN = os.name == "nt"
+STDOUT_CHARS = 26000
 
 
 class FusionError(Exception):
