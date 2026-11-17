@@ -376,3 +376,13 @@
 - 任务 3 小查(lead 查，没改代码):rc.7 的 T20~T22(和 rc.3 的 T19)台账里一条 `lead_usage` 事件都没有。原因是 rc.7 lead 会话的工作目录是 `C:\AI WithMe`(上一级，不是 git 仓库),lead 在 Bash 里 `cd` 进 lyfusion 跑引擎;mod 的快照用 `$.session.root()` 当工作目录调 `fusion-core lead-usage`,那里报"不在 Git 仓库里",所以每次都失败(只弹一次提示)。C7 和这次 rc.8 的会话一开始就在项目目录，都记到了(T23 有)。属于 rc.7 会话开法的特殊情况，不改 mod:开 lead 会话时把工作目录设成项目根(那样 SessionStart 的使用说明和 Fusion 卡片也才对)。"留给下一版"里剩下的小项没有属于好不好用、又值得在正式版前做的
 - 任务 4 版本和打包(lead 做):版本 `5.0.0-rc.8`(五处 + decisions 第 6 条;mod 测试的假引擎版本跟着改，"更新提示"那条测试用 rc.9);`CLAUDE.md` 最后一行指向 `v5/rc8-brief.md`
 
+### H2 测试 C8(2026-11-17,rc.8):发现正式版前必须修的 bug
+- 结果:96.97 分(没修大小写缓存，和 C6、A2 一样),lead 35 次工具调用、30 次请求，约 50 分钟，台账 lead $2.23(C7 $1.14)。详细数据在 fusion-bench `results/`
+- 过程：助手 T1 跑了约 8 分钟就做完(测试、ruff、lead 的检查脚本都过了),写最后报告时 websocket 断开，之后一直没有事件;lead wait 3 次(27 分钟)后 `takeover`,比 20 分钟的卡住信号早 2 分钟
+- **bug(rc.7 起;cancel 更早就有)**:运行中没有候选时,`takeover` 什么都不拷，清理(`supervisor.py` 的 `cleanup`)接着 `detach_station` 重置工位;证据文件只存 `git diff base 分支`(已提交的),助手干活时又不提交，所以 `T1-taken_over.diff` 是 0 字节，助手的整套实现全丢了。lead 凭读过的工位代码自己重写
+- 其他意见:wait 一直返回 3、命令数不涨时算不算卡住、该 takeover 还是 cancel,说明没讲;takeover 后怎么收尾没写;审查包"Changed test expectations"贴出全部断言，测试多时太长
+
+### 留给 rc.9(正式版前必须修;按 rc8-brief"要改：改完叫 rc.9,再测")
+1. 清理前先把工位里没提交的改动(含新文件)存进证据 diff;运行中 takeover 没有候选时，把这份改动放进 lead 的工作区(和有候选时一样：不提交、lead 的工作区有改动就拒绝，放不进去就给出证据文件路径)
+2. 卡住：考虑把 `stall_minutes` 从 20 降到 10(这次 07:20 起实际已停，正常运行事件间隔多在 1 分钟内);卡住信号的提示里加上 takeover。说明不加行
+3. 顺带一行:`on` 每次都打印 "Fusion is already enabled",第一次打开也这样(`cli.py`)
