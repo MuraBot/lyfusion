@@ -4,7 +4,7 @@ lyfusion is the Claude Code plugin `lyfusion-plugin`: Claude is the lead and Cod
 
 ## Engine
 
-- States: `planned` → `exploring` → `explored` → `running` → `checking` → `in_review` → `integrating` → `accepted`; exploration or implementation can become `blocked`, failed integration returns to `in_review`, `cancel` ends in `cancelled`, and `takeover` ends in `taken_over` (the latest candidate's diff is applied, uncommitted, to the lead's tree).
+- States: `planned` → `exploring` → `explored` → `running` → `checking` → `in_review` → `integrating` → `accepted`; exploration or implementation can become `blocked`, failed integration returns to `in_review`, `cancel` ends in `cancelled`, and `takeover` ends in `taken_over` (the latest candidate's diff is applied, uncommitted, to the lead's tree; with no candidate, the station's unfinished changes are applied instead).
 - Commands (run from the project root): `explore <TEXT|-> [--task T]`; `delegate <PLAN|-> [--task T]`; `revise <TEXT|-> [--task T]`; `accept [--task T] [--waive TEXT] [--minor-fix TEXT]`; `wait [--task T]`; `cancel [--task T]`; `takeover [--task T]`; `status`; `ledger [--task T]`; `config <action> [JSON]`; `preflight`; `lead-usage <-> --at explore|accept [--task T]`; `hook session-start`.
 - `explore`, `delegate`, and `revise` take a positional source (`-` reads stdin). `config` actions: `get`, `set`, `model`, `effort`, `fast`, `compact`, `panel`, `enabled`, `handoff`, `handoff-tokens`.
 - Exit codes: 0 success; 1 ordinary command/input error; 2 a stop condition such as a stalled run, failed revise, change-round limit, or newer state format; 3 a waiting command (`explore`, `delegate`, `revise`, `accept`, `wait`) reached `wait_minutes` (default 9) while the sidekick keeps running; run `wait` to continue.
@@ -51,4 +51,4 @@ lyfusion is the Claude Code plugin `lyfusion-plugin`: Claude is the lead and Cod
 - Talk with Lily in Chinese. She often uses voice input: when a word is unclear, ask instead of guessing. She is not a professional programmer and wants Claude to raise opinions, risks and better designs on its own.
 - Decide small things yourself; go to Lily for environment or permission problems, or when the same thing fails twice. When the usage quota is nearly full, stop and write down progress.
 
-Current plan and state: `v5/rc8-brief.md`, `v5/progress.md`, and the newest file in `v5/rc2-handoffs/`.
+Current plan and state: `v5/rc9-brief.md`, `v5/progress.md`, and the newest file in `v5/rc2-handoffs/`.

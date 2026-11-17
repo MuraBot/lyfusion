@@ -386,3 +386,16 @@
 1. 清理前先把工位里没提交的改动(含新文件)存进证据 diff;运行中 takeover 没有候选时，把这份改动放进 lead 的工作区(和有候选时一样：不提交、lead 的工作区有改动就拒绝，放不进去就给出证据文件路径)
 2. 卡住：考虑把 `stall_minutes` 从 20 降到 10(这次 07:20 起实际已停，正常运行事件间隔多在 1 分钟内);卡住信号的提示里加上 takeover。说明不加行
 3. 顺带一行:`on` 每次都打印 "Fusion is already enabled",第一次打开也这样(`cli.py`)
+
+## v5.0.0-rc.9(2026-11-17,运行中 takeover/cancel 不丢工位改动)
+> 依据 `v5/rc9-brief.md`。lead = Claude Opus 5.5 high;助手 gpt-6-luna high、Fast 开;任务 1 用装好的 rc.8 引擎(运行中没有 cancel/takeover),之后用仓库引擎。
+- 任务 1 清理前存工位改动(T24,B 档,`dcf2351`;修改 0 轮):`cleanup` 先停助手，在工位里 `git add -A`(Windows 上文件被占用时重试约 10 秒),再存 `git diff --cached --binary <base>`(已提交 + 没提交 + 新文件，不含被忽略的 `.fusion-tmp`),按字节写进 `fusion/runs/<T>-cancelled|taken_over.diff`,然后才重置工位;证据路径和文件清单记进 `cleaned` 事件和任务状态。takeover 不管有没有候选，都先查 lead 工作区(已跟踪文件有改动就拒绝，什么都不动);没有候选时把证据 `git apply` 进 lead 工作区(不提交),放不进去照样完成，打印证据路径和一条 `git -C "…" apply "…"`;有候选且当时还有一轮在跑，另外提示证据里有更新的、没检查过的改动。输出写明放进来的是"最新候选"还是"没跑完的改动(检查没跑过)",最后一行是"自己跑 test 和 lint 再提交，这个任务在 Fusion 里已结束，不用 accept"。cancel 现在等清理做完，打印证据文件和文件数。新增 5 个假 Codex 测试(假 Codex 加了"先写文件再 sleep")
+  - 真实演练(仓库引擎，临时仓库 `_tmp/drill`,`wait_minutes` 1):派一个加运算/统计/命令行和测试的小任务，等 2 分钟、工位里已有 1 个改动文件和 6 个新文件时 takeover:7 个文件都进了 lead 工作区、没提交,HEAD 没动，证据 5.4 KB,工位干净，助手进程已停;这些半成品测试 29 个都能过。演练里看到没有候选时还打印"Failed checks on that candidate: - none",已在任务 2、3 的提交里去掉
+- 任务 2 卡住提示(A 档,lead 改,`16b0467`):数据:有 `event-stamps.jsonl` 的 16 次正常运行(lyfusion r52~r58、fusion-bench C6~C8)约 900 个事件间隔，中位数约 4 秒、p99 约 71 秒、最长 131 秒;唯一超过的是 C8 卡住那次(619 秒，之后再无事件)。`stall_minutes` 20 → 10(是正常最长间隔的 4 倍多;C8 会在 07:40 而不是 07:50 提示)。卡住提示改成：再跑同样的命令继续等，或 `takeover`(会把没跑完的改动拷过来),或 `cancel`;supervisor 的信号文字不再重复这句。使用说明没加行
+- 任务 3 `on` 措辞(A 档,`16b0467`):"Fusion is already enabled in …" → "Fusion is enabled in …",第一次和再次打开都对
+- 任务 4 版本和打包(lead 做):版本 `5.0.0-rc.9`(五处 + decisions 第 6 条;mod 测试假引擎版本 rc.9,"更新提示"那条用 rc.10);`CLAUDE.md` 的 `taken_over` 说明补上"没有候选时放工位里没跑完的改动",最后一行指向 `v5/rc9-brief.md`
+
+### 留给 v5.1.0
+- 审查包"Changed test expectations"把全部断言都贴出来，测试多时太长(C8 lead 的意见)
+- 卡住时自动重启或续跑助手
+- 清理时 `git add -A` 10 秒内一直失败会报错、任务停在没清理(不会丢改动，但要手动处理);目前没遇到
