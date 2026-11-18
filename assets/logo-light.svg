@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="76 30 588 140" width="588" height="140" role="img" aria-label="lyfusion">
+  <title>lyfusion</title>
+  <g transform="translate(58 0)">
+    <path d="M62 48H138A14 14 0 0 1 152 62V96H114A18 18 0 0 0 96 114V152H62A14 14 0 0 1 48 138V62A14 14 0 0 1 62 48Z" fill="#1F2328"/>
+    <rect x="104" y="104" width="48" height="48" rx="10" fill="#977DBF"/>
+  </g>
+  <g transform="translate(47 0)">
+    <g fill="none" stroke="#1F2328" stroke-width="9" stroke-linejoin="round">
+      <path d="M205 56V114Q205 128 219 128"/>
+      <path d="M275 78L245 150M237 78L256 122"/>
+      <path d="M303 128V72Q303 56 319 56H324M290 82H320"/>
+      <path d="M342 78V106A20 20 0 0 0 382 106M382 78V128"/>
+      <path d="M436 88C431 82 412 79 406 89C400 99 416 101 422 103C430 105 441 110 435 119C429 128 410 127 404 118"/>
+      <path d="M458 78V128"/>
+      <circle cx="497" cy="103" r="21"/>
+      <path d="M543 78V128M543 100A20 20 0 0 1 583 100V128"/>
+    </g>
+    <circle cx="458" cy="60" r="5.5" fill="#1F2328"/>
+  </g>
+</svg>

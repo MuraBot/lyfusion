@@ -1,6 +1,12 @@
 # lyfusion-plugin(v5.0.0)
 
-An agent collaboration plugin for Claude Code. Lily's personal project, not an official Anthropic product. Claude acts as lead and Codex CLI as assistant. The lead uses four blocking commands: `explore`, `delegate`, `revise`, and `accept`; a local Python engine manages task state and checks.
+An agent collaboration plugin for Claude Code, an independent project not affiliated with Anthropic or OpenAI. Claude acts as lead and Codex CLI as assistant. The lead uses four blocking commands: `explore`, `delegate`, `revise`, and `accept`; a local Python engine manages task state and checks.
+
+Install (Claude Code 2.1.275 or later), then start a new session:
+
+```text
+/plugin install lyfusion-plugin --marketplace MuraBot/lyfusion
+```
 
 ## Components
 

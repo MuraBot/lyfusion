@@ -1,10 +1,13 @@
 {
   "name": "lyfusion-plugin",
   "version": "5.0.0",
-  "description": "A dual-agent collaboration plugin for Claude Code. Lily's personal project, not an official Anthropic product. Claude acts as lead for exploration, planning, review, and acceptance; Codex CLI acts as the assistant for coding, tests, and lint. Supports models available in Codex CLI, defaults to gpt-6-luna (high), and switches models with /fusion model. Requires Python 3, Git, and an authenticated Codex CLI installation.",
+  "description": "Lead-sidekick collaboration for Claude Code: Claude plans, reviews and accepts; Codex CLI writes the code, tests and lint fixes in an isolated git worktree, checked by a local engine before anything reaches your branch. Sidekick models: gpt-6-luna (default, high effort), gpt-6.1-sol and gpt-6.1-terra, switched with /fusion model. Requires Python 3.10+, Git and a signed-in Codex CLI. An independent project, not affiliated with Anthropic or OpenAI.",
   "author": {
     "name": "MuraBot"
   },
+  "homepage": "https://github.com/MuraBot/lyfusion",
+  "repository": "https://github.com/MuraBot/lyfusion",
+  "license": "MIT",
   "keywords": [
     "claude-code",
     "multi-agent",
